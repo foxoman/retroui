@@ -36,12 +36,15 @@ on:
         required: false
         default: "gallery files photo board mail navigator dns sevenguis podcast"
 
-# Retro Mail's app registrations (examples/mail/appids.nim): repository
-# secrets, so the packages sign in with one click
+# Retro Mail's app registrations (examples/mail/appids.nim) and Retro Music's Google client
+# (examples/music/appids.nim; Mail's when it has none): repository secrets, so the packages
+# sign in with one click
 env:
   RETRO_MAIL_MICROSOFT_ID: ${{ secrets.RETRO_MAIL_MICROSOFT_ID }}
   RETRO_MAIL_GOOGLE_ID: ${{ secrets.RETRO_MAIL_GOOGLE_ID }}
   RETRO_MAIL_GOOGLE_SECRET: ${{ secrets.RETRO_MAIL_GOOGLE_SECRET }}
+  RETRO_MUSIC_GOOGLE_ID: ${{ secrets.RETRO_MUSIC_GOOGLE_ID }}
+  RETRO_MUSIC_GOOGLE_SECRET: ${{ secrets.RETRO_MUSIC_GOOGLE_SECRET }}
 
 jobs:
   plan:

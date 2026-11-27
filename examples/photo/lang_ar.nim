@@ -5679,6 +5679,25 @@ const photoArabic* = [
   ("Show it the image", "أرِه الصورة"),
   ("Describe it (or leave it empty):", "صِفها (أو اتركه فارغاً):"),
   ("Pictures (Generate Image, Generative Fill and Expand):", "الصور (إنشاء صورة، والتعبئة والتوسيع التوليديان):"),
+  # 0.80: ComfyUI, Generative Remove
+  ("Pictures (Generate Image, Generative Fill, Expand and Remove):",
+   "الصور (إنشاء صورة، والتعبئة والتوسيع والإزالة التوليدية):"),
+  ("Service:", "الخدمة:"),
+  ("OpenAI's images API (or one like it)", "واجهة الصور من OpenAI (أو ما يماثلها)"),
+  ("ComfyUI on your computer", "ComfyUI على حاسوبك"),
+  ("ComfyUI running on your computer: its address on your network (on the computer itself http://127.0.0.1:8188; from a phone or a tablet the computer's, http://192.168.1.20:8188 -- start ComfyUI with --listen). A checkpoint of its own makes the pictures; Remove uses LaMa when comfyui-inpaint-nodes and big-lama.pt are there.",
+   "‏ComfyUI يعمل على حاسوبك: عنوانه على شبكتك (على الحاسوب نفسه http://127.0.0.1:8188؛ ومن الهاتف أو " &
+   "الجهاز اللوحي عنوان الحاسوب، http://192.168.1.20:8188 -- شغّل ComfyUI مع ‎--listen). نموذج من نماذجه " &
+   "يصنع الصور؛ والإزالة تستعمل LaMa إن وُجدت comfyui-inpaint-nodes و big-lama.pt."),
+  ("Checkpoint:", "النموذج:"),
+  ("Find It", "ابحث عنه"),
+  ("Asking...", "يسأل..."),
+  ("its first, when empty", "أوّلها إن تُرك فارغاً"),
+  ("Generative Remove...", "الإزالة التوليدية..."),
+  ("Generative Remove", "الإزالة التوليدية"),
+  ("What is in the selection taken out by your image service, and what would be behind it made -- ComfyUI's LaMa model when your server has it. It comes as a new layer, masked to the selection.",
+   "تُزيل خدمة الصور ما في التحديد وتصنع ما كان خلفه -- بنموذج LaMa من ComfyUI إن كان على خادمك. " &
+   "ويأتي في طبقة جديدة مقنّعة بالتحديد."),
   ("No image service is set: Edit > AI Connector, Pictures.", "لم تُضبط خدمة للصور: تحرير > موصل الذكاء الاصطناعي، الصور."),
   # 5.13: Generate Vector
   ("Generate Vector...", "إنشاء رسم متجهي..."),

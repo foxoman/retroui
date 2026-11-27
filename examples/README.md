@@ -191,6 +191,12 @@ nimble apk                  # an Android APK
 
 ## Retro Atelier
 
+5.19: Edit > AI Connector > Pictures takes **ComfyUI on your computer** (`retroui/comfyui`): its
+address on your network -- from a phone or a tablet the computer's, with ComfyUI started with
+`--listen` --, Find It (its checkpoints, and LaMa when comfyui-inpaint-nodes is there) and the
+checkpoint; Generative Fill, Expand and Generate Image go through it, and **Generative Remove**
+(Edit) takes out what is in the selection, on a new layer masked to it, one step to undo.
+
 ![Retro Atelier: a picture, its layers and the tools](../docs/photo.png)
 
 `photo.nim` is Retro Atelier, a studio for pictures, drawings and pages
@@ -681,6 +687,20 @@ nimble boardapk             # an Android APK
 
 ![Retro Mail: All Inboxes in threads, the conversation in the preview pane](../docs/mail.png)
 
+1.5: on a phone or a tablet in the Glass, Matte or Gloss look (`mail/ui_touch.nim`) it is a phone's
+mail -- Gloss drawn as phones had it in 2012, a phone starting in Gloss: Mailboxes (All Inboxes,
+each account's inbox with its unread in a capsule, Flagged, Unread; your accounts and Add Account;
+Calendar, People, To Do, Notes; Settings), an account's folders, a folder's messages on white (the
+unread ones' blue dot, Focused and Other, a search, pulled down: checked; Edit or a finger held:
+several chosen, then Mark, Move or Trash), one message with "3 of 9" and its arrows on the bar,
+its sender and who it went to as names in capsules, its toolbar -- Flag or Mark (Flag, Mark as
+Unread), Move, Trash, Reply (Reply, Reply All, Forward), New Message --, writing with Cancel and
+Send on the bar, To, Cc and Bcc, Subject, Insert Photo or Video, the signature; Settings in groups
+as a phone's (the accounts, New Mail, Reading, Writing, Kept Safe, Appearance, More Options), each
+kept as it is changed. On a tablet the
+mailboxes and the list stay down the left and the message is beside them. tests/test_mailtouch.nim
+works it on a phone and a tablet and draws every page in every look.
+
 `mail.nim` is Retro Mail, Outlook Express 4 to look at, with what the
 new Outlook does: Microsoft 365, Outlook.com and Gmail signed in in the
 browser (no password typed here), threads, Focused and Other, tags, pin,
@@ -893,7 +913,15 @@ with a tap, Test All Servers and Pick the Fastest under the groups) --; on a tab
 sections are a list down the left and the page of the one picked is beside it, each under its
 own navigation bar. Its APK starts in Gloss, as phone apps were drawn in 2012 (Settings >
 Appearance changes it). 1.8: the search bar right under the navigation bar, from one side of
-the phone to the other; Servers and Favourites pulled down test every server again.
+the phone to the other; Servers and Favourites pulled down test every server again. 1.9: the
+state at the top of DNS -- a badge, Protected or not, where the lookups go, with the VPN on its
+lookups, their time and the names blocked -- and a big Connect or Disconnect; Encryption
+(Automatic, HTTPS, TLS); Fastest from Here, numbered, and Use the Fastest; a server held: Connect,
+Test, Favourite, Copy (`tableRow`'s `menu`); Activity (a tab of its own on Android): the names the
+phone looked up, the newest first, one held to Block or Unblock, and what reached what as a graph;
+Favourites' Edit (`editRow`: their order is the one the VPN goes on to); on a tablet the state and
+Connect over the sections. tests/test_dnsapp.nim draws every page in every look, on a phone and a
+tablet (the app built with -d:retrodnsTest: no frame loop of its own).
 
 ![Retro DNS: the servers, Cloudflare's details, and Use on This Computer](../docs/examples/retrodns.png)
 
@@ -962,9 +990,9 @@ settings, the scripts and the profile.
 ## Retro Music
 
 `music.nim` (with `music/api.nim`, `music/local.nim`, `music/sources.nim`,
-`music/online.nim`, `music/screens.nim`) plays your own music, the free music
-of the world with nothing to set up, your own music server, and Spotify;
-one plays at a time:
+`music/online.nim`, `music/tv.nim`, `music/appids.nim`, `music/screens.nim`)
+plays your own music, the free music and TV of the world with nothing to set
+up, your own music server, and Spotify; one plays at a time:
 
 - **Your own music:** the songs on the phone (Android asks once: Allow
   Access to Music, `askMusicAccess`) or in the computer's Music folder --
@@ -1011,9 +1039,25 @@ one plays at a time:
   apps and speakers -- Spotify Connect, which needs Premium -- and Retro
   Music is their remote: play a song or a playlist from one of its songs,
   pause, next, seek, and the device it plays on.
-- **Your own YouTube playlists (Advanced):** Sign In with Google -- a
-  Desktop app client of your own Google Cloud project, the YouTube Data API
-  v3 on, yourself a test user -- and Library has your playlists (YouTube
+- **TV:** the free channels of the world, as Free-TV lists them
+  (github.com/Free-TV/IPTV, fetched when TV is opened) -- by country, their
+  logos, a search; a channel held stays in Your Channels. A channel plays in
+  the app (`videoView`: the system's player), as the players of 2012 showed
+  a film: Done and its name, the time it has played, the picture, a panel
+  with the channel before, play or pause, the next; Full Screen turns the
+  phone on its side and gives the picture the whole screen (`videoFullScreen`;
+  a tap or Back: as it was). Left while it plays -- Done, the phone's Home -- its sound
+  goes on in the app's own player: in the background, on the lock screen.
+- **Music videos and artwork:** a video on the device (MP4, M4V, MOV, MKV, WebM -- an MP4
+  of sound alone is a song) plays with its picture on Now Playing, from where its sound was;
+  left, its sound goes on from there. A song with no cover gets artwork made from it: its
+  album's two colors, waves of sound, a record's grooves or a meter's bars, its title and
+  artist on it -- the same for all of an album's songs.
+- **Your own YouTube playlists:** Sign In with Google -- one tap when the app
+  is built with its own Google client (`RETRO_MUSIC_GOOGLE_ID` and
+  `RETRO_MUSIC_GOOGLE_SECRET`, or Retro Mail's; its Google Cloud project has
+  the YouTube Data API v3 on), else, under Advanced, a Desktop app client of
+  your own Google Cloud project, yourself a test user -- and Library has your playlists (YouTube
   Music's are YouTube's) and Liked Music, Home a shelf of them. YouTube's
   songs play in the app, in YouTube's own player: on a phone on Now
   Playing, on a tablet under the places, the next song when one ends, with

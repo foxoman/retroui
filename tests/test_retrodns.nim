@@ -55,6 +55,9 @@ block vpnSettings:
                             "\ndot=one.one.one.one\nip=" & cf.ipv4[0] & "\n"
   let tlsOnly = Server(name: "T", dot: "dns.example.com")
   doAssert "mode=dot" in vpnConfig(tlsOnly)
+  # the encryption chosen (Automatic, HTTPS, TLS): the server's other way when it lacks it
+  doAssert vpnMode(cf, "dot") == "dot" and vpnMode(cf, "doh") == "doh" and vpnMode(cf) == "doh"
+  doAssert vpnMode(tlsOnly, "doh") == "dot" and "mode=dot" in vpnConfig(cf, prefer = "dot")
   # the servers it goes on to (after "---"; one with no encrypted DNS, or itself, left out) and
   # the block list
   let plainOnly = Server(name: "P", ipv4: @["9.9.9.9"])

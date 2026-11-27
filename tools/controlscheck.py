@@ -46,6 +46,7 @@ NOT_CONTROLS = {
         # the Glass look's drawing helpers (docs/customizing.md, `uiLook`)
         "withAlpha", "glassHair", "glassRadius", "glassFace", "glassWell", "glassAccent",
         "selectFill", "fieldFace", "glassCard", "glassTrack", "softShadow",
+        "glassPlate", "glassBlue", "modernGlass", "glossShine", "glossOnyx",
         # ... and Matte's and Gloss's (a title bar's band, a tool bar's face, a face in a color)
         "titleBar", "barFace", "glossBar", "tintedFace", "glossBarColors", "glossBarFill",
         "glossBlue", "glossBarButton", "glossText", "buttonInk", "buttonBold",

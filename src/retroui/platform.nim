@@ -222,6 +222,7 @@ proc storeAppearance*(s: var Settings) =
   s["look.buttons"] = $captionButtons
   s["look.look"] = $uiLook
   s["look.frosted"] = $frostedGlass
+  s["look.system"] = $systemColors
   s["look.controls"] = (case controlSizes()
                         of csAuto: "auto"
                         of csDesktop: "desktop"
@@ -268,6 +269,7 @@ proc restoreAppearance*(s: Settings) =
   of "gloss": uiLook = lookGloss
   else: discard
   if s.hasKey("look.frosted"): frostedGlass = s.getBool("look.frosted", true)
+  if s.hasKey("look.system"): systemColors = s.getBool("look.system", systemColors)
   if not existsEnv("RETRO_TEXT"):
     case s.getOrDefault("look.textedges", "")
     of "sharp": setSubpixelText(true)

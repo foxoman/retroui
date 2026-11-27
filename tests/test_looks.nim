@@ -9,11 +9,59 @@
 import std/math
 import retroui
 import retroui/[charts, textwidgets, textengine]
-import std/[strutils, algorithm]
+import std/[strutils, algorithm, os]
 import harness
 
 fakeDriver()
 startApp("looks", W, H)
+
+# ---- light or dark as the system is (`systemColors`, a phone's default) ------------------------------
+
+block:
+  putEnv("GTK_THEME", "Adwaita:dark")       # (the system dark: Linux's way of saying it)
+  delEnv("RETRO_THEME")
+  systemColors = true
+  uiLook = lookGlass
+  ui.theme = GlassLight
+  followSystemColors()
+  doAssert ui.theme == GlassDark, "the system dark: the look's own dark colors"
+  uiLook = lookGloss
+  ui.theme = GlossOnyx
+  followSystemColors()
+  doAssert ui.theme == GlossOnyx, "a dark scheme of the look's in a dark system: kept"
+  var own = GlossLight
+  own.select = color(1, 2, 3)
+  ui.theme = own
+  followSystemColors()
+  doAssert ui.theme == own, "an app's own theme: kept"
+  systemColors = false
+  ui.theme = GlassLight
+  followSystemColors()
+  doAssert ui.theme == GlassLight, "systemColors off: as chosen"
+  delEnv("GTK_THEME")
+  uiLook = lookClassic
+  ui.theme = Classic
+
+# ---- Gloss's bars in the scheme's colors; the phone controls' own (`MobileStyle`) -------------------
+
+block:
+  uiLook = lookGloss
+  ui.theme = GlossDark
+  doAssert glossOwnScheme() and glossBarColors().foot == color(12, 12, 14), "Gloss Dark: iOS 6's black bars"
+  ui.theme = Dusk
+  let (top, foot) = glossBarColors()
+  doAssert not glossOwnScheme() and foot != color(12, 12, 14) and top.b > top.g,
+           "another dark scheme: the bars in its colors (Dusk's purple)"
+  doAssert lumaOfColor(statusBarColor()) < lumaOfColor(foot), "the status bar: the top bar's color, darker"
+  doAssert lumaOfColor(glossDarkFace()) < lumaOfColor(foot), "the tab bar, the side menu: the bars', darker"
+  withMobileStyle(MobileStyle(bar: color(200, 40, 40), statusBar: color(90, 10, 10))):
+    doAssert titleColors(true).bg == color(200, 40, 40) and titleColors(true).fg == color(255, 255, 255),
+             "the app's own bar color, white words on it"
+    doAssert statusBarColor() == color(90, 10, 10), "the app's own status bar"
+    doAssert glossBarColors().top.r > glossBarColors().top.g, "Gloss's bars lit in the app's color"
+  doAssert mobileStyle.bar.a == 0 and glossBarColors().foot == foot, "withMobileStyle: as it was after"
+  uiLook = lookClassic
+  ui.theme = Classic
 
 proc count(c: Color; r: Rect): int =
   ## (the pixels of one colour in `r`)
@@ -186,7 +234,7 @@ proc contrast(a, b: Color): float =
   let (x, y) = (lum(a), lum(b))
   (max(x, y) + 0.05) / (min(x, y) + 0.05)
 
-doAssert builtinThemes.len == 34
+doAssert builtinThemes.len == 35
 var names: seq[string]
 for (name, t) in builtinThemes:
   doAssert name notin names, name
@@ -203,7 +251,7 @@ for (name, t) in builtinThemes:
     doAssert contrast(t.text, c) >= 4.5, name & ": text on a state's background"
   doAssert goodColor() != badColor() and warnColor() != infoColor()
 for want in ["Notes", "Snow", "Mint", "Sky", "Blossom", "Lavender", "Sunset", "Graphite", "Dusk", "Night Notes",
-             "Glass Light", "Glass Dark", "Matte Light", "Matte Dark", "Gloss Light", "Gloss Dark"]:
+             "Glass Light", "Glass Dark", "Matte Light", "Matte Dark", "Gloss Light", "Gloss Dark", "Gloss Onyx"]:
   doAssert want in names, want
 ui.theme = before
 

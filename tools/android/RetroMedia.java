@@ -21,9 +21,12 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
+import android.content.pm.ActivityInfo;
+import android.graphics.PixelFormat;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.VideoView;
 import java.util.HashMap;
@@ -40,13 +43,29 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RetroMedia {
   static final HashMap<String, MediaPlayer> sounds = new HashMap<String, MediaPlayer>();
   static final ConcurrentHashMap<String, Video> videos = new ConcurrentHashMap<String, Video>();
-  static FrameLayout layer;
+  static int fullWas = -1;             // (the window's system bars before a video went full screen)
 
+  /** A video of videoView: a VideoView in a small panel window of its own over the activity,
+   *  where the app draws it (window pixels) -- NativeActivity draws its window itself, so a
+   *  view inside it is never shown (its sound played, its picture not). The panel takes no
+   *  touch: they go to the app under it. */
   static class Video {
     VideoView view;
+    FrameLayout box;
+    WindowManager.LayoutParams lp;
+    boolean added;
     String path;
     volatile boolean playing, ended;
     volatile int pos, dur;
+    volatile String error = "";
+  }
+
+  static void dropVideo(Activity a, Video v) {
+    try { v.view.stopPlayback(); } catch (Throwable t) { }
+    if (v.added) {
+      try { a.getWindowManager().removeViewImmediate(v.box); } catch (Throwable t) { }
+      v.added = false;
+    }
   }
 
   /** A sound of audioView: a MediaPlayer of its own, no view -- it plays on
@@ -975,7 +994,7 @@ public class RetroMedia {
         } catch (Throwable t) { }
       }});
       return (known.playing ? "1" : "0") + "\t" + known.pos + "\t" + known.dur + "\t" +
-             (known.ended ? "1" : "0");
+             (known.ended ? "1" : "0") + "\t" + known.error;
     }
     a.runOnUiThread(new Runnable() { public void run() {
       try {
@@ -984,21 +1003,29 @@ public class RetroMedia {
           int x = Integer.parseInt(args[1]), y = Integer.parseInt(args[2]);
           int w = Integer.parseInt(args[3]), h = Integer.parseInt(args[4]);
           String path = args[5];
-          if (layer == null) {
-            layer = new FrameLayout(a);
-            a.addContentView(layer, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-          }
           if (v == null || !path.equals(v.path)) {
-            if (v != null) {
-              v.view.stopPlayback();
-              layer.removeView(v.view);
-            }
+            if (v != null) dropVideo(a, v);
             final Video nv = new Video();
             nv.path = path;
             nv.view = new VideoView(a);
-            // its picture goes above the window the kit draws in
+            // its picture over its panel, the panel black round it (the picture in its own shape)
             nv.view.setZOrderMediaOverlay(true);
+            nv.box = new FrameLayout(a);
+            nv.box.setBackgroundColor(0xFF000000);
+            nv.box.addView(nv.view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER));
+            nv.lp = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                PixelFormat.OPAQUE);
+            nv.lp.gravity = Gravity.TOP | Gravity.LEFT;
+            nv.view.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+              public boolean onError(MediaPlayer mp, int what, int extra) {
+                nv.error = "This video cannot be played (" + what + ", " + extra + ")";
+                nv.playing = false;
+                return true;
+              }
+            });
             nv.view.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
               public void onCompletion(MediaPlayer mp) { nv.ended = true; nv.playing = false; }
             });
@@ -1006,7 +1033,6 @@ public class RetroMedia {
               public void onPrepared(MediaPlayer mp) { nv.dur = mp.getDuration(); }
             });
             nv.view.setVideoPath(path);
-            layer.addView(nv.view);
             videos.put(key, nv);
             v = nv;
             if (args.length > 6 && args[6].equals("1")) {
@@ -1014,17 +1040,22 @@ public class RetroMedia {
               v.playing = true;
             }
           }
-          FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, h);
-          lp.leftMargin = x;
-          lp.topMargin = y;
-          lp.gravity = Gravity.TOP | Gravity.LEFT;
-          v.view.setLayoutParams(lp);
-          v.view.setVisibility(View.VISIBLE);
+          v.lp.x = x;
+          v.lp.y = y;
+          v.lp.width = Math.max(1, w);
+          v.lp.height = Math.max(1, h);
+          if (v.lp.token == null) v.lp.token = a.getWindow().getDecorView().getWindowToken();
+          if (v.lp.token == null) return;             // (not on the screen yet: the next show)
+          v.box.setVisibility(View.VISIBLE);
+          if (!v.added) {
+            a.getWindowManager().addView(v.box, v.lp);
+            v.added = true;
+          } else a.getWindowManager().updateViewLayout(v.box, v.lp);
         } else if (v != null) {
           if (what.equals("Hide")) {
             if (v.view.isPlaying()) v.view.pause();
             v.playing = false;
-            v.view.setVisibility(View.GONE);
+            v.box.setVisibility(View.GONE);
           } else if (what.equals("Play")) {
             v.ended = false;
             v.view.start();
@@ -1038,9 +1069,24 @@ public class RetroMedia {
           } else if (what.equals("Rate")) {
             // (a VideoView keeps its MediaPlayer: not reached; videos play at 1)
           } else if (what.equals("Close")) {
-            v.view.stopPlayback();
-            if (layer != null) layer.removeView(v.view);
+            dropVideo(a, v);
             videos.remove(key);
+          } else if (what.equals("Full")) {
+            // (the whole screen: the phone on its side, the system's bars out of the way; then
+            // as it was)
+            View d = a.getWindow().getDecorView();
+            if (args.length > 1 && args[1].equals("1")) {
+              if (fullWas < 0) fullWas = d.getSystemUiVisibility();
+              a.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+              d.setSystemUiVisibility(fullWas | View.SYSTEM_UI_FLAG_FULLSCREEN
+                  | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                  | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                  | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+            } else {
+              a.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+              if (fullWas >= 0) d.setSystemUiVisibility(fullWas);
+              fullWas = -1;
+            }
           }
         }
       } catch (Throwable t) { }

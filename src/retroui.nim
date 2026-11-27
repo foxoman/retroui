@@ -105,7 +105,7 @@ export records, desktop, planning, view3d, mapview, htmlview, native, media,
        report, pdf, templates, canvas2d, morecontrols, dock, toolcustom, inspect, drive,
        undo, pages, typeforms, codeedit, uistrings, commandhud, lorem, mobile
 
-import std/macros
+import std/[macros, os]
 
 var appLook = ""   # (the settings `app`'s `look` keeps the look in)
 
@@ -115,6 +115,18 @@ proc keepLook*(name: string) =
   var s = loadSettings(name)
   storeAppearance(s)
   saveSettings(name, s)
+
+proc followSystemColors*() =
+  ## With `systemColors` (Android's and iOS's default): the look's own colors, light or dark as
+  ## the system is now -- `openApp` and `appFrameDone` call it (the system asked every 5 seconds
+  ## at most). A theme of the app's own, or $RETRO_THEME, stays.
+  if not systemColors or themeIndex() < 0 or existsEnv("RETRO_THEME"): return
+  # (a scheme as dark as the system stays -- Gloss Onyx in a dark system; else the look's own)
+  let dark = systemDarkMode()
+  if themeIsDark(ui.theme) == dark: return
+  let (l, d) = lookSchemes(uiLook)
+  ui.theme = if dark: d else: l
+  invalidate()
 
 proc openApp*(title: string; w, h: int; theme = ui.theme; frame = wfAsBuilt;
               userFrame = true; gpu = gpuMode(); zoom = 0; scale = 0;
@@ -158,12 +170,15 @@ proc openApp*(title: string; w, h: int; theme = ui.theme; frame = wfAsBuilt;
   appLook = look
   if look.len > 0:
     restoreAppearance(loadSettings(look))
-    discard lookChanged()        # (what was brought back is no change)
+  followSystemColors()           # (a phone in its dark theme: dark from the first frame)
+  discard lookChanged()          # (what was brought back is no change)
 
 proc appFrameDone*() =
   ## Called after each of `app`'s frames: keeps the look (the `look`
-  ## settings of `openApp`) when the user changed it in the frame.
+  ## settings of `openApp`) when the user changed it in the frame; the colors light or dark as
+  ## the system is (`followSystemColors`).
   if appLook.len > 0 and lookChanged(): keepLook(appLook)
+  followSystemColors()
 
 proc closeApp*() =
   ## `app`'s end: the look kept (`look`), the window closed.

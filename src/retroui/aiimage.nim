@@ -1,6 +1,8 @@
 ## Pictures from words, and a picture changed where a mask says, by an image service of your
 ## own -- any that speaks OpenAI's images API (OpenAI's own, or a server on your computer that
-## takes the same requests). Off until you set one; nothing is sent before. What an app makes
+## takes the same requests), or a ComfyUI server on your computer (`kind` "comfyui": its address
+## on your network, a checkpoint it has -- `retroui/comfyui`). Off until you set one; nothing is
+## sent before. What an app makes
 ## of them: a new picture or layer from a description, a selection filled ("generative fill"),
 ## a canvas grown with what would be round it ("expand"), something taken out ("remove").
 ##
@@ -18,7 +20,7 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 
 import std/[json, strutils, base64]
-import gfx, http, imaging, jpeg, platform, secrets
+import gfx, http, imaging, jpeg, platform, secrets, comfyui
 
 type
   AiImageSettings* = object
@@ -27,6 +29,8 @@ type
     model*: string               ## the model asked ("gpt-image-1", "dall-e-2"...)
     key*: string                 ## your key for it
     timeoutSec*: int             ## (0: 180)
+    kind*: string                ## "" OpenAI's images API; "comfyui": a ComfyUI server (`url` its
+                                 ## address, `model` its checkpoint, "" its first)
 
   AiImageAnswer* = object
     ## What came back.
@@ -37,9 +41,12 @@ type
 const DefaultImageUrl* = "https://api.openai.com/v1/images/generations"
   ## OpenAI's images address.
 
+proc comfy*(s: AiImageSettings): bool = s.kind == "comfyui"
+  ## The service is a ComfyUI server.
+
 proc connected*(s: AiImageSettings): bool =
   ## A service is set.
-  s.url.strip.len > 0 and s.model.strip.len > 0
+  s.url.strip.len > 0 and (s.comfy or s.model.strip.len > 0)
 
 proc editsUrl*(s: AiImageSettings): string =
   ## The address that changes a picture (next to the one that makes them).
@@ -67,34 +74,6 @@ proc imageRequest*(s: AiImageSettings; prompt: string; w, h: int):
   # (DALL-E answers with a link unless asked for the bytes; the newer models always send them)
   if s.model.startsWith("dall-e"): body["response_format"] = %"b64_json"
   result.body = $body
-
-proc fitTo(b: Bitmap; w, h: int): Bitmap =
-  ## (`b` scaled to fill `w` x `h`, its middle kept where the shapes differ)
-  if b == nil or w <= 0 or h <= 0: return b
-  if b.w == w and b.h == h: return b
-  result = Bitmap(w: w, h: h, px: newSeq[uint32](w * h))
-  let sc = max(w / b.w, h / b.h)
-  let ox = (b.w.float * sc - w.float) / 2
-  let oy = (b.h.float * sc - h.float) / 2
-  # (each pixel the mean of the source pixels under it: a picture made smaller stays smooth)
-  for y in 0 ..< h:
-    let sy0 = (y.float + oy) / sc
-    let sy1 = (y.float + 1 + oy) / sc
-    let ya = clamp(int(sy0), 0, b.h - 1)
-    let yb = clamp(max(int(sy1 - 1e-6), ya), 0, b.h - 1)
-    for x in 0 ..< w:
-      let sx0 = (x.float + ox) / sc
-      let sx1 = (x.float + 1 + ox) / sc
-      let xa = clamp(int(sx0), 0, b.w - 1)
-      let xb = clamp(max(int(sx1 - 1e-6), xa), 0, b.w - 1)
-      var a, r, g, bl, n = 0
-      for yy in ya .. yb:
-        for xx in xa .. xb:
-          let p = b.px[yy * b.w + xx]
-          a += int(p shr 24); r += int((p shr 16) and 255); g += int((p shr 8) and 255); bl += int(p and 255)
-          inc n
-      result.px[y * w + x] = (uint32(a div n) shl 24) or (uint32(r div n) shl 16) or
-                             (uint32(g div n) shl 8) or uint32(bl div n)
 
 proc multipart(fields: openArray[(string, string)]; files: openArray[(string, string, string)]):
     tuple[body, contentType: string] =
@@ -159,6 +138,9 @@ proc generateImage*(s: AiImageSettings; prompt: string; w, h: int): AiImageAnswe
   ## A new picture of `w` x `h` as `prompt` describes it (waits for the service).
   if not s.connected: return AiImageAnswer(error: "no image service is set")
   if prompt.strip.len == 0: return AiImageAnswer(error: "nothing was described")
+  if s.comfy:
+    let a = comfyGenerate(s.url, s.model, prompt, w, h, if s.timeoutSec > 0: s.timeoutSec else: 300)
+    return AiImageAnswer(picture: a.picture, error: a.error)
   s.send(s.imageRequest(prompt, w, h), w, h)
 
 proc editImage*(s: AiImageSettings; prompt: string; image, mask: Bitmap): AiImageAnswer =
@@ -168,7 +150,21 @@ proc editImage*(s: AiImageSettings; prompt: string; image, mask: Bitmap): AiImag
   if not s.connected: return AiImageAnswer(error: "no image service is set")
   if image == nil or mask == nil or image.w <= 0 or mask.w != image.w or mask.h != image.h:
     return AiImageAnswer(error: "the picture and its mask are not the same size")
+  if s.comfy:
+    let a = comfyFill(s.url, s.model, prompt, image, mask, timeoutSec = if s.timeoutSec > 0: s.timeoutSec else: 300)
+    return AiImageAnswer(picture: a.picture, error: a.error)
   s.send(s.editRequest(prompt, image, mask), image.w, image.h)
+
+proc removeFromImage*(s: AiImageSettings; image, mask: Bitmap): AiImageAnswer =
+  ## What is in `image` where `mask` is clear (alpha 0) taken out, what would be behind it made:
+  ## ComfyUI's LaMa when the server has it, else the service asked for it in words.
+  if not s.connected: return AiImageAnswer(error: "no image service is set")
+  if s.comfy:
+    let a = comfyFill(s.url, s.model, "", image, mask, remove = true,
+                      timeoutSec = if s.timeoutSec > 0: s.timeoutSec else: 300)
+    return AiImageAnswer(picture: a.picture, error: a.error)
+  editImage(s, "Take away what is in the clear part of the mask: make what would be behind it, " &
+               "matching the rest of the picture -- its light, its colors, its grain.", image, mask)
 
 const AiImageKeyName* = "AI image key"
   ## The name the image service's key is kept under in `retroui/secrets`.
@@ -179,6 +175,7 @@ proc saveAiImageSettings*(app: string; s: AiImageSettings): bool {.discardable.}
   var st = loadSettings(app)
   st["aiimage.url"] = s.url
   st["aiimage.model"] = s.model
+  st["aiimage.kind"] = s.kind
   if s.timeoutSec > 0: st["aiimage.timeout"] = $s.timeoutSec
   else: st.del "aiimage.timeout"
   result = saveSettings(app, st)
@@ -191,6 +188,7 @@ proc loadAiImageSettings*(app: string; withKey = true): AiImageSettings =
   let st = loadSettings(app)
   result.url = st.getOrDefault("aiimage.url")
   result.model = st.getOrDefault("aiimage.model")
+  result.kind = st.getOrDefault("aiimage.kind")
   try: result.timeoutSec = clamp(parseInt(st.getOrDefault("aiimage.timeout", "0")), 0, 900)
   except ValueError: discard
   if withKey: result.key = loadSecret(app, AiImageKeyName)

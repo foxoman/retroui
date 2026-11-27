@@ -7,10 +7,10 @@
 ## the side menu on a phone (its button, a place chosen, a tap beside it); the places down the
 ## left on a tablet; the player's Now Playing on both; every place in every look.
 
-import std/[os, strutils]
+import std/[os, strutils, sequtils]
 import retroui
 import retroui/uirelays/[services, coords, screen, input]
-import ../examples/music/[api, sources, screens]
+import ../examples/music/[api, sources, screens, local]
 import harness, musicanswers
 
 let home = getTempDir() / "retro-musicsources"
@@ -141,6 +141,18 @@ proc tapNode(name: string; roles: set[AccessRole] = {}) =
   let n = findNode(accessLast, name, roles)
   doAssert n >= 0, "no " & name & " on the screen"
   click(nodeRect(accessLast[n]), dx = nodeRect(accessLast[n]).w div 2)
+  settle(4)
+
+proc has(name: string; roles: set[AccessRole] = {}): bool = findNode(accessLast, name, roles) >= 0
+
+proc holdNode(name: string; roles: set[AccessRole] = {}) =
+  ## (a right click: a finger held)
+  let n = findNode(accessLast, name, roles)
+  doAssert n >= 0, "no " & name & " on the screen"
+  let r = nodeRect(accessLast[n])
+  harness.queue.add Event(kind: MouseMoveEvent, x: r.x + r.w div 2, y: r.y + r.h div 2)
+  harness.queue.add Event(kind: MouseDownEvent, x: r.x + r.w div 2, y: r.y + r.h div 2, button: RightButton)
+  harness.queue.add Event(kind: MouseUpEvent, x: r.x + r.w div 2, y: r.y + r.h div 2, button: RightButton)
   settle(4)
 
 check isCompact(), "a phone's window"
@@ -288,10 +300,59 @@ searchSource = 5
 settle()
 check serverSongs.len == 1 and serverSongs[0].title == "Found", "Search, My Server: its songs found"
 query = ""
+
+# ---- TV: the free channels' list, a channel played, its sound on when left ------------------------------
+
+let chs = parseM3u(TvBody)
+check chs.len == 3 and chs[0].name == "Sea One HD" and chs[0].logo == "https://img.test/sea.png" and
+      chs[0].country == "Oman" and chs[0].url == "https://tv.test/sea/index.m3u8",
+      "an M3U list read: its name, logo, country, address"
+check chs[1].name == "Dune, Live" and chs[1].geo, "a name with a comma; Free-TV's mark: in its country only"
+check chs.allIt("youtube" notin it.url), "a YouTube page left out: no stream in it"
+check countries(chs) == @[(name: "Oman", count: 2), (name: "Norway", count: 1)], "its countries, in order"
+check findChannels(chs, "fjord").len == 1 and findChannels(chs, "oman live").len == 1, "a search over them"
+tvFavs.setLen(0)
+goSection(SecTV)
+settle()
+check tvState == 2 and tvChannels.len == 3, "TV: the list asked and come"
+save("phone-tv")
+tapNode("Oman", {arButton, arListItem})
+check tvPage == "c:Oman" and pageTitle() == "Oman", "a country tapped: its channels"
+holdNode("Sea One HD")
+check tvFavs.len == 1 and tvFavs[0].url == chs[0].url, "a channel held: in Your Channels"
+calls.setLen(0)
+tapNode("Dune, Live", {arButton, arListItem})
+settle(6)
+check tvOpen and calls.anyIt(it.startsWith("media.videoShow|tv\t") and "https://tv.test/dune.m3u8" in it),
+      "a channel tapped: played on the screen"
+save("phone-tvplayer")
+tapNode("The channel before", {arButton})
+settle(4)
+check calls.anyIt("https://tv.test/sea/index.m3u8" in it), "the channel before: the list's one before"
+calls.setLen(0)
+tapNode("Full Screen", {arButton})
+settle(4)
+check "media.videoFull|tv\t1" in calls and has("Leave Full Screen", {arButton}) and not has("Done", {arButton}),
+      "Full Screen: the phone on its side, the picture the whole screen, no bars"
+check calls.anyIt(it.startsWith("media.videoShow|tv\t0\t0\t" & $winW & "\t" & $winH & "\t")),
+      "... the picture as big as the window"
+save("phone-tvfull")
+tapNode("Leave Full Screen", {arButton})
+settle(4)
+check "media.videoFull|tv\t0" in calls and has("Done", {arButton}), "a tap: as it was"
+tapNode("Done", {arButton})
+settle(4)
+check not tvOpen and localActive and currentSong().live and currentSong().origin == "TV" and
+      currentPath() == "https://tv.test/sea/index.m3u8", "Done while it plays: its sound goes on in our player"
+pauseLocal()
+loadTv()
+check tvFavs.len == 1, "Your Channels kept"
+goSection(0)
+
 # every place, every look, on the phone
 for look in [lookClassic, lookGlass, lookMatte, lookGloss]:
   uiLook = look
-  for t in 0 .. 9:
+  for t in 0 .. 10:
     goSection(t)
     settle(3)
     if look == lookGloss: save("gloss-" & $t)
@@ -326,7 +387,7 @@ save("tablet-nowplaying")
 nowOpen = false
 for look in [lookClassic, lookGlass, lookMatte, lookGloss]:
   uiLook = look
-  for t in 0 .. 9:
+  for t in 0 .. 10:
     goSection(t)
     settle(3)
   nowOpen = true
@@ -334,4 +395,42 @@ for look in [lookClassic, lookGlass, lookMatte, lookGloss]:
   nowOpen = false
 uiLook = lookClassic
 check true, "every place drawn in every look on a tablet"
+
+# ---- a music video's picture; artwork made for a song with no cover --------------------------------------
+
+let vdir = home / "videos"
+createDir(vdir)
+proc fakeMp4(name, handler: string): string =
+  ## (an MP4's start: its kind, a track's handler -- "vide" a picture's, "soun" sound's)
+  result = vdir / name
+  writeFile(result, "\0\0\0\x18ftypisom" & repeat('\0', 12) & "\0\0\0\x2Dhdlr" & repeat('\0', 8) & handler &
+                    repeat('\0', 3000))
+let clip = fakeMp4("clip.mp4", "vide")
+check isVideo(clip) and not isVideo(fakeMp4("song.mp4", "soun")) and not isVideo(vdir / "none.mp4"),
+      "an MP4 with a picture: a video; with sound alone, a song"
+calls.setLen(0)
+playSongs([clip], 0)
+nowOpen = true
+settle(6)
+check calls.anyIt(it.startsWith("media.videoShow|" & VideoKey)), "a video playing: its picture on Now Playing"
+nowOpen = false
+goSection(0)
+settle(6)
+check calls.anyIt(it.startsWith("media.videoClose|" & VideoKey)), "Now Playing left: the picture let go, the sound on"
+pauseLocal()
+var artAt: Rect
+var artSong = Song(title: "Evening Tide", artist: "Sultan Trio", album: "Muscat Nights")
+view = proc () =
+  artAt = place(0, 300, fill = true)
+  drawArtwork(artAt, artSong)
+run(2)
+let artPx = shot[(artAt.y + 20) * winW + artAt.x + 6]
+artSong.title = "Desert Road"
+run(2)
+let samePx = shot[(artAt.y + 20) * winW + artAt.x + 6]
+artSong.album = "Another Album"
+run(2)
+check artPx == samePx and shot[(artAt.y + 20) * winW + artAt.x + 6] != artPx,
+      "artwork: an album's songs the same colors, another album's other ones"
+view = proc () = musicView()
 echo "musicsources: ", passed, " ok"

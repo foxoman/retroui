@@ -73,6 +73,7 @@ proc genLayerName(kind: int; prompt: string): string =
   case kind
   of 0: (if p.len > 0: p else: "Generative Fill")
   of 1: "Generative Expand"
+  of 3: "Generative Remove"
   else: (if p.len > 0: p else: "Generated Image")
 
 proc genFinish() =
@@ -93,6 +94,7 @@ proc genFinish() =
     d.layersChange(case genRun.kind
                    of 0: "Generative Fill"
                    of 1: "Generative Expand"
+                   of 3: "Generative Remove"
                    else: "Generate Image"):
       let L = d.addLayer(genLayerName(genRun.kind, genRun.prompt), above = (if genRun.kind == 1: d.layers.high else: d.cur))
       for y in 0 ..< at.h:
@@ -105,7 +107,7 @@ proc genFinish() =
       inc L.ver
       d.cur = d.layers.find(L)
       # (Generative Fill shows only in the selection; Expand only where the canvas grew)
-      if genRun.kind == 0 and d.hasSelection: d.addLayerMask(mfRevealSelection, d.cur)
+      if genRun.kind in [0, 3] and d.hasSelection: d.addLayerMask(mfRevealSelection, d.cur)
       elif genRun.kind == 1:
         d.addLayerMask(mfRevealAll, d.cur)
         let m = d.layers[d.cur].mask
@@ -121,6 +123,7 @@ proc genFinish() =
     said = (case genRun.kind
             of 0: "filled the selection"
             of 1: "grew the canvas and filled what is new"
+            of 3: "took out what was in the selection"
             else: "made the picture") & " -- a new layer, \"" & genLayerName(genRun.kind, genRun.prompt) & "\"" &
            (if r.value.note.len > 0: " (the service: " & r.value.note & ")" else: "")
   status = (if said.len > 0: "AI: " & said else: status)
@@ -129,8 +132,9 @@ proc genFinish() =
 proc startGen(kind: int; prompt: string; w = 0, h = 0; at = Rect(); done: proc (text: string) {.closure.} = nil): string =
   ## Asks the image service for Generative Fill (0: the selection made again as `prompt` says --
   ## empty: filled from what is round it), Generative Expand (1: the canvas grown to `w` x `h`,
-  ## what is new made) or a picture from words (2: in `at`, else the selection's box, else the
-  ## whole image). "" or why not.
+  ## what is new made), a picture from words (2: in `at`, else the selection's box, else the
+  ## whole image) or Generative Remove (3: what is in the selection taken out -- ComfyUI's LaMa
+  ## when the server has it). "" or why not.
   let d = cur()
   if d == nil: return "no image is open"
   if genRun.job != nil and genRun.job.running: return "the image service is still working on the last one"
@@ -140,9 +144,11 @@ proc startGen(kind: int; prompt: string; w = 0, h = 0; at = Rect(); done: proc (
   var work: Job[AiImageAnswer]
   var place: Rect
   case kind
-  of 0:
+  of 0, 3:
     let sb = if d.hasSelection: d.selBounds else: Rect()
-    if sb.w <= 0 or sb.h <= 0: return "nothing is selected: select what to fill first"
+    if sb.w <= 0 or sb.h <= 0:
+      return if kind == 3: "nothing is selected: select what to take out first"
+             else: "nothing is selected: select what to fill first"
     # (some of what is round it too, so that what is made matches)
     let mx = max(16, sb.w div 3)
     let my = max(16, sb.h div 3)
@@ -157,8 +163,12 @@ proc startGen(kind: int; prompt: string; w = 0, h = 0; at = Rect(); done: proc (
     let words = if prompt.strip.len > 0: prompt
                 else: "Fill the clear part of the mask with what would be there, matching the rest of the " &
                       "picture -- its light, its colors, its grain; take away what was there."
-    work = job(proc (): AiImageAnswer {.gcsafe.} =
-      {.cast(gcsafe).}: editImage(s, words, img, mask), onDone = genFinish)
+    if kind == 3:
+      work = job(proc (): AiImageAnswer {.gcsafe.} =
+        {.cast(gcsafe).}: removeFromImage(s, img, mask), onDone = genFinish)
+    else:
+      work = job(proc (): AiImageAnswer {.gcsafe.} =
+        {.cast(gcsafe).}: editImage(s, words, img, mask), onDone = genFinish)
   of 1:
     let nw = clamp(w, d.w, d.w * 3)
     let nh = clamp(h, d.h, d.h * 3)
@@ -199,7 +209,7 @@ proc startGen(kind: int; prompt: string; w = 0, h = 0; at = Rect(); done: proc (
 
 proc genDialog() =
   if not genDlg.open: return
-  let title = ["Generative Fill", "Generative Expand", "Generate Image"][clamp(genDlg.kind, 0, 2)]
+  let title = ["Generative Fill", "Generative Expand", "Generate Image", "Generative Remove"][clamp(genDlg.kind, 0, 3)]
   loadImgAi(withKey = false)
   var go = false
   dialog(genDlg.open, title, 460):
@@ -216,9 +226,13 @@ proc genDialog() =
         spin(genDlg.w, 1, 30000, w = dp(86))
         label "Height:"
         spin(genDlg.h, 1, 30000, w = dp(86))
+    of 3: paragraph("What is in the selection taken out by your image service, and what would be behind it " &
+                    "made -- ComfyUI's LaMa model when your server has it. It comes as a new layer, masked to " &
+                    "the selection.")
     else: paragraph("A new picture from your words, on a new layer -- the size of the selection, else of the image.")
-    label("Describe it" & (if genDlg.kind == 2: ":" else: " (or leave it empty):"))
-    editArea(genDlg.prompt, lines = 3)
+    if genDlg.kind != 3:
+      label("Describe it" & (if genDlg.kind == 2: ":" else: " (or leave it empty):"))
+      editArea(genDlg.prompt, lines = 3)
     row:
       spring()
       if button("&Generate", isDefault = true, w = dp(96),

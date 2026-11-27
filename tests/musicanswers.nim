@@ -67,6 +67,17 @@ const
   SubsonicSearchBody* = """{"subsonic-response": {"status": "ok", "searchResult3": {"song": [
     {"id": "so9", "title": "Found", "artist": "Harbour", "album": "Harbour", "duration": 100}], "album": []}}}"""
 
+  TvBody* = "#EXTM3U\n" &
+    "#EXTINF:-1 tvg-name=\"Sea One\" tvg-logo=\"https://img.test/sea.png\" group-title=\"Oman\",Sea One HD\n" &
+    "https://tv.test/sea/index.m3u8\n" &
+    "#EXTINF:-1 tvg-logo=\"https://img.test/dune.png\" group-title=\"Oman\",Dune, Live Ⓖ\n" &
+    "#EXTVLCOPT:http-referrer=https://tv.test/\n" &
+    "https://tv.test/dune.m3u8\n" &
+    "#EXTINF:-1 group-title=\"Oman\",A Video Page Ⓨ\n" &
+    "https://www.youtube.com/watch?v=abc\n" &
+    "#EXTINF:-1 tvg-logo=\"\" group-title=\"Norway\",Fjord\n" &
+    "https://tv.test/fjord.m3u8\n"
+
 var
   asked*: seq[string]                    ## (every address asked, in turn)
   serverWrong* = false                   ## (the server says the password is wrong)
@@ -96,6 +107,7 @@ proc cannedAnswer*(url: string): HttpResponse =
   if "/rest/getPlaylists.view" in url: return ok(SubsonicListsBody)
   if "/rest/getAlbum.view" in url or "/rest/getRandomSongs.view" in url: return ok(SubsonicAlbumBody)
   if "/rest/search3.view" in url: return ok(SubsonicSearchBody)
+  if url == "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8": return ok(TvBody)
   if "/rest/getCoverArt.view" in url: return cannedAnswer("https://img.test/c1.png")
   HttpResponse(status: 404, body: "{}")
 

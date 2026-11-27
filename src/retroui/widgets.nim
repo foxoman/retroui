@@ -152,6 +152,32 @@ template withTheme*(t: Theme; body: untyped) =
   finally:
     ui.theme = savedTheme
 
+type MobileStyle* = object
+  ## How the phone controls are drawn, past the scheme and the look: a color with alpha 0, a size
+  ## 0, is the look's own (in the scheme's colors). Set `mobileStyle` for the whole app, or
+  ## `withMobileStyle` for a part of it -- as `withTheme` does for colors.
+  bar*, barText*: Color      ## the bars at the top: `navBar`, a page's, the app's title bar
+  statusBar*: Color          ## under the system's status bar (alpha 0: the top bar's, darker)
+  tabBar*, tabText*, tabChosen*: Color
+    ## `bottomNav`: its bar, a place's glyph and label, the chosen place's
+  sideMenu*, sideMenuText*: Color   ## `sideMenu`: its face, its items' words
+  group*, groupLine*: Color  ## a `tableGroup`'s face, the line between its rows
+  rowText*, rowDetail*: Color       ## a row's title, the value at its end
+  groupCorner*: float        ## a `tableGroup`'s corners (a negative: square)
+  rowHeight*: int            ## a row's height, in design pixels (`dp`)
+
+var mobileStyle*: MobileStyle
+  ## The phone controls' colors and sizes of the app's own (see `MobileStyle`): none, the look's.
+
+template withMobileStyle*(s: MobileStyle; body: untyped) =
+  ## Draws `body` with the phone controls in `s` (`MobileStyle`), then as they were.
+  let savedMobile = mobileStyle
+  mobileStyle = s
+  try:
+    body
+  finally:
+    mobileStyle = savedMobile
+
 proc hotFace*(): Color =
   ## A button face under the mouse: a little lighter.
   mixColor(th.face, th.light, 0.45)
@@ -180,6 +206,15 @@ proc withAlpha*(c: Color; a: int): Color {.inline.} =
 proc glassHair*(): Color =
   ## The hairline round a surface of the Glass look.
   lookHair()
+
+proc modernGlass*(): bool {.inline.} =
+  ## The controls drawn in the Glass look itself now -- not Matte or Gloss, which share its
+  ## shapes (`glassLook`).
+  uiLook == lookGlass and glassLook()
+
+proc glossOnyx*(): bool {.inline.} =
+  ## Gloss with its black scheme, `GlossOnyx`: its tab bar a floating capsule, its buttons pills.
+  uiLook == lookGloss and glassLook() and th.window == GlossOnyx.window and th.select == GlossOnyx.select
 
 proc glassRadius*(r: Rect): float =
   ## (a surface's corners: a capsule for a button, a card's rounding for what is bigger; Matte's
@@ -345,7 +380,7 @@ proc glossDetail*(): Color =
   if lumaOfColor(th.field) < 128 or lumaOfColor(th.window) < 100: glossTone(0.4, 0.92)
   else: glossTint(color(56, 84, 135))
 
-proc glossShine(f: Rect; rad: float; base: Color; dark: bool) =
+proc glossShine*(f: Rect; rad: float; base: Color; dark: bool) =
   ## (Gloss: a face in `base` with its shine -- its top half lighter, a hard edge at its middle,
   ## the light falling off down its top half; its foot a little darker)
   roundRectShaded(f, rad, mixColor(base, white, if dark: 0.08 else: 0.25),
@@ -511,18 +546,36 @@ const
 proc tinted(stops: openArray[Color]): array[4, Color] =
   for i in 0 .. 3: result[i] = glossTint(stops[min(i, stops.high)])
 
+proc glossOwnScheme*(): bool =
+  ## Gloss in a scheme of its own (Gloss Light, Gloss Dark, Gloss Onyx): iOS 6's steel blue and
+  ## black bars. In another scheme the bars, the tab bar and the side menu take its colors.
+  for t in [GlossLight, GlossDark, GlossOnyx]:
+    if th.window == t.window and th.face == t.face and th.select == t.select: return true
+  false
+
 proc glossBarColors*(): tuple[top, foot: Color] =
   ## Gloss: a navigation bar's, a tool bar's, a title bar's gradient -- on a light window iOS
-  ## 6's steel blue in the scheme's hue (`glossTint`), black on a dark one.
-  if onDark(): (color(80, 82, 88), color(12, 12, 14))
+  ## 6's steel blue in the scheme's hue (`glossTint`); on a dark one black in Gloss's own schemes,
+  ## the scheme's face in its highlight's hue in the others (`MobileStyle.bar`: that color's).
+  if mobileStyle.bar.a != 0: (mixColor(mobileStyle.bar, white, 0.22), mixColor(mobileStyle.bar, black, 0.22))
+  elif onDark() and glossOwnScheme(): (color(80, 82, 88), color(12, 12, 14))
+  elif onDark():
+    let base = mixColor(th.face, accentColor(), 0.4)
+    (mixColor(base, white, 0.2), mixColor(base, black, 0.35))
   else: (glossTint(navStops[0]), glossTint(navStops[3]))
+
+proc glossDarkFace*(): Color =
+  ## Gloss: the face of its dark parts -- the tab bar, the side menu: iOS 6's black and charcoal
+  ## in Gloss's own schemes, the bars' color made darker in the others.
+  if glossOwnScheme() and mobileStyle.bar.a == 0: color(30, 30, 33)
+  else: mixColor(glossBarColors().foot, black, 0.35)
 
 proc glossBarFill*(r: Rect) =
   ## Gloss: a navigation bar's face in `r`: iOS 6's steel blue through its four stops, a light
   ## line along its top (two: the glass catching it), a faint dark one along its foot; black
   ## gloss on a dark window.
   if r.w <= 0 or r.h <= 0: return
-  if onDark():
+  if onDark() or mobileStyle.bar.a != 0:
     let (top, foot) = glossBarColors()
     roundRectShaded(r, 0, top, foot)
     hline(r.x, r.y, r.w, withAlpha(white, 46))
@@ -594,8 +647,13 @@ proc glossBarButton*(r: Rect; pressed: bool; back = false; done = false; destruc
   ## Pressed: darker. Its label goes on it white, bold (`glossButtonStyle`), a dark line over it.
   if r.w <= 0 or r.h <= 0: return
   let dark = onDark()
+  # (on bars of the scheme's or the app's color: that color, a shade deeper)
+  let own = mobileStyle.bar.a != 0 or (dark and not glossOwnScheme())
+  let (bt, bf) = glossBarColors()
   var stops = if destructive: @redStops
               elif done: @(tinted(blueStops))
+              elif own: @[mixColor(bt, black, 0.05), mixColor(bt, bf, 0.55), mixColor(bf, black, 0.15),
+                          mixColor(bf, black, 0.3)]
               elif dark: @[color(92, 94, 100), color(58, 60, 66), color(34, 35, 39), color(20, 20, 22)]
               elif onSearch: @(tinted(cancelStops))
               else: @(tinted(steelStops))
@@ -716,6 +774,7 @@ proc buttonInk*(pressed: bool; enabled = true; primary = false): Color =
   ## and of one pressed.
   if not enabled: th.gray
   elif buttonBold() and (pressed or primary): white
+  elif primary and modernGlass(): white
   elif buttonBold(): color(60, 60, 60)
   else: th.text
 
@@ -755,6 +814,37 @@ proc softShadow*(r: Rect; radius: float; depth = 4) =
     # a frosted one does not blur its own shadow)
     roundFrame(rect(r.x - g + 1, r.y - g + 3, r.w + 2 * g - 2, r.h + 2 * g - 2), radius + float(g),
                float(g + 3), withAlpha(color(0, 0, 0), max(2, (if dark: 34 else: 12) - (if dark: 5 else: 2) * k)))
+
+proc glassPlate*(r: Rect; radius: float; back = th.field; lift = 3) =
+  ## Glass: a card standing over the window -- a group of rows, a floating tab bar, a pill of a
+  ## button: a soft shadow round it (`lift` pixels wide), faintly blue on a light window; `back`
+  ## in it, a hairline round it.
+  if r.w <= 0 or r.h <= 0: return
+  let dark = onDark()
+  let tint = if dark: black else: color(34, 64, 128)
+  for k in 0 ..< lift:
+    let g = k + 1
+    roundFrame(rect(r.x - g + 1, r.y - g + 2, r.w + 2 * g - 2, r.h + 2 * g - 2), radius + float(g),
+               float(g + 2), withAlpha(tint, max(2, (if dark: 46 else: 12) - (if dark: 10 else: 3) * k)))
+  roundRect(r, radius, if dark: mixColor(back, white, 0.09) else: mixColor(back, color(176, 190, 214), 0.45))
+  roundRect(inset(r, 1), max(0.0, radius - 1), back)
+
+proc glassBlue*(r: Rect; radius: float; pressed = false; c = Color(); glow = true) =
+  ## Glass: a vivid face in the highlight (or `c`) -- the chosen row, the default button, the
+  ## chosen segment: lit from above, a light line along its top, glowing on the window round it
+  ## (`glow`; not while `pressed`).
+  if r.w <= 0 or r.h <= 0: return
+  let c = if c.a == 0: accentColor() else: c
+  let base = if pressed: mixColor(c, black, 0.18) else: c
+  if glow and not pressed:
+    for k in 0 ..< 3:
+      let g = k + 1
+      roundFrame(rect(r.x - g, r.y - g + 2, r.w + 2 * g, r.h + 2 * g), radius + float(g),
+                 float(g + 1), withAlpha(c, 40 - 12 * k))
+  roundRectShaded(r, radius, mixColor(base, white, 0.24), mixColor(base, black, 0.12))
+  let cut = int(radius * 0.8)
+  if r.w > 2 * cut + 2 and r.h >= 6 and not pressed:
+    hline(r.x + cut, r.y + 1, r.w - 2 * cut, withAlpha(white, 84))
 
 proc glossMenuEdge*(): int =
   ## Gloss: how wide the dark frame round a popover, a menu, a dropped list is (0 in the other
@@ -827,8 +917,11 @@ proc selectFill*(r: Rect) =
     else: glossBlue(r)
     return
   if glassLook():
+    # (lit from above: lighter at its top)
     let p = rect(r.x + dp(3), r.y + 1, r.w - 2 * dp(3), r.h - 2)
-    if p.w > 0 and p.h > 0: roundRect(p, float(min(dp(6), p.h div 2)), th.select)
+    if p.w > 0 and p.h > 0:
+      roundRectShaded(p, float(min(dp(6), p.h div 2)), mixColor(th.select, white, 0.16),
+                      mixColor(th.select, black, 0.06))
     return
   fill(r, th.select)
 
@@ -863,8 +956,27 @@ proc buttonFace*(r: Rect; pressed: bool; t = 1; rounded = true; bevel = 2;
       # (the keys on it: a line of the highlight inside its edge)
       roundFrame(inset(r, 1), float(max(0, min(dp(7), r.h div 2) - 1)), 2, withAlpha(accentColor(), 150))
     return
+  if glossOnyx():
+    # (Gloss Onyx: pills of black gloss -- the default one lit in the highlight --, a light line
+    # under them on the window, lighter under the mouse)
+    let rad = float(r.h) / 2
+    roundRect(rect(r.x, r.y + 1, r.w, r.h), rad, withAlpha(white, 20))
+    let base = if primary: accentColor() else: color(36, 37, 41)
+    roundRect(r, rad, if primary: mixColor(base, black, 0.5) else: black)
+    let f = inset(r, 1)
+    if f.w > 0 and f.h > 0:
+      glossShine(f, max(0.0, rad - 1), if pressed: mixColor(base, black, 0.35)
+                                       elif hot: mixColor(base, white, 0.08) else: base, true)
+    if t >= 2 and not primary and not pressed:
+      roundFrame(inset(r, 1), max(0.0, rad - 1), 2, withAlpha(accentColor(), 170))
+    return
   if glassLook():
-    if t >= 2 and r.w > 6 and r.h > 6:
+    if primary and modernGlass():
+      # (Glass's default button: the highlight's blue, glowing, its label white -- as Gloss's
+      # is blue)
+      glassBlue(r, glassRadius(r), pressed, c = if hot and not pressed: mixColor(accentColor(), white, 0.08)
+                                               else: accentColor())
+    elif t >= 2 and r.w > 6 and r.h > 6:
       glassFace(inset(r, 1), pressed, hot, ring = withAlpha(accentColor(), 200))
     else:
       glassFace(r, pressed, hot)
@@ -977,6 +1089,9 @@ proc titleColors*(active: bool): tuple[bg, fg: Color] =
   ## A title bar's colors: navy for the window in front, white for the
   ## others (`Theme.inactiveTitle`). (Glass: the window's face with its text, the others
   ## fainter: a bar of glass, not a band of color.)
+  if active and mobileStyle.bar.a != 0:
+    return (mobileStyle.bar, if mobileStyle.barText.a != 0: mobileStyle.barText
+                             elif lumaOfColor(mobileStyle.bar) < 150: white else: color(0, 0, 0))
   if glossLook():
     return if active: (glossBar(), white) else: (mixColor(glossBar(), th.window, 0.55), mixColor(white, th.window, 0.3))
   if glassLook():
@@ -985,6 +1100,15 @@ proc titleColors*(active: bool): tuple[bg, fg: Color] =
   if active: (th.select, th.selectText)
   else: ((if th.inactiveTitle.a != 0: th.inactiveTitle else: th.window),
          (if th.inactiveTitleText.a != 0: th.inactiveTitleText else: th.text))
+
+proc statusBarColor*(): Color =
+  ## What the app draws under the system's status bar over its own bars (`appNavBars`): the top
+  ## bar's color, darker -- as iOS 6 tinted its status bar to the navigation bar --, so the
+  ## system's icons stand on the scheme's colors (`MobileStyle.statusBar`: that color).
+  if mobileStyle.statusBar.a != 0: mobileStyle.statusBar
+  elif glossLook(): mixColor(glossBarColors().foot, black, 0.3)
+  elif matteLook(): mixColor(titleColors(true).bg, black, 0.3)
+  else: mixColor(titleColors(true).bg, black, 0.1)
 
 proc titleBar*(r: Rect; active: bool) =
   ## A title bar's band in `r`, as the look draws it: one color (`titleColors`); Matte's with a
@@ -6163,7 +6287,7 @@ var dlgPage = false         # (the dialog drawn now is a page)
 
 type DialogPages* = enum
   ## How dialogs open (`dialogPages`).
-  dpAuto,      ## as pages of the app in the Gloss look on Android and iOS; else over it
+  dpAuto,      ## as pages of the app in the Glass and Gloss looks on Android and iOS; else over it
   dpPages,     ## always as pages of the app
   dpWindows    ## always as windows over the app
 
@@ -6182,7 +6306,7 @@ proc dialogsAsPages*(): bool =
   case dialogPages
   of dpPages: true
   of dpWindows: false
-  of dpAuto: (defined(android) or defined(ios)) and glossLook()
+  of dpAuto: (defined(android) or defined(ios)) and phoneLook()
 
 var pageDialogsOpen: Table[Id, tuple[opened, frame: int]]
 
@@ -6927,16 +7051,17 @@ proc captionBar*() =
       # in Matte; Glass's the window's)
       pushLayer(LayerBase)
       defer: popLayer()
-      fill(rect(0, 0, ui.w, ui.safe.top), if glossLook() or matteLook(): black
-                                          else: mixColor(th.window, th.face, 0.6))
+      fill(rect(0, 0, ui.w, ui.safe.top), statusBarColor())
     return
   pushLayer(LayerBase)
   defer: popLayer()
   let top = ui.safe.top
   let ch = ui.captionH
-  # (the newer looks: their title bar's color, Gloss's steel blue lit from above)
-  if glassLook(): titleBar(rect(0, 0, ui.w, top + ch), true)
-  else: fill(rect(0, 0, ui.w, top + ch), th.select)
+  # (the newer looks: their title bar's color, Gloss's steel blue lit from above; under the
+  # system's status bar the same, darker)
+  if glassLook(): titleBar(rect(0, top, ui.w, ch), true)
+  else: fill(rect(0, top, ui.w, ch), titleColors(true).bg)
+  if top > 0: fill(rect(0, 0, ui.w, top), statusBarColor())
   let cap = rect(ui.safe.left, top, ui.w - ui.safe.left - ui.safe.right, ch)
   let s = ch - 6
   let boxR = rect(cap.x + 3, cap.y + 3, s, s)

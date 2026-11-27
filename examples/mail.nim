@@ -38,6 +38,7 @@ include mail/ui_start
 include mail/ui_options
 include mail/ui_others
 include mail/ui_phone
+include mail/ui_touch
 include mail/ui_tools
 
 # ---- pictures from the web: a thread of their own ------------------------------------------
@@ -279,6 +280,12 @@ proc startup() =
   prefs = loadSettings("retro-mail")
   # new mail checked while the app is closed (Android: the system's job)
   scheduleBackgroundCheck(if prefBool("bgCheck", true): 15 else: 0)
+  # (a phone or a tablet: Gloss, the app's own bars -- until the look is chosen in Options)
+  appNavBars = true
+  when defined(android) or defined(ios):
+    if not prefs.hasKey("look.look"):
+      uiLook = lookGloss
+      ui.theme = GlossLight
   restoreAppearance(prefs)
   restoreWriting()
   readZoom = clamp(prefInt("zoom", 100) / 100, 0.5, 3.0)
@@ -391,7 +398,9 @@ proc mailFrame() =
       status = "The new mail marked as read"
   reload()
   if prefBool("badge", true): setBadge(unreadAll())   # (the unread count on the app's icon)
-  if isCompact():
+  if touchUi():
+    touchMail()
+  elif isCompact():
     phoneUi()
   elif composing:
     composeWindow()

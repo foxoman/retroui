@@ -33,8 +33,8 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Containers](#containers)**: [expander](#expander) · [accordionHeader](#accordionheader) · [tabStrip (document tabs)](#tabstrip-document-tabs) · [pageView, pageHeader: pages over pages](#pageview-pageheader-pages-over-pages) · [listDetail](#listdetail)
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
-- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
-- **[Phone controls](#phone-controls)**: [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [cardShelf](#cardshelf) · [pullRefresh](#pullrefresh) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [searchBar](#searchbar) · [actionBar](#actionbar) · [roundButton](#roundbutton) · [indexBar](#indexbar) · [messageBubble](#messagebubble) · [clockFace](#clockface) · [appIcon](#appicon) · [slideToConfirm](#slidetoconfirm) · [bigButton](#bigbutton) · [texture](#texture) · [vslider](#vslider) · [ratingStars](#ratingstars) · [checkRow](#checkrow) · [editRow](#editrow) · [coverFlow](#coverflow) · [sideMenu](#sidemenu)
+- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [Settings rows in a tableGroup](#settings-rows-in-a-tablegroup) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
+- **[Phone controls](#phone-controls)**: [A phone's page: navBar, searchBar, tableGroup, bottomNav](#a-phones-page-navbar-searchbar-tablegroup-bottomnav) · [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [cardShelf](#cardshelf) · [pullRefresh](#pullrefresh) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [MobileStyle, withMobileStyle](#mobilestyle-withmobilestyle) · [searchBar](#searchbar) · [actionBar](#actionbar) · [roundButton](#roundbutton) · [indexBar](#indexbar) · [messageBubble](#messagebubble) · [clockFace](#clockface) · [appIcon](#appicon) · [slideToConfirm](#slidetoconfirm) · [bigButton](#bigbutton) · [texture](#texture) · [vslider](#vslider) · [ratingStars](#ratingstars) · [checkRow](#checkrow) · [editRow](#editrow) · [coverFlow](#coverflow) · [sideMenu](#sidemenu)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
 - **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview) · [assistantPanel](#assistantpanel) · [aiServiceForm](#aiserviceform)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
@@ -1092,6 +1092,16 @@ More states:
 | Keyboard focus | Pressed | Disabled |
 |---|---|---|
 | ![segmented, keyboard focus](controls/segmented-keyboard-focus.png) | ![segmented, pressed](controls/segmented-pressed.png) | ![segmented, disabled](controls/segmented-disabled.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![segmented: Gloss](controls/segmented-gloss.png) | ![segmented: Glass](controls/segmented-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![segmented: Matte](controls/segmented-matte.png) | ![segmented: Gloss, dark](controls/segmented-gloss-dark.png) |
 
 ```nim
 var view2 = 1
@@ -5029,7 +5039,9 @@ proc settingToggle*(title: string; v: var bool; detail = "";
 ```
 
 A settings row: a title, a line or two of detail, and a switch at the
-right; a click anywhere on the row flips it. True when it changed.
+right; a click anywhere on the row flips it. True when it changed. In a `tableGroup`: a
+row of it, as a phone's settings have them (`tableSwitch`, with the detail under the
+title).
 
 ```nim
 proc settingChoice*(title: string; options: openArray[string]; v: var int;
@@ -5059,7 +5071,10 @@ proc settingCombo*(title: string; options: openArray[string]; v: var int;
                    detail = ""; enabled = true): bool {.discardable.}
 ```
 
-A settings row with a drop-down list at the right (a choice of many).
+A settings row with a drop-down list at the right (a choice of many). In a `tableGroup`: a
+row of it with the chosen one at its end and a chevron, as a phone's settings have them --
+a tap shows the choices on a page of their own (a dialog where dialogs are windows), a check
+by the chosen one; "Name (what it is)" is shown as the name, what it is under it.
 
 ```nim
 proc settingLink*(title: string; detail = ""; glyph = nfChevronRight;
@@ -5067,7 +5082,60 @@ proc settingLink*(title: string; detail = ""; glyph = nfChevronRight;
 ```
 
 A settings row that leads somewhere (another page, a dialog): true
-when clicked.
+when clicked. In a `tableGroup`: a row of it with a chevron, lit while it is pressed.
+
+### Settings rows in a tableGroup
+
+The same rows in a `tableGroup`, as a phone's settings are: a switch's row, a choice's row with the chosen one at its end and a chevron -- a tap shows the choices on a page of their own (a dialog where dialogs are windows), a check by the chosen one --, a row that leads somewhere; the details gray under the titles. `appearanceSettings` puts its rows in groups by itself with touch sizes in Glass, Matte and Gloss, the sizes with - and +.
+
+| Gloss | Glass |
+|---|---|
+| ![Settings rows in a tableGroup: Gloss](controls/settingsgroup-gloss.png) | ![Settings rows in a tableGroup: Glass](controls/settingsgroup-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![Settings rows in a tableGroup: Matte](controls/settingsgroup-matte.png) | ![Settings rows in a tableGroup: Gloss, dark](controls/settingsgroup-gloss-dark.png) |
+
+```nim
+var mailOn = true
+var checkEvery = 1
+
+tableGroup("New Mail", "Kept as they are changed."):
+  settingToggle("Notifications", mailOn, "For new messages")
+  discard settingCombo("Check every", ["1 minute", "5 minutes", "15 minutes"],
+                       checkEvery)
+  discard settingLink("Signature", "Sent from my phone")
+```
+
+**API**
+
+```nim
+proc settingToggle*(title: string; v: var bool; detail = "";
+                    enabled = true): bool {.discardable.}
+```
+
+A settings row: a title, a line or two of detail, and a switch at the
+right; a click anywhere on the row flips it. True when it changed. In a `tableGroup`: a
+row of it, as a phone's settings have them (`tableSwitch`, with the detail under the
+title).
+
+```nim
+proc settingCombo*(title: string; options: openArray[string]; v: var int;
+                   detail = ""; enabled = true): bool {.discardable.}
+```
+
+A settings row with a drop-down list at the right (a choice of many). In a `tableGroup`: a
+row of it with the chosen one at its end and a chevron, as a phone's settings have them --
+a tap shows the choices on a page of their own (a dialog where dialogs are windows), a check
+by the chosen one; "Name (what it is)" is shown as the name, what it is under it.
+
+```nim
+proc settingLink*(title: string; detail = ""; glyph = nfChevronRight;
+                  enabled = true): bool
+```
+
+A settings row that leads somewhere (another page, a dialog): true
+when clicked. In a `tableGroup`: a row of it with a chevron, lit while it is pressed.
 
 ### animated
 
@@ -5310,6 +5378,16 @@ The look of every app in a few rows: the color scheme, the size of everything, t
 |---|---|---|
 | ![appearanceSettings, normal](controls/appearance-normal.png) | ![appearanceSettings, touch screen](controls/appearance-touch-screen.png) | ![appearanceSettings, dark scheme](controls/appearance-dark-scheme.png) |
 
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![appearanceSettings: Gloss](controls/appearance-gloss.png) | ![appearanceSettings: Glass](controls/appearance-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![appearanceSettings: Matte](controls/appearance-matte.png) | ![appearanceSettings: Gloss, dark](controls/appearance-gloss-dark.png) |
+
 ```nim
 appearanceSettings()
 ```
@@ -5325,7 +5403,9 @@ Settings rows for how every app looks: the color scheme, the look of the control
 everything, the size of the text, the size of controls (for a mouse
 or fingers), the window's frame (on desktops: the system's or Windows
 3.1's), the title bars' buttons (`captionButtons`) and the font. In an
-Android or iOS app only the look, its colors, the sizes and the font. True
+Android or iOS app only the look, its colors, the sizes and the font. With touch sizes in
+Glass, Matte or Gloss: in groups, as a phone's settings are -- a choice a row with a
+chevron and a page of its own, the sizes with - and +. True
 when something changed (store them with
 `storeAppearance`; `app`'s `look` keeps them by itself).
 
@@ -5454,12 +5534,137 @@ it draws nothing.
 
 ## Phone controls
 
-What phones have and desktops can use as well (`retroui/mobile`): a navigation bar, picker
-wheels, a number with - and +, page dots, rows with actions behind them, an action sheet, a
-bottom sheet and a popover. They are drawn in every look -- the pictures show the Classic
-one; the gallery's Forms & Code > Phone page shows them in Glass, Matte and Gloss -- and work
-with the mouse, the keys, fingers and screen readers. Some show the newer looks too: Gloss as
-phones drew their controls in 2012, Glass as they draw them now, Matte flat and sharp.
+What phones have and desktops can use as well (`retroui/mobile`, brought by `import retroui`):
+a navigation bar, a tab bar, a side menu, rows in groups, a search bar, picker wheels, a number
+with - and +, page dots, rows with actions behind them, an action sheet, a bottom sheet, a
+popover, an alert and more. They are drawn in every look and work with the mouse, the keys,
+fingers and screen readers. Each control's pictures show Classic -- as it is, on a touch screen,
+in a dark scheme -- and then the phone's looks: **Gloss**, iOS 6's glossy look, the default on
+Android and iOS (in Gloss Light, Gloss Dark when the phone is dark); **Glass**, as phones draw
+them now; **Matte**, flat and sharp. In a scheme that is not Gloss's own the bars, the tab bar
+and the side menu take that scheme's colors (Dusk below); `MobileStyle` gives them colors and
+sizes of the app's own.
+
+A page of a phone app is these controls one under another, as below: the tab bar first (it
+takes the window's foot), then the navigation bar, the search bar, the groups of rows. The same
+code is a computer's window in Classic.
+
+### A phone's page: navBar, searchBar, tableGroup, bottomNav
+
+The phone controls together, as an app's page is made of them: `bottomNav` first -- the places at the window's foot --, then `navBar` (here with the side menu's button, `menu = true`, and Edit), `searchBar`, and `tableGroup`s of `tableRow`s (an icon on its tile, a count, a chevron: it leads to a page) and a `tableSwitch`. On a tablet the rows go down the left and the page chosen beside them (`tableRow(selected = true)`). Gloss in Dusk shows a scheme that is not Gloss's own coloring its bars and tab bar.
+
+| Gloss | Glass |
+|---|---|
+| ![A phone's page: navBar, searchBar, tableGroup, bottomNav: Gloss](controls/phonepage-gloss.png) | ![A phone's page: navBar, searchBar, tableGroup, bottomNav: Glass](controls/phonepage-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![A phone's page: navBar, searchBar, tableGroup, bottomNav: Matte](controls/phonepage-matte.png) | ![A phone's page: navBar, searchBar, tableGroup, bottomNav: Gloss, dark](controls/phonepage-gloss-dark.png) |
+
+| Gloss, Dusk | Glass, Dusk |
+|---|---|
+| ![A phone's page: navBar, searchBar, tableGroup, bottomNav: Gloss, Dusk](controls/phonepage-gloss-dusk.png) | ![A phone's page: navBar, searchBar, tableGroup, bottomNav: Glass, Dusk](controls/phonepage-glass-dusk.png) |
+
+```nim
+var pageFind = ""
+var pageTab = 0
+var pageAlerts = true
+
+discard bottomNav([(nfInbox, "Mail"), (nfSearch, "Search"), (nfCog, "Settings")],
+                  pageTab)
+case navBar("Mailboxes", menu = true, action = "Edit")
+of npBack:
+  discard
+of npAction:
+  discard
+of npNone:
+  discard
+searchBar(pageFind, "Search mail")
+tableGroup("Inboxes"):
+  if tableRow("All Inboxes", "", taChevron, glyph = nfInbox,
+              tint = color(38, 110, 220), count = "3").clicked:
+    discard
+  discard tableRow("Flagged", "", taChevron, glyph = nfFlag,
+                   tint = color(236, 136, 24))
+tableGroup("Settings", "Kept as they are changed."):
+  tableSwitch("New Mail Alerts", pageAlerts, glyph = nfBell,
+              tint = color(220, 60, 50))
+  discard tableRow("Signature", "Sent from my phone", taChevron)
+```
+
+**API**
+
+```nim
+proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false;
+             menu = false): NavPick
+```
+
+A phone's navigation bar, the width of the row: the page's `title` in the middle, bold;
+a Back button before it (`back`: its label, a chevron before it; "" for none) and a
+button after it (`action`). Returns what was pressed. Alt+Left is Back too. Classic: a
+raised bar; Glass and Matte: the title bar's, its buttons' labels in the highlight; Gloss:
+the glossy blue-gray bar, white title, bordered buttons, Back with a point. `done`: the
+action is the one that finishes the page (Done, Save): blue in Gloss, filled in Matte.
+`menu` (with no `back`): the button at its start is three lines -- the app's `sideMenu` --
+and returns `npBack`. (With a `PageStack`, `pageHeader` says Back by itself.)
+
+```nim
+proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discardable.}
+```
+
+The navigation bar of a phone app at the bottom of the window: a glyph
+and a label per place (`[(nfHome, "Home"), (nfSearch, "Search")]`).
+Call it before the content (like `statusbar`). True when `sel` changed.
+While the on-screen keyboard is up it is left out, as phone apps leave it (`keyboardUp`).
+
+```nim
+proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool {.discardable.}
+```
+
+A phone's search bar, the width of the row: the search box on its bar, and while it has
+the keys or text, `cancel` beside it -- it empties the box and lets the keyboard go ("":
+none). True when the text changed. Gloss: the steel-blue bar, a capsule in it.
+
+```nim
+template tableGroup*(header, footer: string; body: untyped)
+```
+
+Rows (`tableRow`, `tableSwitch`, `tableButton`) in a group, as a phone's settings show
+them: `header` over it, `footer` (a note) under it. Gloss: a white rounded group with a gray
+line round it on the window, a line between its rows; Glass: a rounded card; Matte:
+full-width rows, the header in the highlight; Classic: a sunk white field.
+
+```nim
+template tableGroup*(header: string; body: untyped)
+```
+
+A group of rows with a header and no footer (see the other `tableGroup`).
+
+```nim
+proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subtitle = "";
+               enabled = true; key = ""; picture: Bitmap = nil; tint = Color();
+               selected = false; count = ""): TableHit
+```
+
+A row of a `tableGroup`: an icon (`glyph`, an icon font's -- Gloss and Glass draw it white
+on a rounded tile, gray or `tint`) or a `picture` (a cover, a face: square, its corners
+rounded), its `title`, a gray
+`subtitle` under it, a `detail` at its end (Gloss: in its blue-gray, as values were
+written), and an `accessory` -- a chevron (it leads to another page), a check mark (the
+one chosen) or an info button. A click, a tap, Enter or Space: `clicked`; the info
+button: `info`. `key`: its own id (rows of the same title). `selected`: the row whose
+page is shown beside the list (a tablet's): drawn chosen -- Gloss's blue. `count`: a
+number in a capsule before the end ("3" unread; Gloss: iOS 6's slate gray, white on it).
+A right click or a finger held on it: `menu` -- the app shows what can be done to it (an
+`actionSheet`).
+
+```nim
+proc tableSwitch*(title: string; v: var bool; glyph = ""; subtitle = ""; enabled = true;
+                  tint = Color()): bool {.discardable.}
+```
+
+A row of a `tableGroup` with a switch at its end (Wi-Fi, Airplane Mode): a click or a tap
+on the row or the switch flips it, Space too. True when `v` changed.
 
 ### navBar
 
@@ -5619,6 +5824,16 @@ More states:
 |---|---|
 | ![quantity, keyboard focus](controls/quantity-keyboard-focus.png) | ![quantity, disabled](controls/quantity-disabled.png) |
 
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![quantity: Gloss](controls/quantity-gloss.png) | ![quantity: Glass](controls/quantity-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![quantity: Matte](controls/quantity-matte.png) | ![quantity: Gloss, dark](controls/quantity-gloss-dark.png) |
+
 ```nim
 var basket = 3
 
@@ -5720,6 +5935,16 @@ On a touch screen a page pulled down past its top, and let go, asks for fresh co
 |---|---|---|
 | ![pullRefresh, normal](controls/pullrefresh-normal.png) | ![pullRefresh, touch screen](controls/pullrefresh-touch-screen.png) | ![pullRefresh, dark scheme](controls/pullrefresh-dark-scheme.png) |
 
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![pullRefresh: Gloss](controls/pullrefresh-gloss.png) | ![pullRefresh: Glass](controls/pullrefresh-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![pullRefresh: Matte](controls/pullrefresh-matte.png) | ![pullRefresh: Gloss, dark](controls/pullrefresh-gloss-dark.png) |
+
 ```nim
 var inboxLoading = true
 
@@ -5755,6 +5980,16 @@ More states:
 | Keyboard focus |
 |---|
 | ![swipeRow, keyboard focus](controls/swiperow-keyboard-focus.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![swipeRow: Gloss](controls/swiperow-gloss.png) | ![swipeRow: Glass](controls/swiperow-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![swipeRow: Matte](controls/swiperow-matte.png) | ![swipeRow: Gloss, dark](controls/swiperow-gloss-dark.png) |
 
 ```nim
 var inbox = @["Al Noor Trading", "Sohar Port"]
@@ -5980,6 +6215,8 @@ one chosen) or an info button. A click, a tap, Enter or Space: `clicked`; the in
 button: `info`. `key`: its own id (rows of the same title). `selected`: the row whose
 page is shown beside the list (a tablet's): drawn chosen -- Gloss's blue. `count`: a
 number in a capsule before the end ("3" unread; Gloss: iOS 6's slate gray, white on it).
+A right click or a finger held on it: `menu` -- the app shows what can be done to it (an
+`actionSheet`).
 
 ```nim
 proc tableSwitch*(title: string; v: var bool; glyph = ""; subtitle = ""; enabled = true;
@@ -5995,6 +6232,61 @@ proc tableButton*(title: string; destructive = false; enabled = true): bool
 
 A row of a `tableGroup` that does something at once (Sign Out, Reset): its title in the
 middle -- red when `destructive`. True when clicked.
+
+### MobileStyle, withMobileStyle
+
+The phone controls in colors and sizes of the app's own, past the scheme and the look, as `withTheme` does for every control: the bars at the top and the status bar over them, the tab bar, the side menu, a group's face and corners, the lines between its rows, a row's words, its value and its height (`MobileStyle`; a color with alpha 0, a size 0: the look's own). `mobileStyle` for the whole app, `withMobileStyle` for a part of it. Without one, Gloss's bars, tab bar and side menu take the scheme's colors -- iOS 6's steel blue and black in Gloss's own schemes (`glossOwnScheme`) -- and the status bar the top bar's, darker (`statusBarColor`, `glossDarkFace`).
+
+| Gloss | Glass |
+|---|---|
+| ![MobileStyle, withMobileStyle: Gloss](controls/mobilestyle-gloss.png) | ![MobileStyle, withMobileStyle: Glass](controls/mobilestyle-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![MobileStyle, withMobileStyle: Matte](controls/mobilestyle-matte.png) | ![MobileStyle, withMobileStyle: Gloss, dark](controls/mobilestyle-gloss-dark.png) |
+
+```nim
+var wifiOn = true
+
+withMobileStyle(MobileStyle(bar: color(150, 30, 60),
+                            group: color(255, 248, 240),
+                            rowText: color(60, 20, 30),
+                            rowDetail: color(150, 30, 60), groupCorner: 14)):
+  discard navBar("Settings", back = "Back")
+  tableGroup "":
+    tableSwitch("Wi-Fi", wifiOn)
+    discard tableRow("Bluetooth", "On", taChevron)
+```
+
+**API**
+
+```nim
+template withMobileStyle*(s: MobileStyle; body: untyped)
+```
+
+Draws `body` with the phone controls in `s` (`MobileStyle`), then as they were.
+
+```nim
+proc statusBarColor*(): Color
+```
+
+What the app draws under the system's status bar over its own bars (`appNavBars`): the top
+bar's color, darker -- as iOS 6 tinted its status bar to the navigation bar --, so the
+system's icons stand on the scheme's colors (`MobileStyle.statusBar`: that color).
+
+```nim
+proc glossOwnScheme*(): bool
+```
+
+Gloss in a scheme of its own (Gloss Light, Gloss Dark, Gloss Onyx): iOS 6's steel blue and
+black bars. In another scheme the bars, the tab bar and the side menu take its colors.
+
+```nim
+proc glossDarkFace*(): Color
+```
+
+Gloss: the face of its dark parts -- the tab bar, the side menu: iOS 6's black and charcoal
+in Gloss's own schemes, the bars' color made darker in the others.
 
 ### searchBar
 
@@ -6391,6 +6683,16 @@ A surface drawn in code, in every look: linen, lined paper, felt, stitched leath
 |---|
 | ![texture, normal](controls/texture-normal.png) |
 
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![texture: Gloss](controls/texture-gloss.png) | ![texture: Glass](controls/texture-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![texture: Matte](controls/texture-matte.png) | ![texture: Gloss, dark](controls/texture-gloss-dark.png) |
+
 ```nim
 discard
 
@@ -6626,6 +6928,16 @@ Covers in a row, the chosen one in the middle facing you, the others turned away
 | Normal | Touch screen |
 |---|---|
 | ![coverFlow, normal](controls/coverflow-normal.png) | ![coverFlow, touch screen](controls/coverflow-touch-screen.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![coverFlow: Gloss](controls/coverflow-gloss.png) | ![coverFlow: Glass](controls/coverflow-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![coverFlow: Matte](controls/coverflow-matte.png) | ![coverFlow: Gloss, dark](controls/coverflow-gloss-dark.png) |
 
 ```nim
 discard
@@ -9750,7 +10062,7 @@ message, something done, a warning, an error. Made here, no files.
 
 ### videoView
 
-A video with play, pause, a position bar and the time: a file or a web address (HLS where the system plays it), played by the system's own player and drawn by the kit in the window -- Media Foundation on Windows, AVFoundation on macOS and iOS, GStreamer on Linux, Android's VideoView. Space plays and pauses.
+A video with play, pause, a position bar and the time: a file or a web address (HLS where the system plays it), played by the system's own player and drawn by the kit in the window -- Media Foundation on Windows, AVFoundation on macOS and iOS, GStreamer on Linux, Android's VideoView. Space plays and pauses. `videoFullScreen(key, true)` gives it the whole screen: on Android the phone turned on its side, the system's bars out of the way.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -9791,6 +10103,15 @@ proc closeVideo*(key: string)
 
 Lets the player of the `videoView` (or `audioView`) with this `key`
 (or path) go.
+
+```nim
+proc videoFullScreen*(key: string; on: bool)
+```
+
+The `videoView` of `key` given the whole screen by the app (its `videoView` drawn as big as
+the window): on Android the phone turned on its side and the system's bars out of the way
+(they come back with a swipe from the edge); `on` false: the phone as it was. Elsewhere
+nothing more is needed than the video drawn as big as the window.
 
 ### cameraView
 
@@ -10408,6 +10729,10 @@ the window, the fields, the buttons and the highlight (4.5 to 1 or more).
 | Gloss Light | Gloss Dark |
 |---|---|
 | ![Themes: Gloss Light](controls/themes-gloss-light.png) | ![Themes: Gloss Dark](controls/themes-gloss-dark.png) |
+
+| Gloss Onyx |
+|---|
+| ![Themes: Gloss Onyx](controls/themes-gloss-onyx.png) |
 
 ### A look of your own
 

@@ -683,7 +683,7 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   build their steps through procs (a template's parameter named like an
   object's field replaces the field's name too).
 - **AI goes through the user's own service, off until it is set**
-  (`retroui/aiconnect`, `retroui/aichat`, `retroui/aiimage`,
+  (`retroui/aiconnect`, `retroui/aichat`, `retroui/aiimage`, `retroui/comfyui`,
   `retroui/aivector`): nothing is sent before; what a service answers is
   data -- an SVG it draws is kept to shapes (`safeSvg`) before it is read; keys in `retroui/secrets`, never in a settings file. A tool
   that changes something `confirm`s (the assistant asks; Allow All for the
@@ -803,11 +803,35 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   text from the examples' and parts' words there and the doc comments of
   the code: never edit the guide by hand -- the next full make loses it.
   `SHOTS_ONLY=name ./shots` draws one example's pictures again.
-- **On Android and iOS, Gloss is an app of the phone's**: dialogs are pages
-  (`beginPageDialog` behind `beginDialog`; a `msgBox` stays an alert:
-  `dlgAlert`), controls are finger-sized on tablets too (`fingers`; the
-  metrics fitted again when `uiLook` changes), Appearance has the look,
-  its colors, the sizes and the font only (`phoneSystem` in extras.nim).
+- **On Android and iOS, Glass and Gloss are apps of the phone's**
+  (`phoneLook`): dialogs are pages (`beginPageDialog` behind `beginDialog`;
+  a `msgBox` stays an alert: `dlgAlert`), controls are finger-sized on
+  tablets too (`fingers`; the metrics fitted again when `uiLook` changes),
+  Appearance has the look, its colors, the sizes ("Controls", to choose the
+  desktop's back) and the font only (`phoneSystem` in mobile.nim), and the
+  look's own colors follow the system's light or dark (`systemColors`,
+  `followSystemColors` from `appFrameDone`; an app's own theme stays).
+  Glass draws itself from `glassPlate` (a card's face and soft shadow) and
+  `glassBlue` (the highlight lit, glowing): a sheet's glass is the scheme's
+  (`sheetGlass`: smoked on a dark window, never a light card there), and a
+  card is lighter than a dark window, not darker. Gloss Onyx (`glossOnyx`)
+  is Gloss's third scheme, not Gloss Dark: its floating tab bar and pill
+  buttons are its own.
+- **The default look is Classic on computers and the web, Gloss on Android
+  and iOS** (`uiLook`, `ui.theme` in core.nim). A phone control takes its
+  colors from the scheme -- in Gloss's own schemes (`glossOwnScheme`) iOS
+  6's steel blue and black, in any other the scheme's (`glossBarColors`,
+  `glossDarkFace`); the status bar over the app's bars is `statusBarColor`
+  (the top bar's, darker) -- and from `MobileStyle` (`mobileStyle`,
+  `withMobileStyle`) before both: a new color or size a phone control draws
+  goes there, alpha 0 or 0 the look's own, never a constant the app can't
+  change. Keep Gloss's own schemes drawn exactly as iOS 6 (the pictures of
+  docs/controls.md show it).
+- **The settings rows are a phone's in a `tableGroup`** (mobile.nim:
+  `settingRow` takes the group's row face): `settingCombo` there is a row
+  with its value and a chevron opening a page of choices (`choicePage`, a
+  dialog: a page on phones). `appearanceSettings` puts its rows in groups by
+  itself with touch sizes in Glass, Matte or Gloss.
   The touch behaviors of a page -- its ends stretched (`pullStep`, by the
   kit's own pan: `panAlong`, `panOwner`, `dragsActive`), `pullRefresh`,
   `scrollHint`, the long page's thumb (`fastScroll`), Back by a swipe
@@ -829,8 +853,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   a number in both and a case in each.
 - **Retro Music uses the services' own ways only**: Spotify's Web API and
   Spotify Connect (the user's own developer app; Spotify's apps play),
-  the YouTube Data API (signed in with Google through the user's own
-  Desktop app client, `youtube.readonly`) and YouTube's embedded player
+  the YouTube Data API (signed in with Google through the app's own Desktop
+  client given when it is built -- `RETRO_MUSIC_GOOGLE_ID`/`_SECRET`, else
+  Retro Mail's, examples/music/appids.nim -- or the user's own, `youtube.readonly`)
+  and YouTube's embedded player
   (the IFrame Player API, its page from the app's address -- `webPageBase`,
   the package on Android -- and on the screen while it plays: paused away
   from it), LrcLib. The free sources are read through their public APIs:
@@ -839,7 +865,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   Piped or Invidious --, Radio Browser (the stations' own streams), Audius'
   API (its own stream address, with the app's name), the Internet
   Archive's search, metadata and downloads, and the Subsonic API of the
-  user's own server (the password's salted hash, never the password).
+  user's own server (the password's salted hash, never the password). TV is
+  the Free-TV list (github.com/Free-TV/IPTV), fetched when TV is opened and
+  never kept in the app or the repository, the channels' own streams played
+  by the system's player (`videoView`); a channel's logo is fetched as it
+  shows, never bundled.
   Never a re-implementation of a service's protocol, a stream pulled from
   private endpoints, audio taken from YouTube's player, or anything that
   gets around copy protection.

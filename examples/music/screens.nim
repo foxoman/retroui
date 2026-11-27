@@ -13,12 +13,12 @@ import std/[json, strutils, tables, times, os, uri]
 import retroui
 import retroui/[oauth, secrets, jobs, http, jpeg, imaging, webp]
 import retroui/uirelays/input
-import api, local, online, sources
-export local, online
+import api, local, online, sources, tv, appids
+export local, online, tv
 
 const
   AppKey* = "RetroMusic"
-  MusicVersion* = "2.0.0"
+  MusicVersion* = "2.1.0"
   AppOrigin* = "https://net.foxoman.retromusic"
     ## (the app's address for YouTube's player: its identifier, as YouTube asks)
 
@@ -100,7 +100,15 @@ proc spotifyProvider(): OAuthProvider =
 
 proc signedIn*(): bool = tokens.accessToken.len > 0
 
-proc googleProviderOf(): OAuthProvider = googleProvider(googleId, googleSecret, YouTubeScopes)
+proc ownGoogle(): bool = googleId.len > 0 and googleSecret.len > 0
+  ## (a Google client of your own given: it signs in, not the app's)
+
+proc builtinGoogle*(): bool = builtinGoogleId.len > 0 and builtinGoogleSecret.len > 0
+  ## This build has the app's own Google client: Sign In with Google, nothing to set up.
+
+proc googleProviderOf(): OAuthProvider =
+  if ownGoogle(): googleProvider(googleId, googleSecret, YouTubeScopes)
+  else: googleProvider(builtinGoogleId, builtinGoogleSecret, YouTubeScopes)
 
 proc googleIn*(): bool = gTokens.accessToken.len > 0
   ## Signed in with Google: YouTube's library, and its search without a key.
@@ -121,6 +129,7 @@ proc loadSettings*() =
     try: gTokens = toTokens(parseJson(g)) except CatchableError: discard
   loadLibrary()
   loadOnline()
+  loadTv()
   try:
     for it in parseJson(readFile(savedPath())).getElems:
       saved.add Track(source: srcYouTube, id: it{"id"}.getStr, uri: it{"uri"}.getStr,
@@ -424,13 +433,14 @@ stopOthers = proc () =
 
 const
   Sections* = ["Home", "Search", "Library", "Settings", "YouTube Music", "Radio", "Audius",
-               "Internet Archive", "My Server", "Spotify"]
+               "Internet Archive", "My Server", "Spotify", "TV"]
   SecYouTube* = 4
   SecRadio* = 5
   SecAudius* = 6
   SecArchive* = 7
   SecServer* = 8
   SecSpotify* = 9
+  SecTV* = 10
 
 proc goSection*(i: int) =
   ## (one of the places, at its first page; the side menu in again)
@@ -439,6 +449,7 @@ proc goSection*(i: int) =
   libraryPage = ""
   settingsPage = ""
   onlinePage = ""
+  tvPage = ""
   menuOpen = false
 
 proc goLocal(page: string) =
@@ -977,10 +988,29 @@ proc youtubeGuide() =
     discard tableRow("YouTube Music", "Ready", glyph = nfPlay, tint = color(226, 30, 30))
   tableGroup("Piped Server", "Leave it as it is for the public ones; your own Piped server answers faster."):
     if tableRow("Server", if pipedOwn.len > 0: pipedOwn else: "The public ones", taChevron).clicked: askPiped()
-  tableGroup("Advanced: Your Google Account",
-             "Only for your own YouTube playlists and the songs you like in Library: it needs a Google " &
-             "Cloud project of your own, made once (free)."):
-    discard tableRow("Google", youtubeState())
+  if builtinGoogle():
+    # (this build has the app's own Google client: one tap, your browser, done)
+    tableGroup("Your Google Account",
+               "Your own YouTube playlists and the songs you like, in Library. Your browser opens " &
+               "Google's page: sign in, and allow Retro Music to see your YouTube account."):
+      discard tableRow("Google", youtubeState(), glyph = nfUser, tint = color(66, 133, 244))
+      if googleIn():
+        if tableButton("Sign Out", destructive = true):
+          gTokens = OAuthTokens()
+          keepGoogle()
+          ytPlaylists.setLen(0)
+          ytLiked.setLen(0)
+          ytAsked = (false, false)
+      elif gSignIn != nil:
+        discard tableRow("Signing in...", "in your browser")
+        if tableButton("Cancel"): gSignIn.cancel()
+      elif tableButton("Sign In with Google"):
+        gSignIn = beginSignIn(googleProviderOf())
+  tableGroup(if builtinGoogle(): "Advanced: A Google Project of Your Own" else: "Advanced: Your Google Account",
+             if builtinGoogle(): "Only when you want your own Google Cloud project to sign in with, not the app's."
+             else: "Only for your own YouTube playlists and the songs you like in Library: it needs a Google " &
+                   "Cloud project of your own, made once (free)."):
+    if not builtinGoogle(): discard tableRow("Google", youtubeState())
     if tableButton(if ytAdvanced: "Hide the Steps" else: "Show the Steps"): ytAdvanced = not ytAdvanced
   if not ytAdvanced: return
   tableGroup("1. A Google Cloud project",
@@ -1135,6 +1165,7 @@ proc pageTitle*(): string =
   elif tab == 3 and settingsPage == "spotify": "Spotify"
   elif tab == 3 and settingsPage == "youtube": "YouTube Music"
   elif tab == 3 and settingsPage == "appearance": "Appearance"
+  elif tab == SecTV: tvTitle()
   elif tab in SecYouTube .. SecServer and onlinePage.len > 0:
     if onlinePage == "yt:list" and ytShelfName.len > 0: ytShelfName
     elif onlineTitle(onlinePage).len > 0: onlineTitle(onlinePage)
@@ -1148,6 +1179,7 @@ proc backLabel(): string =
     localTitle(localParent(libraryPage))
   elif tab in [2, SecSpotify] and libraryPage.len > 0: Sections[tab]
   elif tab == 3 and settingsPage.len > 0: "Settings"
+  elif tab == SecTV: tvBack()
   elif tab in SecYouTube .. SecServer and onlinePage.len > 0:
     let p = onlineParent(onlinePage)
     if p.len > 0: onlineTitle(p)
@@ -1161,6 +1193,7 @@ proc goBack() =
   elif tab == 2: libraryPage = (if libraryPage.startsWith("local:"): localParent(libraryPage) else: "")
   elif tab == SecSpotify: libraryPage = ""
   elif tab in SecYouTube .. SecServer: onlinePage = onlineParent(onlinePage)
+  elif tab == SecTV: tvPage = ""
   else: settingsPage = ""
 
 proc spotifyScreen() =
@@ -1194,6 +1227,7 @@ proc page() =
   of SecAudius: audiusPage(onlinePage, goOnline)
   of SecArchive: archivePage(onlinePage, goOnline)
   of SecServer: serverPage(onlinePage, goOnline)
+  of SecTV: tvScreen()
   else: spotifyScreen()
 
 proc ourPlayer(area: Rect) =
@@ -1276,6 +1310,7 @@ proc pageBody(margin: int) =
     ui.m.gap = g
   beginPanel(-1, "music:" & $tab & ":" & $nowOpen & libraryPage & settingsPage & onlinePage, plain = true)
   if not nowOpen and tab in [0, 2, SecSpotify] and pullRefresh(libraryLoading()): reloadLibrary()
+  if not nowOpen and tab == SecTV and pullRefresh(tvState == 1): tvState = 0     # (the list asked again)
   if margin > 0:
     let (fx, _) = layoutOrigin()
     pushFrame(rect(fx + margin, layoutY() + dp(4), layoutWidth() - 2 * margin, 0))
@@ -1286,6 +1321,7 @@ proc pageBody(margin: int) =
 const MenuParts = [("Music", @[(0, nfHome), (1, nfSearch), (2, nfList)]),
                    ("Free to Listen", @[(SecYouTube, nfPlay), (SecRadio, nfWifi), (SecAudius, nfBolt),
                                         (SecArchive, nfArchive)]),
+                   ("Free to Watch", @[(SecTV, nfVideo)]),
                    ("Your Accounts", @[(SecServer, nfServer), (SecSpotify, nfMusic)]),
                    ("Options", @[(3, nfCog)])]
   ## (the places, in the side menu's sections -- as the music apps of 2012 had them)
@@ -1299,6 +1335,7 @@ proc menuItems() =
       let detail = if sec == SecServer and serverOk == 1: "on"
                    elif sec == SecSpotify and signedIn(): "on"
                    elif sec == SecRadio and favStations.len > 0: $favStations.len
+                   elif sec == SecTV and tvFavs.len > 0: $tvFavs.len
                    else: ""
       if sideMenuItem(Sections[sec], g, detail, selected = tab == sec and not nowOpen, key = "sec" & $sec):
         goSection(sec)
@@ -1362,6 +1399,9 @@ proc splitView() =
   vline(x0 + mw, top, h, if glossLook() or lumaOfColor(ui.theme.window) < 128: color(0, 0, 0)
                          else: mixColor(ui.theme.window, ui.theme.text, 0.2))
   let right = rect(x0 + mw + 1, top, w - mw - 1, h)
+  if tvOpen:
+    tvPlayer(right)
+    return
   if ourPlayerShown():
     ourPlayer(right)
     return
@@ -1374,11 +1414,12 @@ proc phoneView() =
   ## A phone's: one page under its navigation bar -- at a place's first page the menu button,
   ## the side menu sliding out --, what plays at the foot; our own player's Now Playing drawn
   ## whole.
-  if ourPlayerShown():
+  if tvOpen or ourPlayerShown():
     # (the status bar's band and the gesture area black, as the player is)
     fill(rect(ui.winX, 0, ui.w, ui.barY), color(0, 0, 0))
     fill(rect(ui.winX, ui.bottom, ui.w, ui.h - ui.bottom), color(0, 0, 0))
-    ourPlayer(rect(ui.winX, ui.barY, ui.w, ui.bottom - ui.barY))
+    if tvOpen: tvPlayer(rect(ui.winX, ui.barY, ui.w, ui.bottom - ui.barY))
+    else: ourPlayer(rect(ui.winX, ui.barY, ui.w, ui.bottom - ui.barY))
   else:
     miniPlayer()
     let back = backLabel()
@@ -1396,6 +1437,7 @@ proc musicView*() =
   ## The whole window, every frame.
   pollServices()
   pollOnline()
+  pollTv()
   localFrame()
   if onlineNote.len > 0:
     message = onlineNote

@@ -292,6 +292,7 @@ proc psMenus() =
       ci("Remove with Its Shado&w", "Remove with Its Shadow", enabled = sel and d.mode in editModes)
       ci("&Generative Fill...", "Generative Fill...", enabled = sel and d.mode in editModes)
       ci("Generative E&xpand...", "Generative Expand...", enabled = some and d.mode in editModes)
+      ci("Generative &Remove...", "Generative Remove...", enabled = sel and d.mode in editModes)
       ci("Generate &Image...", "Generate Image...", enabled = some and d.mode in editModes)
       ci("Generate &Vector...", "Generate Vector...", enabled = some and d.mode in editModes)
       psSub "Generati&ve Edits":

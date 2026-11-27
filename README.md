@@ -9,6 +9,17 @@ apps for **Windows, macOS, Linux, Android, iOS and the web** from one code
 base, and packs them for the stores itself. The
 package and its module are called `retroui`: `nimble install retroui`, `import retroui`.
 
+**Every platform, a look for each.** On a computer an app comes up in
+Windows 3.1's look (Classic); on a phone or a tablet (Android, iOS) in iOS 6's
+glossy look (Gloss), light or dark as the phone is. Neither is the only one:
+four looks -- Classic, Glass, Matte and Gloss -- go with any of 35 color
+schemes, and the user picks them in the app's Appearance settings
+(`appearanceSettings`), the developer with `uiLook` and `theme`. The phone
+controls take the scheme's colors -- their bars, the status bar over them,
+the tab bar, the side menu -- and an app gives them colors and sizes of its own
+with `MobileStyle`, as it does the desktop's controls with `Theme` and
+`withTheme`.
+
 **Try it live: [foxoman.github.io/retroui](https://foxoman.github.io/retroui/)** --
 Retro Atelier and the Control Gallery running in your browser, built from the
 latest version (`.github/workflows/pages.yml`).
@@ -281,7 +292,44 @@ scheme -- its own Glass Light and Glass Dark, made for it, or any other
 -- but the high-contrast ones, which keep their clear black and white
 edges. Its menus, dialogs and the lists a combo box drops down are real
 frosted glass: what is under them shows through, blurred ("See-through
-menus and dialogs" in the Appearance settings turns it off).
+menus and dialogs" in the Appearance settings turns it off). Its own
+schemes are a light blue-white with white cards standing on it in a soft
+shadow, and a deep blue-black with smoked cards lighter than it; the
+highlight's blue is lit from above and glows on the window -- the default
+button, a chosen row (a pill in its card), the chosen segment, a switch
+on. On a phone or a tablet its navigation bar's buttons are pills of glass,
+its tab bar a capsule floating over the window's foot, its side menu a card
+of frosted glass over the page, its sheets and alerts white or smoked glass
+as the scheme is. On Android and iOS it acts as Gloss does: touch sizes on
+a tablet too, dialogs as pages.
+
+**The default look.** `uiLook` is Classic (Windows 3.1's) on Windows, macOS,
+Linux and the web, and Gloss (iOS 6's) on Android and iOS, in Gloss Light or
+Gloss Dark; an app sets its own before it starts (`uiLook = lookClassic`:
+Retro Atelier and BMI Studio keep their own looks on a tablet too), and the
+user's choice in Appearance wins.
+
+**Light or dark as the system.** On Android and iOS the look's own colors
+follow the phone's dark theme by themselves, changing over when it does
+(`systemColors`; "Light or dark as the system" in Appearance -- picking a
+scheme turns it off). An app's own theme stays as it is.
+
+**Appearance as a phone's settings.** With touch sizes in Glass, Matte or
+Gloss, `appearanceSettings` draws its rows in groups, as phones had their
+settings: Look, Color scheme and Light or dark as the system; the sizes with -
+and +; the font. A choice is a row with the chosen one at its end; a tap shows
+the choices on a page of their own, a check by the chosen one. The settings
+rows (`settingToggle`, `settingCombo`, `settingLink`...) do the same in a
+`tableGroup` of an app's own.
+
+**The phone controls in the scheme's colors, or the app's.** In Gloss a
+scheme of its own keeps iOS 6's steel blue and black bars; any other scheme
+colors the bars, the tab bar and the side menu (Dusk's in its purples), and the
+status bar over the app's bars is the top bar's color, darker, in every look
+(`statusBarColor`). `MobileStyle` -- set `mobileStyle`, or `withMobileStyle`
+for a part of the window -- gives the bars, the status bar, the tab bar, the
+side menu, a group's face, corners and lines, a row's words, value and height
+colors and sizes of the app's own; what is left out stays the look's.
 
 **Matte and Gloss.** Two more looks, at the same sizes. `lookMatte` is
 flat and sharp: one color a face with a thin line round it, small
@@ -297,8 +345,10 @@ chips as tokens, the window's pinstripes if you want them (`glossPinstripes`), a
 progress bar, the stepper in one piece, popovers in a dark frame, menus
 that open as popover lists -- its bars and blue parts in the hue of
 whatever color scheme you pick. Each has a light and a dark scheme of its own
-(Matte Light, Matte Dark, Gloss Light, Gloss Dark); a control of your own
-asks `matteLook()` or `glossLook()`.
+(Matte Light, Matte Dark, Gloss Light, Gloss Dark), and Gloss a third:
+Gloss Onyx, black with a crimson highlight, its tab bar a capsule of black
+gloss floating over the window and its buttons pills of black gloss; a
+control of your own asks `matteLook()`, `glossLook()` or `glossOnyx()`.
 
 **Surfaces: frosted glass, shadows, masks.** `surface frostedSurface(): ...`
 is a panel of frosted glass over whatever is under it -- a photo, a map --
@@ -547,13 +597,13 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   finger drags items. Hover effects appear only for a real mouse; Glass
   and Matte light text boxes, check boxes and radio buttons under it.
 - **Looks.** The 3.1 look (bevels, X check boxes, navy selections, group
-  boxes, bold menus) in thirty-four color schemes (`builtinThemes`:
+  boxes, bold menus) in thirty-five color schemes (`builtinThemes`:
   Classic, Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper,
   High Contrast, High Contrast White, Midnight, Emerald, Rose, Slate,
   Mahogany, Amber, Green Screen, ten made for a phone's screen, from
   white to dark: Notes, Snow, Mint, Sky, Blossom, Lavender, Sunset,
-  Graphite, Dusk, Night Notes, and a light and a dark one for each of the
-  Glass, Matte and Gloss looks), or your own `Theme` (`ui.theme = Dark`).
+  Graphite, Dusk, Night Notes, a light and a dark one for each of the
+  Glass, Matte and Gloss looks, and Gloss Onyx), or your own `Theme` (`ui.theme = Dark`).
   A window with a look of its own is still the kit's controls, by their
   options: the accent button (`button("Save", accent = true)`), a text
   style and a height for buttons and number boxes, groups with a title
@@ -794,7 +844,9 @@ app "Notes", 420, 300:
   lets it work the app's own controls by their names. `publishTools`
   offers the tools to agents outside the app, which `retrokit mcp PORT`
   serves over MCP -- any app worked by an AI agent. `retroui/aiimage`:
-  pictures from words, and a picture changed where a mask says.
+  pictures from words, a picture changed where a mask says, something
+  taken out -- through OpenAI's images API or a ComfyUI server on your own
+  computer (`retroui/comfyui`, reached from a phone over your network).
   `retroui/aivector`: vector art from words -- a subject, a scene, an icon,
   a pattern -- as an SVG of plain shapes kept to what draws (`safeSvg`:
   no scripts, pictures, links or styles), placed as shapes to edit
@@ -1988,7 +2040,7 @@ drawing (`fill`, `box`, `line`, `text`, `disc`, `polygon`…).
 
 ![Retro Mail: All Inboxes in threads, tags, the conversation in the preview pane](docs/mail.png)
 
-`examples/mail.nim` is **Retro Mail 1.4.0**: Outlook Express 4 to look at and to
+`examples/mail.nim` is **Retro Mail 1.5.0**: Outlook Express 4 to look at and to
 use, with what the new Outlook does, for Microsoft 365, Outlook.com and Gmail
 -- and any other provider through IMAP (new mail the moment it comes),
 POP3, JMAP (Fastmail) or a company's own Exchange (EWS). Its mail is kept
@@ -2034,9 +2086,16 @@ Folders (Outlook Express's mail imported), spelling and AutoCorrect in
 English and Arabic, Summarize and Translate with your own key, Print with a
 preview, Properties and Message Source, Find Message, Search Folders,
 Unsubscribe, Block Sender, Ignore Conversation, My Templates, the new-mail
-sound; on a phone,
+sound; on a phone in the 3.1 look,
 swipe a message right to archive it, left to delete it, hold one to choose
-several, pull to refresh. Adding an account is your address and Enter: the browser opens the
+several, pull to refresh. On a phone or a tablet in Glass, Matte or Gloss
+(a phone starts in Gloss) it is a phone's mail as 2012 drew it: Mailboxes
+with each inbox's unread, a folder's messages with their blue dots, one
+message with "3 of 9" and its arrows, names in capsules, sheets for Flag,
+Mark as Unread and Reply, writing with Cancel and Send, Settings in groups as
+a phone's (the accounts, when mail comes, reading, writing, what is kept safe,
+Appearance; the rest in More Options); on a tablet the
+list down the left, the message beside it. Adding an account is your address and Enter: the browser opens the
 right sign-in page, done (`docs/retromail.md`: the app registrations a build
 carries, made once); for any other provider, the password, and the servers
 are found -- IMAP, POP3, JMAP or Exchange, and where the provider wants an
@@ -2820,7 +2879,11 @@ bar (DNS, Servers, Favourites, More), a navigation bar, pages that slide
 in, the servers in rows in groups with a switch for the VPN -- in Gloss,
 the look its APK starts in, as phone apps were drawn in 2012. On a tablet
 the sections are a list down the left, the page of the one picked beside
-it.
+it. Since 1.9 its DNS page opens with the state -- Protected or not, where
+the lookups go, the VPN's numbers -- and a big Connect; Encryption
+(Automatic, HTTPS, TLS), the fastest servers from here numbered, a server
+held for Connect, Test, Favourite and Copy, the phone's lookups in Activity
+(one held to block it), Favourites in your order.
 
 **Retro Music** (`examples/music.nim`, `nimble music`) plays your own
 music -- the songs on the phone or the computer by songs, albums (Cover Flow
@@ -2837,7 +2900,15 @@ YouTube Data API, played in the app in YouTube's own player; lyrics from
 LrcLib, timed to the song. A tab bar, a mini player and pages on a phone;
 on a tablet or a computer the sections down the left, the page beside
 them; in Gloss, with a step-by-step guide in its Settings to connect
-Spotify and YouTube ([the examples](examples/README.md#retro-music)).
+Spotify and YouTube ([the examples](examples/README.md#retro-music)). Since
+2.1 it has TV: the free channels of the world by country with their logos
+(the Free-TV list, fetched when it is opened), played in the app, their
+sound going on in the background when you leave them; and Sign In with
+Google in one tap when it is built with its own Google client. A music video
+on the device plays with its picture on Now Playing (its sound on when you
+leave it), and a song with no cover gets artwork made from it -- its album's
+colors, waves of sound, a record's grooves or a meter's bars, its title
+written on it.
 
 **Retro Tasks** (`examples/tasks.nim`, `nimble tasks`) is a whole phone
 app: tasks in lists, ticked off with a round check and put in order, each
@@ -3826,13 +3897,14 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_drive` | the driver: a client in the same program finds controls by name, clicks, types (Arabic too), presses keys, sets values, waits for a control and for its going, opens a drop-down past a default button with Enter, closes the window |
 | `test_sevenguis` | the 7GUIs example driven by its controls' names: each task as its rules ask (the flight booked only when the dates allow, the timer stopping at its duration, CRUD's filter, the circles' undo, the cells' formulas and their cycles) |
 | `test_navigator` | Retro Navigator's places: what the Location box goes to (an address, a host, a file that is there, words searched for), the key, the bookmarks kept, the pages of a session, the history kept and what the Location box suggests; its shield: secure addresses (not on the local network), the ad and tracker hosts and patterns, a block list imported (hosts files, `||site^`), its settings and the sites ads are allowed on, its script; the pages' looks (Modern, Classic, Plain, the 3.1 scroll bars) |
-| `test_retrodns` | Retro DNS: its 47 servers well formed, the user's own kept as CSV, the VPN's settings (the servers it goes on to, the block list as typed: remarks, a hosts file's lines, exceptions), the scripts that change a computer's DNS (Windows, Linux, macOS) made of checked addresses only whatever a CSV holds, PowerShell's encoded command, the profile of encrypted DNS for macOS and iOS |
+| `test_retrodns` | Retro DNS: its 47 servers well formed, the user's own kept as CSV, the VPN's settings (the servers it goes on to, the block list as typed: remarks, a hosts file's lines, exceptions), the scripts that change a computer's DNS (Windows, Linux, macOS) made of checked addresses only whatever a CSV holds, PowerShell's encoded command, the profile of encrypted DNS for macOS and iOS; the encryption chosen (HTTPS, TLS) |
+| `test_dnsapp` | Retro DNS's pages on a phone and a tablet: the state at the top of DNS, the fastest servers numbered and one tapped, a server held (its menu: Add to Favourites), Favourites' Edit and Done, Activity's names (the newest first; one held, Blocked and Unblocked), the state and the sections down the left on a tablet -- every page in every look, light and dark, and Gloss Onyx |
 | `test_jobs`, `test_undo`, `test_pages`, `test_typeforms` | jobs on workers (values, progress, failures, cancel, more jobs than workers); the undo stack (typing merged, the saved state, a change after an undo, Ctrl+Z / Ctrl+Y, the limit); pages pushed and popped by Esc and Alt+Left, sliding in, `listDetail` side by side, `animated`; forms of an object's fields with their pragmas' rules, captions from names, typing into one, a grid of them sorted by a header |
 | `test_uistrings`, `test_codeedit`, `test_feeds` | `retrokit strings`' scan of an app's texts (comments and long strings left out, `trn`'s two forms), the file written, filled and written again with the translations kept, Arabic's six forms; the code editor (indent kept, Tab, Ctrl+/, its undo, read only, Nim's colors); RSS with the iTunes and Podcasting 2.0 tags, Atom, OPML both ways, dates and lengths as feeds write them |
 | `test_downloads` | `downloadFile` against a server of its own (`tests/dlmock.py`), on every system -- WinHTTP on Windows, no program started: a file whole, a redirect, a 404, a download gone on with from its part, no server, `stopDownload`; on the thread that draws, the busy box ticking while it waits and its Cancel ending it |
 | `test_tray` | the tray icon on Linux: the app's StatusNotifierItem on a bus of the test's own, registered with a stand-in tray, its title, picture and menu as a tray reads them, a click and a menu item coming back as events, the icon gone with a frame without it |
 | `test_grow` | Grow without a window: the plan's numbers, the main button at the page's foot, the result's timeline played to its end (every bar risen, the coin, the goal felt), Back |
-| `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle` -- and the 34 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; the Glass, Matte and Gloss looks, each with its own schemes (a button's corners rounded off, a check box and a switch that are on in the highlight; Classic in the high-contrast schemes); a font list's order (the fonts used last, then A to Z); docs/customizing.md's own samples |
+| `test_looks` | what a control takes to look different: the accent button, a text style and a height for buttons and number boxes, groups with a title strip, options in boxes, the gauge in bands and the range bar, a tool bar's line and space, `withTheme` and `withTextStyle`; Gloss's bars in the scheme's colors (Gloss Dark's black, Dusk's purple), the status bar darker than the top bar, `MobileStyle`'s own colors and `withMobileStyle` -- and the 35 colour schemes, each one's text readable (4.5 to 1) on its window, fields, buttons and highlight; the Glass, Matte and Gloss looks, each with its own schemes (a button's corners rounded off, a check box and a switch that are on in the highlight; Classic in the high-contrast schemes); a font list's order (the fonts used last, then A to Z); docs/customizing.md's own samples |
 | `test_bmi` | BMI Studio without a window: the numbers in both unit systems (classed as shown), Calculate BMI the default button in the accent colour, another scheme taken by the bands and the button, a phone's layout |
 | `test_hangwatch` | the table of a program's procs read and a place in the program named by it (a Windows window that stops answering writes the procs its thread is in); no watch elsewhere |
 | `test_photobook`, `test_photobookapp` | text that keeps out of holes (lines on both sides on one baseline, columns), Text Wrap in a document (box, shape, jump, sides, undo, saved), page numbers in text, books: sides and margins bound either way, numbers in every style, master pages that follow, masters based on masters (the other's layers under their own, on the master too, never round, saved, let go), text through added pages (every word once), the book's file and PDF, damaged books refused; Retro Atelier's books headless: pages turned, masters, a number typed in, Autoflow, Text Wrap, save and open, the workspaces, the Move tool's box; snapping to a page's margins, columns and baseline grid, text on the grid following Document Setup; New Drawing and New Book, Image Trace, Convert to Shape and Make Blend in the app; export by pages and spreads (PDF, JPEG, PNG, a range); tables, charts, maps, Fitting and Frame Options, More Shapes and Shape Options, Resize for, Brand Kit, Photo Grid, Text Effects, Recolor, Shape Builder, Freeform Gradient (Cancel leaves it as it was), Check Document and the command list in the app; anchored objects; threaded frames on a page and across pages (a box's own words to the story's end, one put in between, the thread broken); in the app: footnotes, ligatures, the table of contents and the index, Data Merge, Find/Change and the Story Editor, the gradient mesh and anchors, the perspective grid (drawing on a plane, a handle dragged, Attach to Active Plane, Define Grid live), threading by the ports (loaded text, a new box, a double-click breaking it, Esc), Text Frame Options and Auto-Size (a template's heading growing with its size), Apply Brush to Path |
@@ -3908,7 +3980,9 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_reach` | how the controls take the mouse, the keys and a finger: a finger's press just beside a small button or a round button is its, not far off, not beside a list it is on, the nearer of two, the gesture with it; a mouse not moved so; a tap or a drag by 8 points at 100 % and 200 %; a finger held on a word chooses it (Copy gives the word); a right click on a list's row chooses it; a breadcrumb by the keys; a drop-down list's wheel only with the focus; Glass and Matte light a text box, a check box, a radio button under the mouse, 3.1 not; a chip's cross for a finger |
 | `test_audiotags` | music files' tags: MP3 (ID3v2.3 in UTF-16, ID3v2.4), FLAC, M4A, Ogg Vorbis, Opus and WAV -- title with its accents, artist, album, album artist, track and disc, year, genre, composer, the cover as it was (and not read when not asked for), the length, rate, channels and bit rate, ReplayGain --, the same from memory, cut short anywhere or damaged with no fault, music by its name |
 | `test_musiclibrary` | Retro Music's own music: a folder looked through (4 songs, a title from a file's name, ReplayGain read), albums and their order, artists, genres, the lists made by themselves; played through a fake Android player -- the song asked for as a sound, its volume, the equalizer's 10 bands, a play counted once, the next at the end, Repeat One --; Play Next, Add to Queue, Shuffle and back; the sleep timer; a playlist and stars kept and read back; every page in every look |
-| `test_musicsources` | Retro Music's free sources: what Piped, Invidious, Radio Browser, Audius, the Internet Archive and a Subsonic server say, read (made-up answers, `tests/musicanswers.nim`); YouTube links; the Subsonic token (the password's salted MD5, never the password); in the app: a search with each, Piped's servers not answering and Invidious' asked, a playlist's link pasted and kept, a station kept and played live, an artist's Audius, an Archive recording, a server's "no" then signed in; Search over them; the side menu on a phone (its button, a place, a tap beside it, Esc); the places down the left on a tablet; Now Playing; every place in every look on both |
+| `test_musicsources` | Retro Music's free sources: what Piped, Invidious, Radio Browser, Audius, the Internet Archive and a Subsonic server say, read (made-up answers, `tests/musicanswers.nim`); YouTube links; the Subsonic token (the password's salted MD5, never the password); in the app: a search with each, Piped's servers not answering and Invidious' asked, a playlist's link pasted and kept, a station kept and played live, an artist's Audius, an Archive recording, a server's "no" then signed in; Search over them; TV (a Free-TV list read: names with commas, the in-its-country mark, YouTube pages left out; its countries, a search; a country, a channel held kept, a channel played on the screen, the one before, Done: its sound on in our player, live); a music video's picture on Now Playing and its sound on when it is left, an MP4 of sound alone a song; artwork made for a song with no cover, the same for its album; the side menu on a phone (its button, a place, a tap beside it, Esc); the places down the left on a tablet; Now Playing; every place in every look on both |
+| `test_mailtouch` | Retro Mail on a phone and a tablet in the newer looks: Mailboxes (All Inboxes, the accounts), a list (Focused and Other), a message tapped and read, its place on the bar, Mark as Unread, Flag, the arrow to the one before, Reply's sheet and writing, Cancel and Delete Draft, a finger held (several chosen, Mark), an account's folders, a folder; Settings as a phone's (a switch kept at once, a choice's page of them and one tapped, Close), Appearance in groups; on a tablet the message beside the list -- every page in every look, light and dark |
+| `test_comfyui` | `retroui/comfyui` against a made-up ComfyUI server: found (its checkpoints, its LaMa), a picture from words (the workflow it got), a fill (the picture sent clear where the mask is), Remove (LaMa's workflow; without it, the model asked), a work that failed on the server, no server; through `retroui/aiimage` (`kind = "comfyui"`), kept |
 | `test_tasks` | Retro Tasks: tasks in lists, late or not, their days written, Today, Upcoming, Flagged, Completed, put in order; notes (their titles and previews, pinned first); the search; a reminder raised once; the file kept and read back; then by taps -- a row's check (done, not done), the row's page, Edit's minus and Delete, the phone's Back -- and every page in every look |
 | `test_touchpages` | a page under the finger on a touch screen: pulled down past its top and let go it asks for fresh content once, a short pull nothing; a dialog as a page of the app closed by its Close; a shelf of cards, the one tapped; Back by a swipe from a page's left edge, a short one staying |
 | `test_music` | Retro Music without a window: Spotify's answers read (a search, a playlist's items -- a missing track and a local file left out --, your playlists, the devices, what plays, nothing playing), the bodies of play and transfer, YouTube's search (its HTML entities), your YouTube playlists, a playlist's songs (a deleted one left out, an artist's Topic channel as the artist), the ones you like and their lengths, the player's page, a YouTube queue, LrcLib's timed lines (several times a line, the line at a time), and its screens drawn with no account in every look |

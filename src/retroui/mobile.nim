@@ -23,7 +23,9 @@
 ## Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net
 
 import std/[tables, math, unicode, algorithm]
-import gfx, core, widgets, business, desktop, extras
+from std/strutils import nil
+import uirelays/target   # (androidApp: an APK, not a program in Termux)
+import gfx, core, widgets, business, desktop, extras, platform, nerdicons
 import uirelays/input
 
 template th: untyped = ui.theme
@@ -112,6 +114,16 @@ proc navButton(id: Id; r: Rect; label: string; back, primary: bool; bg: Color; e
   elif matteLook() and primary:
     roundRect(r, float(dp(2)), if hit.down: mixColor(accentColor(), black, 0.2) else: accentColor())
     ink = accentInk()
+  elif modernGlass() and not back:
+    # (Glass: a pill of glass on the bar, its label in the highlight; the one that finishes the
+    # page the highlight's glowing blue, its label white)
+    let pr = float(r.h) / 2
+    if primary:
+      glassBlue(r, pr, hit.down, glow = false)
+      ink = white
+    else:
+      glassPlate(r, pr, if hit.down: mixColor(th.field, th.text, 0.08) else: th.field, lift = 2)
+      ink = accentText()
   elif glassLook():
     if hit.down or hit.showsHover:
       roundRect(r, glassRadius(r), withAlpha(th.text, if hit.down: 40 else: 18))
@@ -119,14 +131,18 @@ proc navButton(id: Id; r: Rect; label: string; back, primary: bool; bg: Color; e
   else:
     buttonFace(r, hit.down, 1, hot = enabled and hit.hover)
     ink = th.text
+  # (a label straight on a bar of the app's own color: in its words' color, `MobileStyle`)
+  if mobileStyle.bar.a != 0 and glassLook() and (back or not modernGlass()) and not (matteLook() and primary):
+    ink = titleColors(true).fg
   if not enabled: ink = mixColor(ink, bg, 0.55)
   let cw = if back: dp(11) else: 0
-  let tw = labelWidth(label)
+  let bold = modernGlass() and not back
+  let tw = labelWidth(label, bold)
   let x0 = r.x + (r.w - tw - cw) div 2
   if back:
     chevron(x0 + dp(3), r.y + r.h div 2, max(dp(9), FontH * 2 div 3), true, ink,
             max(1.5, float(dp(2))))
-  drawLabel(x0 + cw, r.y + (r.h - FontH) div 2, label, ink)
+  drawLabel(x0 + cw, r.y + (r.h - FontH) div 2, label, ink, bold)
   if hit.focused: focusDots(inset(r, 2))
   if accessOn: accessNode(arButton, label, id = id, r = r, states = offIf(enabled))
   hit.clicked
@@ -146,48 +162,60 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   let full = bleed(cell)
   let r = rect(full.x, cell.y, full.w, h)     # (its buttons and title: in the cell's height)
   let key = "navbar:" & title
-  let bg = if glassLook(): titleColors(true).bg else: th.face
-  let fg = if glassLook(): titleColors(true).fg else: th.text
+  let own = mobileStyle.bar.a != 0        # (the app's color for its bars: `MobileStyle`)
+  let bg = if glassLook() or own: titleColors(true).bg else: th.face
+  let fg = if mobileStyle.barText.a != 0: mobileStyle.barText
+           elif glassLook() or own: titleColors(true).fg else: th.text
   if glassLook():
     titleBar(full, true)
-    # (a soft shadow under it on the page, as the bar stood over it)
+    # (a soft shadow under it on the page, as the bar stood over it; Glass: a hairline)
     if glossLook(): glossBarShadow(full)
+    elif modernGlass(): hline(full.x, full.y + full.h - 1, full.w, glassHair())
   else:
-    fill(full, th.face)
+    fill(full, bg)
     hline(full.x, full.y, full.w, th.light)
     hline(full.x, full.y + full.h - 2, full.w, th.shadow)
     hline(full.x, full.y + full.h - 1, full.w, th.frame)
   # (Gloss: iOS 6's buttons -- 29 high on a 44 bar, 10 either side of their label, at least
   # 32 for it; Back's point 13 wide, 8 after its label)
   let bh = if glossLook(): min(h - dp(10), if fingers(): dp(29) else: CtrlH)
+           elif modernGlass() and action.len > 0: min(h - dp(12), if fingers(): dp(32) else: CtrlH)
            else: h - (if fingers(): dp(12) else: dp(8))
   let by = r.y + (h - bh) div 2
   let gloss = glossLook()
   let bst = glossButtonStyle()
-  let leftW = if back.len == 0: (if menu: (if gloss: dp(40) else: dp(36)) else: 0)
+  let glassPill = if fingers(): dp(34) else: CtrlH        # (Glass: its round buttons)
+  let leftW = if back.len == 0: (if menu: (if gloss: dp(40) elif modernGlass(): glassPill else: dp(36)) else: 0)
               elif gloss: min(bh div 2, dp(13)) + max(dp(24), labelWidth(back, bst)) + dp(10)
               else: labelWidth(back) + dp(11) + dp(18)
   let rightW = if action.len == 0: 0
                elif gloss: max(dp(32), labelWidth(action, bst)) + dp(20)
+               elif modernGlass(): max(dp(40), labelWidth(action, true) + dp(28))
                else: labelWidth(action) + dp(18)
-  let edge = if gloss: dp(5) else: dp(6)
-  if back.len > 0 and navButton(idOf(key & ":back"), rect(r.x + edge, by, leftW, bh), back, true,
-                                false, bg, enabled):
+  let edge = if gloss: dp(5) elif modernGlass(): dp(8) else: dp(6)
+  let backH = if modernGlass(): h - (if fingers(): dp(12) else: dp(8)) else: bh
+  if back.len > 0 and navButton(idOf(key & ":back"), rect(r.x + edge, r.y + (h - backH) div 2, leftW, backH),
+                                back, true, false, bg, enabled):
     result = npBack
   if back.len == 0 and menu:
     # (the side menu's button: three lines on a bar button)
-    let mr = rect(r.x + edge, by, leftW, bh)
+    let mr = if modernGlass(): rect(r.x + edge, r.y + (h - glassPill) div 2, glassPill, glassPill)
+             else: rect(r.x + edge, by, leftW, bh)
     let mid = idOf(key & ":menu")
     var mh = interact(mid, mr, enabled = enabled)
     if enabled: spaceKey(mid, mh)
     var ink = fg
     if gloss: glossBarButton(mr, mh.down)
+    elif modernGlass():
+      # (a round button of glass, its lines in the highlight)
+      glassPlate(mr, float(mr.h) / 2, if mh.down: mixColor(th.field, th.text, 0.1) else: th.field, lift = 2)
+      ink = accentText()
     elif glassLook():
       if mh.down or mh.showsHover: roundRect(mr, glassRadius(mr), withAlpha(th.text, if mh.down: 40 else: 18))
       ink = accentText()
     else: buttonFace(mr, mh.down, 1, hot = enabled and mh.hover)
     if gloss: ink = white
-    let lw = min(mr.w - dp(16), dp(18))
+    let lw = if modernGlass(): mr.w * 7 div 16 else: min(mr.w - dp(16), dp(18))
     let t = max(1, dp(2))
     let gap = max(t + 2, dp(5))
     for k in -1 .. 1:
@@ -201,7 +229,9 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
                                   action, false, done, bg, enabled):
     result = npAction
   # the title in the middle of the bar, short of the buttons
-  let st = if glossLook(): style(bold = true, size = if fingers(): 1.333 else: 1.2) else: style(bold = true)
+  let st = if glossLook(): style(bold = true, size = if fingers(): 1.333 else: 1.2)
+           elif modernGlass(): style(bold = true, size = if fingers(): 1.2 else: 1.1)
+           else: style(bold = true)
   let t = ellipsize(tr(title), max(dp(24), r.w - 2 * (max(leftW, rightW) + dp(12))), st)
   let tw = textWidth(t, st)
   let tx = r.x + (r.w - tw) div 2
@@ -975,10 +1005,28 @@ var
   sheets: seq[tuple[id: Id; was: Id; r: Rect]]         # (those being drawn, one in another)
   sheetRect: Rect                                      # (where the one begun last is: its caller draws its face)
 
+proc sheetGlass(): Color =
+  ## (Glass: the face of a sheet, an alert, an action sheet's cards -- white glass on a light
+  ## window, smoked glass on a dark one, so its words in the scheme's ink read on it)
+  if onDarkWindow(): mixColor(th.field, th.face, 0.35) else: th.field
+
+proc ownCharcoal(): bool {.inline.} =
+  ## (Gloss's side menu in iOS 6's charcoal: a scheme of its own, no colors of the app's)
+  glossOwnScheme() and mobileStyle.bar.a == 0 and mobileStyle.sideMenu.a == 0
+
 proc sideMenuFace(): Color =
-  ## (a side menu's face: Gloss's charcoal, as the menus that slid out from under a page had it;
-  ## the window's in the other looks)
-  if glossLook(): color(44, 45, 48) else: th.window
+  ## (a side menu's face: Gloss's charcoal, as the menus that slid out from under a page had it --
+  ## in another scheme the bars' color, darker --; the window's in the other looks;
+  ## `MobileStyle.sideMenu`)
+  if mobileStyle.sideMenu.a != 0: mobileStyle.sideMenu
+  elif glossLook(): (if ownCharcoal(): color(44, 45, 48) else: glossBarColors().foot)
+  else: th.window
+
+proc sideGlass(r: Rect): Rect =
+  ## (Glass: the side menu's card in its sheet `r`: under the status bar, over the gesture bar,
+  ## in from the screen's edge)
+  let m = dp(10)
+  rect(r.x + (if ui.rtl: 0 else: m), r.y + ui.safe.top + m, r.w - m, r.h - ui.safe.top - ui.safe.bottom - 2 * m)
 
 proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: int;
                 anchor = Rect(); handle = false; drawFace = true; tapCloses = true;
@@ -1075,6 +1123,12 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
   sheetRect = r
   let navy = (glossTone(0.385, 0.41), glossTone(0.65, 0.13))
   if not drawFace: discard
+  elif kind == skSide and modernGlass():
+    # (Glass: a card of frosted glass over the page, in from the screen's edges, its corners round)
+    let g = sideGlass(fr)
+    softShadow(g, float(dp(22)), 8)
+    if not frostedFace(g, sheetGlass(), float(dp(22))): roundRect(g, float(dp(22)), withAlpha(sheetGlass(), 246))
+    roundFrame(g, float(dp(22)), 1, if onDarkWindow(): withAlpha(white, 30) else: withAlpha(white, 200))
   elif kind == skSide:
     # (its shadow on the page beside it; its face the menu's: Gloss's charcoal, the others' window)
     let sx = if ui.rtl: fr.x - dp(6) else: fr.x + fr.w
@@ -1120,7 +1174,11 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
   state(id) = st
   sheets.add (id, was, r)
   pushClip(inset(r, edge))
-  if kind == skSide:
+  if kind == skSide and modernGlass():
+    # (in the card, below its rounded top)
+    let g = sideGlass(r)
+    pushFrame(rect(g.x + dp(4), g.y + dp(10), g.w - dp(8), g.h - dp(20)))
+  elif kind == skSide:
     # (its items from one side to the other, under the status bar: the whole height, for a panel)
     pushFrame(rect(r.x, r.y + ui.safe.top, r.w, r.h - ui.safe.top - ui.safe.bottom))
   else:
@@ -1188,11 +1246,11 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
   # (Glass and Matte: the actions one block, a line between them; Cancel apart)
   let joined = cards or matte
   let blockR = if joined and actions.len > 0: place(0, bh * actions.len, fill = true) else: Rect()
-  let cardRad = float(dp(12))
+  let cardRad = float(dp(14))
   if cards and actions.len > 0:
     let top = if title.len > 0: titleR.y - dp(6) elif message.len > 0: messageR.y - dp(6) else: blockR.y
     let card = rect(blockR.x, top, blockR.w, blockR.y + blockR.h - top)
-    if not frostedFace(card, glassCard(), cardRad): roundRect(card, cardRad, glassCard())
+    if not frostedFace(card, sheetGlass(), cardRad): roundRect(card, cardRad, withAlpha(sheetGlass(), 245))
     if top < blockR.y: hline(blockR.x, blockR.y, blockR.w, glassHair())
   if title.len > 0:
     # (Gloss: iOS 6's small title, not bold)
@@ -1229,7 +1287,7 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
       ink = if i == destructive or isCancel or hit.down: white else: color(0, 0, 0)
     elif cards:
       if isCancel:
-        if not frostedFace(r, glassCard(), cardRad): roundRect(r, cardRad, glassCard())
+        if not frostedFace(r, sheetGlass(), cardRad): roundRect(r, cardRad, withAlpha(sheetGlass(), 245))
         if hit.down: roundRect(r, cardRad, withAlpha(th.text, 24))
       else:
         if i > 0: hline(r.x, r.y, r.w, glassHair())
@@ -1250,7 +1308,9 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
       ink = white
     else:
       buttonFace(r, hit.down, 1, hot = hovered(r))
-    let lst = if gloss: style(bold = true, size = if fingers(): 1.33 else: 1.1) else: style(bold = bold)
+    let lst = if gloss: style(bold = true, size = if fingers(): 1.33 else: 1.1)
+              elif cards and fingers(): style(bold = bold, size = 1.15)
+              else: style(bold = bold)
     let lw = labelWidth(a, lst)
     let ly = r.y + (r.h - lineHeight(lst)) div 2
     if gloss:
@@ -1343,9 +1403,15 @@ proc sideMenuHeader*(title: string) =
   let h = lineHeight(st) + dp(8)
   let r = place(0, h, fill = true)
   if glossLook():
-    roundRectShaded(r, 0, color(84, 86, 90), color(68, 70, 74))
-    hline(r.x, r.y, r.w, color(104, 106, 110))
-    hline(r.x, r.y + r.h - 1, r.w, color(36, 37, 40))
+    let f = sideMenuFace()
+    if ownCharcoal():
+      roundRectShaded(r, 0, color(84, 86, 90), color(68, 70, 74))
+      hline(r.x, r.y, r.w, color(104, 106, 110))
+      hline(r.x, r.y + r.h - 1, r.w, color(36, 37, 40))
+    else:
+      roundRectShaded(r, 0, mixColor(f, white, 0.25), mixColor(f, white, 0.15))
+      hline(r.x, r.y, r.w, mixColor(f, white, 0.38))
+      hline(r.x, r.y + r.h - 1, r.w, mixColor(f, black, 0.2))
     text(r.x + dp(12), r.y + (h - lineHeight(st)) div 2 + 1, tr(title), withAlpha(black, 120), st)
     text(r.x + dp(12), r.y + (h - lineHeight(st)) div 2, tr(title), color(196, 198, 202), st)
   else:
@@ -1372,14 +1438,22 @@ proc sideMenuItem*(title: string; glyph = ""; detail = ""; selected = false; ena
   let on = selected or hit.down
   var ink, sub: Color
   if gloss:
+    let f = sideMenuFace()
     if on:
-      roundRectShaded(r, 0, color(28, 29, 31), color(36, 37, 40))
+      if ownCharcoal(): roundRectShaded(r, 0, color(28, 29, 31), color(36, 37, 40))
+      else: roundRectShaded(r, 0, mixColor(f, black, 0.36), mixColor(f, black, 0.18))
       fill(rect(if ui.rtl: r.x + r.w - dp(4) else: r.x, r.y, dp(4), r.h), glossTint(color(36, 112, 216)))
     else:
       hline(r.x, r.y, r.w, withAlpha(white, 16))
-    hline(r.x, r.y + r.h - 1, r.w, color(26, 27, 29))
+    hline(r.x, r.y + r.h - 1, r.w, if ownCharcoal(): color(26, 27, 29) else: mixColor(f, black, 0.4))
     ink = if enabled: white else: color(120, 120, 124)
     sub = color(150, 152, 158)
+  elif modernGlass():
+    let p = rect(r.x + dp(6), r.y + dp(3), r.w - dp(12), r.h - dp(6))
+    if selected: glassBlue(p, float(min(dp(12), p.h div 2)), hit.down, glow = false)
+    elif hit.down: roundRect(p, float(min(dp(12), p.h div 2)), withAlpha(th.text, 26))
+    ink = if selected: white elif enabled: th.text else: th.gray
+    sub = if selected: withAlpha(white, 210) else: th.gray
   elif glassLook():
     if on: roundRect(inset(r, dp(4)), float(dp(8)), withAlpha(accentColor(), if hit.down: 70 else: 46))
     ink = if enabled: th.text else: th.gray
@@ -1388,11 +1462,18 @@ proc sideMenuItem*(title: string; glyph = ""; detail = ""; selected = false; ena
     if on: fill(r, th.select)
     ink = if on: th.selectText elif enabled: th.text else: th.gray
     sub = if on: th.selectText else: th.gray
+  if mobileStyle.sideMenuText.a != 0 and enabled and not (modernGlass() and selected):
+    ink = mobileStyle.sideMenuText
+    sub = mixColor(ink, sideMenuFace(), 0.35)
   var x = r.x + dp(14)
   if glyph.len > 0:
     let gs = style(size = 1.15)
     let gw = max(dp(24), textWidth(glyph, gs))
-    let gc = if gloss: (if on: white else: color(186, 188, 194)) elif glassLook() and not on: accentColor() else: ink
+    let gc = if gloss: (if on: white else: color(186, 188, 194))
+             elif modernGlass() and selected: white
+             elif glassLook() and not on: accentText()
+             elif modernGlass(): accentText()
+             else: ink
     text(x + (gw - textWidth(glyph, gs)) div 2, r.y + (h - lineHeight(gs)) div 2, glyph, gc, gs)
     x += gw + dp(12)
   var endX = r.x + r.w - dp(14)
@@ -1450,7 +1531,7 @@ proc alertBox*(open: var bool; title: string; message = ""; buttons: openArray[s
     sub = glossTone(0.05, 0.96)
   elif glass:
     let rad = float(dp(14))
-    if not frostedFace(r, glassCard(), rad): roundRect(r, rad, glassCard())
+    if not frostedFace(r, sheetGlass(), rad): roundRect(r, rad, withAlpha(sheetGlass(), 245))
     ink = th.text
     sub = th.text
   elif matte:
@@ -1543,16 +1624,21 @@ type
     clicked*: bool   ## it was clicked or tapped (or Enter, Space)
     info*: bool      ## its info button was
     toggled*: bool   ## `checkRow`: its check was tapped (Space): ticked or not
+    menu*: bool      ## `tableRow`: a right click on it or a finger held on it: the app's menu
+                     ## for it (an `actionSheet`)
 
 var
   tableGroups: seq[tuple[id: Id; r: Rect; rows, rowsBefore, gap: int; footer: string]]
   tableNo: tuple[frame, n: int]
 
 proc tableRadius(): float =
-  if glossLook(): float(dp(9)) elif matteLook(): 0.0 elif glassLook(): float(dp(10)) else: 0.0
+  if mobileStyle.groupCorner < 0: 0.0
+  elif mobileStyle.groupCorner > 0: float(dp(1)) * mobileStyle.groupCorner
+  elif glossLook(): float(dp(9)) elif matteLook(): 0.0 elif glassLook(): float(dp(14)) else: 0.0
 
 proc tableRowH(two: bool): int =
-  let base = if fingers(): dp(44) else: max(dp(30), FontH + dp(14))
+  let base = if mobileStyle.rowHeight > 0: dp(mobileStyle.rowHeight)
+             elif fingers(): dp(44) else: max(dp(30), FontH + dp(14))
   if two: max(base + dp(10), 2 * FontH + dp(14)) else: base
 
 proc beginTableGroup*(header = ""; footer = "") =
@@ -1562,11 +1648,11 @@ proc beginTableGroup*(header = ""; footer = "") =
   if header.len > 0:
     let gloss = glossLook()
     let st = if gloss: style(bold = true, size = 1.05)
-             elif glassLook() and not matteLook(): style(size = 0.85)
+             elif glassLook() and not matteLook(): style(bold = true, size = 0.8)
              else: style(bold = true, size = 0.9)
     let t = if glassLook() and not gloss and not matteLook(): tr(header).toUpper else: tr(header)
     let hr = place(0, lineHeight(st) + dp(if fingers(): 10 else: 4), fill = true)
-    let tx = hr.x + (if glassLook(): dp(12) else: 0)
+    let tx = hr.x + (if modernGlass(): dp(16) elif glassLook(): dp(12) else: 0)
     let ty = hr.y + hr.h - lineHeight(st) - dp(2)
     if gloss:
       if not onDarkWindow(): text(tx, ty + 1, t, withAlpha(white, 204), st)
@@ -1582,9 +1668,12 @@ proc beginTableGroup*(header = ""; footer = "") =
   # its face: Gloss's white, a gray line round it; Glass's a rounded card; 3.1's a sunk field;
   # Matte's the window, a line between the rows
   let rad = tableRadius()
-  if glossLook(): roundRect(cell, rad, if onDarkWindow(): th.field else: color(247, 247, 247))   # (an off-white, as then)
+  if mobileStyle.group.a != 0:
+    if glassLook() and not glossLook() and not matteLook(): glassPlate(cell, rad, mobileStyle.group)
+    else: roundRect(cell, rad, mobileStyle.group)
+  elif glossLook(): roundRect(cell, rad, if onDarkWindow(): th.field else: color(247, 247, 247))   # (an off-white, as then)
   elif matteLook(): discard
-  elif glassLook(): roundRect(cell, rad, th.field)
+  elif glassLook(): glassPlate(cell, rad, th.field)
   else: fill(cell, th.field)
   tableGroups.add (id, cell, 0, st.aux2, ui.m.gap, footer)
   ui.m.gap = 0
@@ -1655,7 +1744,8 @@ proc rowFrame(r: Rect; pressed: bool): tuple[first, last: bool; ink, sub, link: 
   let rad = tableRadius()
   let gloss = glossLook()
   if not first:
-    let lc = if gloss: (if onDarkWindow(): color(20, 20, 22) else: color(217, 217, 217))
+    let lc = if mobileStyle.groupLine.a != 0: mobileStyle.groupLine
+             elif gloss: (if onDarkWindow(): mixColor(th.field, white, 0.08) else: color(217, 217, 217))
              elif glassLook() and not matteLook(): glassHair()
              else: mixColor(th.field, th.fieldText, 0.14)
     let lx = if glassLook() and not gloss and not matteLook(): r.x + dp(14) else: r.x + 1
@@ -1666,20 +1756,27 @@ proc rowFrame(r: Rect; pressed: bool): tuple[first, last: bool; ink, sub, link: 
     pushClip(r)
     if gloss: glossBlue(g, rad)
     elif matteLook(): fill(r, mixColor(th.window, accentColor(), 0.32))
-    elif glassLook(): roundRect(g, rad, mixColor(th.field, th.fieldText, 0.12))
+    elif glassLook():
+      popClip()
+      let pr = rect(r.x + dp(5), r.y + dp(3), r.w - dp(10), r.h - dp(6))
+      glassBlue(pr, float(min(dp(11), pr.h div 2)))
+      pushClip(r)
     else: fill(r, th.select)
     popClip()
   let classicPressed = pressed and not glassLook()
+  let lit = pressed and (gloss or modernGlass())
   result.first = first
   result.last = last
-  result.ink = if (pressed and gloss) or classicPressed: (if gloss: white else: th.selectText)
+  result.ink = if lit or classicPressed: (if lit: white else: th.selectText)
                else: th.fieldText
-  result.sub = if pressed and gloss: white elif classicPressed: th.selectText else: th.gray
-  result.link = if pressed and gloss: white
+  result.sub = if lit: (if gloss: white else: withAlpha(white, 210)) elif classicPressed: th.selectText else: th.gray
+  result.link = if lit: white
                 elif classicPressed: th.selectText
+                elif mobileStyle.rowDetail.a != 0: mobileStyle.rowDetail
                 elif gloss: glossDetail()
                 elif glassLook(): th.gray
                 else: th.gray
+  if mobileStyle.rowText.a != 0 and not lit and not classicPressed: result.ink = mobileStyle.rowText
 
 proc rowChevron(cx, cy: int; c: Color) =
   # (Gloss's bolder, as phones drew it then)
@@ -1715,7 +1812,9 @@ proc rowGlyph(r: Rect; x: var int; glyph: string; tint: Color; pressed: bool; in
       roundRect(inset(t, 1), rad - 1, withAlpha(white, 50))
       popClip()
     else:
-      roundRect(t, rad, if tint.a != 0: tint else: accentColor())
+      let c = if tint.a != 0: tint else: accentColor()
+      if pressed and modernGlass(): roundRect(inset(t, -1), rad + 1, withAlpha(white, 120))
+      roundRectShaded(t, rad, mixColor(c, white, 0.2), mixColor(c, black, 0.08))
     let gs = style(size = 1.05)
     let gw = textWidth(glyph, gs)
     let gy = t.y + (d - lineHeight(gs)) div 2
@@ -1740,6 +1839,8 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
   ## button: `info`. `key`: its own id (rows of the same title). `selected`: the row whose
   ## page is shown beside the list (a tablet's): drawn chosen -- Gloss's blue. `count`: a
   ## number in a capsule before the end ("3" unread; Gloss: iOS 6's slate gray, white on it).
+  ## A right click or a finger held on it: `menu` -- the app shows what can be done to it (an
+  ## `actionSheet`).
   let two = subtitle.len > 0
   let r = place(0, tableRowH(two), fill = true)
   let gid = if tableGroups.len > 0: tableGroups[^1].id else: Id(0)
@@ -1759,9 +1860,13 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
       ui.takesEnter = true
       if keyHit(KeyEnter): hit.clicked = true
   result.clicked = hit.clicked
+  if enabled and ui.rpressed and canInput() and mouseIn(r) and not mouseIn(ir):
+    result.menu = true
+    result.clicked = false
   let pressed = (hit.down and not ih.down) or (selected and enabled)
   let (_, _, ink0, sub, link) = rowFrame(r, pressed)
   let gloss = glossLook()
+  let lit = pressed and (gloss or modernGlass())     # (on the blue: white)
   var ink = if not enabled: th.gray else: ink0
   if accessory == taCheck and gloss and not pressed: ink = link
   var x = r.x + pad
@@ -1777,11 +1882,11 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
   case accessory
   of taChevron:
     rowChevron(endX - dp(4), r.y + r.h div 2,
-               if pressed and gloss: white elif gloss: color(123, 123, 123) else: th.gray)
+               if lit: white elif gloss: color(123, 123, 123) else: th.gray)
     endX -= dp(if gloss: 20 else: 18)
   of taCheck:
     rowCheck(endX - dp(7), r.y + r.h div 2,
-             if pressed and gloss: white elif gloss: link elif glassLook(): accentText() else: ink)
+             if lit: white elif gloss: link elif glassLook(): accentText() else: ink)
     endX -= dp(24)
   of taInfo:
     let cx = float(ir.x) + float(d) / 2
@@ -1793,9 +1898,10 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
                  if ih.down: mixColor(blue, black, 0.25) else: blue)
       chevron(int(cx) + 1, int(cy), d * 2 div 5, false, white, max(1.6, float(dp(2))))
     else:
-      ring(cx, cy, float(d) / 2, max(1.3, float(dp(1)) + 0.3), accentText())
+      let ic = if lit: white else: accentText()
+      ring(cx, cy, float(d) / 2, max(1.3, float(dp(1)) + 0.3), ic)
       let it = "i"
-      text(int(cx) - textWidth(it, true) div 2, int(cy) - FontH div 2, it, accentText(), true)
+      text(int(cx) - textWidth(it, true) div 2, int(cy) - FontH div 2, it, ic, true)
     endX = ir.x - dp(8)
   of taNone: discard
   if count.len > 0:
@@ -1803,13 +1909,16 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
     let ch = lineHeight(cst) + dp(2)
     let cw = max(ch * 3 div 2, textWidth(count, cst) + dp(14))
     let cr = rect(endX - cw, r.y + (r.h - ch) div 2, cw, ch)
-    let cbg = if pressed and gloss: white
+    let cbg = if lit and gloss: white
+              elif lit: withAlpha(white, 230)
               elif gloss: (if onDarkWindow(): color(90, 96, 110) else: glossTint(color(135, 149, 175)))
+              elif modernGlass(): mixColor(th.field, accentColor(), if onDarkWindow(): 0.3 else: 0.14)
               elif glassLook(): mixColor(th.window, th.text, 0.15)
               else: th.shadow
     roundRect(cr, float(ch) / 2, cbg)
     if gloss and not pressed: glossTopShade(cr, float(ch) / 2, [51])
-    let cink = if pressed and gloss: glossTint(color(135, 149, 175))
+    let cink = if lit and gloss: glossTint(color(135, 149, 175))
+               elif lit or modernGlass(): accentText()
                elif gloss: white elif glassLook(): th.text else: th.light
     text(cr.x + (cw - textWidth(count, cst)) div 2, cr.y + (ch - lineHeight(cst)) div 2, count, cink, cst)
     endX -= cw + dp(8)
@@ -1973,7 +2082,7 @@ proc tableButton*(title: string; destructive = false; enabled = true): bool =
   let (_, _, ink0, _, _) = rowFrame(r, hit.down)
   let gloss = glossLook()
   let ink = if not enabled: th.gray
-            elif hit.down and (gloss or not glassLook()): ink0
+            elif hit.down and (gloss or modernGlass() or not glassLook()): ink0
             elif destructive: badColor()
             elif gloss: ink0
             elif glassLook(): accentText()
@@ -1985,6 +2094,447 @@ proc tableButton*(title: string; destructive = false; enabled = true): bool =
   ui.lastId = id
   ui.lastRect = r
   hit.clicked
+
+# ---- settings rows ------------------------------------------------------------------------------
+
+type SettingCell = tuple[r, ctl: Rect; textW: int; hit: Hit; link: Color; lit: bool]
+
+proc settingRow(title, detail: string; controlW: int; stack: var bool; ctlH = -1;
+                pid = Id(0); enabled = true): SettingCell =
+  ## The cell of a settings row: the title and its detail at the left, the
+  ## control at the right (or under them, when the row is narrow). In a `tableGroup`: a row of
+  ## it, as a phone's settings are -- the title bold in Gloss, the line between the rows, its
+  ## detail gray under the title; `pid`: the row is pressed as one (it leads somewhere), its
+  ## face lit while it is down.
+  let inGroup = tableGroups.len > 0
+  let ch = if ctlH < 0: CtrlH else: ctlH
+  let pad = if not inGroup: dp(8) elif fingers(): dp(12) else: dp(10)
+  let w = available()
+  stack = controlW > w * 11 div 20
+  let textW = if stack: w - 2 * pad else: w - controlW - 3 * pad
+  let st = style(size = 0.9)
+  let lines = if detail.len > 0: wrapLines(tr(detail), textW) else: @[]
+  let textH = FontH + lines.len * lineHeight(st) + (if inGroup and lines.len > 0: dp(2) else: 0)
+  let minH = if inGroup: tableRowH(lines.len > 0) elif fingers(): dp(52) else: dp(36)
+  let h = if stack: textH + ch + dp(20) else: max(minH, max(textH, ch) + dp(14))
+  let r = place(0, h, fill = true)
+  ui.lastRect = r
+  if pid != Id(0):
+    result.hit = interact(pid, r, enabled = enabled)
+    if enabled:
+      spaceKey(pid, result.hit)
+      if result.hit.focused:
+        ui.takesEnter = true
+        if keyHit(KeyEnter): result.hit.clicked = true
+      if mnemonicHit(title): result.hit.clicked = true
+  var ink = th.text
+  var sub = th.gray
+  result.link = th.gray
+  if inGroup:
+    let pressed = pid != Id(0) and result.hit.down
+    let f = rowFrame(r, pressed)
+    ink = f.ink
+    sub = f.sub
+    result.link = f.link
+    result.lit = pressed and (glossLook() or modernGlass())
+  if not enabled: ink = th.gray
+  var y = if stack: r.y + dp(6) else: r.y + (r.h - textH) div 2
+  drawLabel(r.x + pad, y, title, ink, inGroup and glossLook())
+  if accessOn:
+    accessLabelFor(title)
+    if detail.len > 0: accessNode(arLabel, tr(detail), id = 0, r = rect(r.x, y + FontH, textW, h - FontH))
+  y += FontH + (if inGroup: dp(2) else: 0)
+  for line in lines:
+    text(r.x + pad, y, line, sub, st)
+    y += lineHeight(st)
+  result.r = r
+  result.textW = textW
+  result.ctl = if stack: rect(r.x + pad, r.y + r.h - ch - dp(8), r.w - 2 * pad, ch)
+               else: rect(r.x + r.w - controlW - pad, r.y + (r.h - ch) div 2, controlW, ch)
+
+proc settingToggle*(title: string; v: var bool; detail = "";
+                    enabled = true): bool {.discardable.} =
+  ## A settings row: a title, a line or two of detail, and a switch at the
+  ## right; a click anywhere on the row flips it. True when it changed. In a `tableGroup`: a
+  ## row of it, as a phone's settings have them (`tableSwitch`, with the detail under the
+  ## title).
+  var stack = false
+  let (sw, sh) = switchSize()
+  let c = settingRow(title, detail, sw, stack, ctlH = sh)
+  let r = c.r
+  let id = idOf(v, title)
+  var hit = interact(id, r, enabled = enabled)
+  if enabled:
+    spaceKey(id, hit)
+    if mnemonicHit(title): hit.clicked = true
+  let track = rect(c.ctl.x + c.ctl.w - sw, r.y + (r.h - sh) div 2, sw, sh)
+  result = switchAt(id, track, v, hit, enabled)
+  if hit.focused: focusDots(inset(r, 2))
+  if accessOn:
+    accessNode(arCheckBox, title, id = id, r = r,
+               states = accessOff(enabled) + (if v: {asChecked} else: {}), help = tr(detail))
+  ui.lastId = id
+  ui.lastRect = r
+
+proc settingChoice*(title: string; options: openArray[string]; v: var int;
+                    detail = ""; enabled = true): bool {.discardable.} =
+  ## A settings row with a choice of a few (segmented buttons), under the
+  ## title when the row is narrow.
+  var widths = 0
+  for o in options: widths += labelWidth(o) + dp(20)
+  var stack = false
+  let c = settingRow(title, detail, widths, stack)
+  pushFrame(rect(c.ctl.x, c.ctl.y, c.ctl.w, 0))
+  result = segmented(options, v, w = (if stack: c.ctl.w else: widths), enabled = enabled)
+  discard popFrame()
+  ui.lastRect = c.r
+
+proc choiceParts(s: string): tuple[name, more: string] =
+  ## ("Classic (Windows 3.1)": "Classic" and "Windows 3.1" -- a choice's name, and what it is)
+  let t = tr(s)
+  let k = strutils.find(t, " (")
+  if k > 0 and strutils.endsWith(t, ")") and k + 2 < t.len - 1:
+    (t[0 ..< k], capitalize(t[k + 2 .. ^2]))
+  else: (t, "")
+
+var
+  choiceFor: Id     # (the settings row whose choices are open: a page of them)
+  choiceSince: int  # (the frame it opened in)
+  choiceDrawn: int  # (... the frame it was drawn in last: a row gone, its page closed)
+
+proc choicePage(id: Id; title, detail: string; options: openArray[string]; v: var int;
+                enabled: bool): bool =
+  ## (a row's choices, as a phone's settings showed them: a page -- or a dialog -- of rows, a
+  ## check by the chosen one; a tap chooses, Close goes back)
+  var open = true
+  choiceDrawn = ui.frameNo
+  if beginDialog(open, title, 380):
+    try:
+      tableGroup("", detail):
+        for i, o in options:
+          let (name, more) = choiceParts(o)
+          let hit = tableRow(name, subtitle = more, accessory = (if i == v: taCheck else: taNone),
+                             key = $i & ":" & o, enabled = enabled)
+          # (the chosen one brought into sight as the page opens: a long list's)
+          if i == v and ui.frameNo - choiceSince <= 2: bringIntoSight(ui.lastRect)
+          if hit.clicked and i != v:
+            v = i
+            result = true
+    finally:
+      endDialog()
+  if not open: choiceFor = Id(0)
+
+proc settingCombo*(title: string; options: openArray[string]; v: var int;
+                   detail = ""; enabled = true): bool {.discardable.} =
+  ## A settings row with a drop-down list at the right (a choice of many). In a `tableGroup`: a
+  ## row of it with the chosen one at its end and a chevron, as a phone's settings have them --
+  ## a tap shows the choices on a page of their own (a dialog where dialogs are windows), a check
+  ## by the chosen one; "Name (what it is)" is shown as the name, what it is under it.
+  if tableGroups.len > 0:
+    let id = idOf("settingcombo:" & title)
+    let value = if v >= 0 and v < options.len: choiceParts(options[v]).name else: ""
+    let chevW = dp(if glossLook(): 20 else: 18)
+    let vw = min(textWidth(value) + dp(8), available() * 2 div 5)
+    var stack = false
+    let c = settingRow(title, detail, chevW + vw, stack, ctlH = FontH, pid = id, enabled = enabled)
+    let r = c.r
+    let pad = if fingers(): dp(12) else: dp(10)
+    let endX = r.x + r.w - pad
+    rowChevron(endX - dp(4), r.y + r.h div 2,
+               if c.lit: white elif glossLook(): color(123, 123, 123) else: th.gray)
+    let shown = ellipsize(value, vw - dp(4))
+    text(endX - chevW - textWidth(shown), r.y + (r.h - FontH) div 2, shown,
+         if not enabled: th.gray else: c.link)
+    # (its page left open while the row was not drawn -- another look, another page --: closed)
+    if choiceFor == id and ui.frameNo - choiceDrawn > 1: choiceFor = Id(0)
+    if enabled and choiceFor != id and (c.hit.clicked or accessPressed == id):
+      choiceFor = id
+      choiceSince = ui.frameNo
+    if c.hit.focused: focusDots(inset(r, 2))
+    if accessOn:
+      accessNode(arComboBox, title, value = (if v >= 0 and v < options.len: tr(options[v]) else: ""),
+                 id = id, r = r, states = accessOff(enabled) + {asExpandable} +
+                                         (if choiceFor == id: {asExpanded} else: {}))
+    if choiceFor == id: result = choicePage(id, title, detail, options, v, enabled)
+    ui.lastId = id
+    ui.lastRect = r
+    return
+  var widest = 0
+  for o in options: widest = max(widest, labelWidth(o))
+  let cw = widest + SbW + dp(20)
+  var stack = false
+  let c = settingRow(title, detail, cw, stack)
+  pushFrame(rect(c.ctl.x, c.ctl.y, c.ctl.w, 0))
+  result = combo(options, v, w = (if stack: c.ctl.w else: cw), enabled = enabled)
+  discard popFrame()
+  ui.lastRect = c.r
+
+proc settingSlider*(title: string; v: var int; lo, hi: int; detail = "";
+                    suffix = ""; enabled = true): bool {.discardable.} =
+  ## A settings row with a slider and its value ("120%").
+  var stack = false
+  let vw = textWidth($hi & suffix) + dp(8)
+  let c = settingRow(title, detail, dp(200) + vw, stack)
+  pushFrame(rect(c.ctl.x, c.ctl.y, c.ctl.w, 0))
+  row:
+    result = slider(v, lo, hi, w = c.ctl.w - vw - Gap, ticks = 0, enabled = enabled)
+    label $v & suffix
+  discard popFrame()
+  ui.lastRect = c.r
+
+proc settingButtons*(title: string; buttons: openArray[string]; detail = "";
+                     enabled = true): int =
+  ## A settings row with buttons (`["Smaller", "Normal", "Larger"]`);
+  ## which was clicked (1-based), 0 if none.
+  var widths = 0
+  for b in buttons: widths += max(dp(56), labelWidth(b) + dp(20)) + Gap
+  var stack = false
+  let c = settingRow(title, detail, widths, stack)
+  pushFrame(rect(c.ctl.x, c.ctl.y, c.ctl.w, 0))
+  row:
+    if not stack: spring()
+    for i, b in buttons:
+      if button(b, enabled = enabled, w = max(dp(56), labelWidth(b) + dp(20))):
+        result = i + 1
+  discard popFrame()
+  ui.lastRect = c.r
+
+proc settingLink*(title: string; detail = ""; glyph = nfChevronRight;
+                  enabled = true): bool =
+  ## A settings row that leads somewhere (another page, a dialog): true
+  ## when clicked. In a `tableGroup`: a row of it with a chevron, lit while it is pressed.
+  var stack = false
+  let gw = textWidth(glyph) + dp(8)
+  let id = idOf("settinglink:" & title)
+  let c = settingRow(title, detail, gw, stack, ctlH = FontH, pid = id, enabled = enabled)
+  let r = c.r
+  if tableGroups.len > 0 and glyph == nfChevronRight:
+    let pad = if fingers(): dp(12) else: dp(10)
+    rowChevron(r.x + r.w - pad - dp(4), r.y + r.h div 2,
+               if c.lit: white elif glossLook(): color(123, 123, 123) else: th.gray)
+  else:
+    text(c.ctl.x + c.ctl.w - gw, r.y + (r.h - FontH) div 2, glyph, if c.lit: white else: th.gray)
+  if c.hit.focused: focusDots(inset(r, 2))
+  if accessOn:
+    accessNode(arButton, title, id = id, r = r, states = accessOff(enabled), help = tr(detail))
+  ui.lastId = id
+  ui.lastRect = r
+  c.hit.clicked
+
+var stepKeep: Table[string, int]   # (the steppers' segments: none chosen)
+
+proc stepRow(title, value: string; enabled = true): int =
+  ## (a settings row with its value and a stepper at its end, - and +, as a phone's: -1 or 1
+  ## when one is pressed)
+  let sw = if fingers(): dp(94) else: dp(64)
+  let sh = if fingers(): min(CtrlH, dp(30)) else: CtrlH
+  let vw = textWidth(value) + dp(12)
+  var stack = false
+  let c = settingRow(title, "", sw + vw, stack, ctlH = sh)
+  discard stepKeep.hasKeyOrPut(title, -1)
+  stepKeep[title] = -1
+  text(c.ctl.x + c.ctl.w - sw - vw + dp(4), c.r.y + (c.r.h - FontH) div 2, value,
+       if enabled: c.link else: th.gray)
+  let was = ui.m.ctrlH
+  ui.m.ctrlH = sh
+  pushFrame(rect(c.ctl.x + c.ctl.w - sw, c.ctl.y, sw, 0))
+  if segmented(["−", "+"], stepKeep[title], w = sw, enabled = enabled):
+    result = if stepKeep[title] == 0: -1 else: 1
+  discard popFrame()
+  ui.m.ctrlH = was
+  stepKeep[title] = -1
+  ui.lastRect = c.r
+
+var
+  fontFileOpen = false
+  fontFilePath = ""
+  fontFileError = ""
+
+proc extractFilenameOf(p: string): string =
+  var i = p.len - 1
+  while i >= 0 and p[i] notin {'/', '\\'}: dec i
+  p[i + 1 .. ^1]
+
+proc appearanceRows(): bool
+
+proc appearanceSettings*(): bool {.discardable.} =
+  ## Settings rows for how every app looks: the color scheme, the look of the controls
+  ## (`uiLook`: Classic, Glass, Matte or Gloss), the size of
+  ## everything, the size of the text, the size of controls (for a mouse
+  ## or fingers), the window's frame (on desktops: the system's or Windows
+  ## 3.1's), the title bars' buttons (`captionButtons`) and the font. In an
+  ## Android or iOS app only the look, its colors, the sizes and the font. With touch sizes in
+  ## Glass, Matte or Gloss: in groups, as a phone's settings are -- a choice a row with a
+  ## chevron and a page of its own, the sizes with - and +. True
+  ## when something changed (store them with
+  ## `storeAppearance`; `app`'s `look` keeps them by itself).
+  result = appearanceRows()
+  if result: noteLookChanged()
+
+const phoneSystem = androidApp or defined(ios)
+  ## (an Android or iOS app: Appearance has what matters on a phone or a tablet -- the look, its
+  ## colors, the sizes, the font --, not a desktop's frame, title bar buttons, drawing, icons)
+
+proc appearanceRows(): bool =
+  # (with touch sizes in Glass, Matte or Gloss: the rows in groups, as a phone's settings --
+  # not when the app has put them in a group of its own)
+  let framed = fingers() and glassLook() and tableGroups.len == 0
+  template framedGroup(header, footer: string; body: untyped) =
+    if framed: beginTableGroup(header, footer)
+    try:
+      body
+    finally:
+      if framed: endTableGroup()
+  var t = max(0, themeIndex())
+  var names: seq[string]
+  for th in builtinThemes: names.add th.name
+  framedGroup("", if framed: "With Light or dark as the system, the look's own colors are dark when the system's are."
+            else: ""):
+    # (the controls' look, in whatever scheme: Windows 3.1's, or frosted glass)
+    var lk = ord(uiLook)
+    if settingCombo("Look", ["Classic (Windows 3.1)", "Glass", "Matte", "Gloss"], lk):
+      let was = uiLook
+      uiLook = UiLook(lk)
+      # (a look picked with a scheme of before, or with another look's own: its own colors with
+      # it, light or dark as the scheme was)
+      let (wl, wd) = lookSchemes(was)
+      if uiLook != lookClassic and (t in [0, 1, 2, 3] or (was != lookClassic and ui.theme in [wl, wd])):
+        let dark = t in [2, 3] or ui.theme == wd
+        let (l, d) = lookSchemes(uiLook)
+        ui.theme = if dark: d else: l
+        t = max(0, themeIndex())
+      invalidate()
+      result = true
+    if settingCombo("Color scheme", names, t):
+      ui.theme = builtinThemes[t].theme
+      systemColors = false
+      invalidate()
+      result = true
+    # (the look's own colors, light or dark as the system is: a phone's way -- a scheme picked
+    # turns it off)
+    if settingToggle("Light or dark as the system", systemColors,
+                     if framed: "" else: "The look's own colors, dark when the system is"):
+      invalidate()
+      result = true
+    if uiLook == lookGlass:
+      if settingToggle("See-through menus and dialogs", frostedGlass,
+                       if framed: "" else: "What is under them shows blurred, as through frosted glass"):
+        invalidate()
+        result = true
+  framedGroup("Sizes", ""):
+    if framed:
+      case stepRow("Size of everything", $uiScale() & "%")
+      of -1: setUiScale(scaleStep(-1)); result = true
+      of 1: setUiScale(scaleStep(1)); result = true
+      else: discard
+      case stepRow("Size of the text", $textScale() & "%")
+      of -1: setTextScale(textScale() - 10); result = true
+      of 1: setTextScale(textScale() + 10); result = true
+      else: discard
+    else:
+      case settingButtons("Size of everything", ["Smaller", "Normal", "Larger"],
+                          $uiScale() & "%")
+      of 1: setUiScale(scaleStep(-1)); result = true
+      of 2: setUiScale(100); result = true
+      of 3: setUiScale(scaleStep(1)); result = true
+      else: discard
+    var cs = ord(controlSizes())
+    # (on a phone or a tablet too: Glass and Gloss have touch sizes there, and a tablet's user may
+    # want the desktop's back)
+    if settingCombo("Controls", [if phoneSystem: "Automatic (touch sizes in Glass and Gloss)"
+                                 else: "Automatic (touch sizes on phones)",
+                                 "Desktop sizes (mouse, pen)", "Touch sizes (fingers)"], cs):
+      setControlSizes(ControlSizes(cs))
+      result = true
+    if framed and (uiScale() != 100 or textScale() != 100):
+      if tableButton("Normal Sizes"):
+        setUiScale(100)
+        setTextScale(100)
+        result = true
+    if not framed:
+      case settingButtons("Size of the text", ["A-", "A", "A+"], $textScale() & "%")
+      of 1: setTextScale(textScale() - 10); result = true
+      of 2: setTextScale(100); result = true
+      of 3: setTextScale(textScale() + 10); result = true
+      else: discard
+  framedGroup(if framed: "Text" else: "", ""):
+    # (GNU FreeFont's three in their menu order, then a font from a file)
+    var fonts: seq[UiFont]
+    var fontNames: seq[string]
+    for u in builtinUiFonts:
+      fonts.add u
+      fontNames.add $u
+    fonts.add ufFile
+    fontNames.add(if uiFontPath.len > 0: tr("Font File: ") & uiFontPath.extractFilenameOf else: "A Font File...")
+    var f = max(0, fonts.find(uiFont()))
+    if settingCombo("Font", fontNames, f):
+      if fonts[f] == ufFile and uiFontPath.len == 0:
+        fontFileOpen = true                 # (which font: asked first)
+      elif fonts[f] == ufFile:
+        try:
+          loadUiFontFile(uiFontPath)
+          result = true
+        except CatchableError: fontFileOpen = true
+      else:
+        setUiFont(fonts[f])
+        result = true
+    if uiFont() == ufFile:
+      if framed:
+        if settingLink("Font file", uiFontPath.extractFilenameOf): fontFileOpen = true
+      elif settingButtons("Font file", ["Choose..."], uiFontPath.extractFilenameOf) == 1: fontFileOpen = true
+    when not androidApp and not defined(ios):
+      if pxScale == 1:
+        var sharp = if subpixelText(): 0 else: 1
+        if settingCombo("Text edges", ["Sharp", "Smooth"], sharp):
+          setSubpixelText(sharp == 0)
+          result = true
+  if not phoneSystem:
+    framedGroup(if framed: "This Computer" else: "", ""):
+      if canClassicFrame() and userFrameChoice:
+        # (the window's frame: the desktop's, or the 3.1 one the app draws --
+        # on X11 and Wayland the way back to the 3.1 one, their window
+        # managers' menus taking no item of the app's)
+        var fr = ord(classicFrame())
+        let own = if platformName() == "windows": "Windows' own frame"
+                  else: "The desktop's own frame"
+        if settingCombo("Window", [own, "Windows 3.1 frame"], fr):
+          chooseClassicFrame(fr == 1)       # (kept for the app's next start)
+          result = true
+      # (the title bars the toolkit draws: the 3.1 frame's, dialogs', the windows' in the app)
+      var cb = ord(captionButtons)
+      if settingCombo("Title bar buttons", ["Windows 95 (with close)", "Windows 3.1 (no close)"], cb):
+        captionButtons = CaptionButtons(cb)
+        invalidate()
+        result = true
+      var gm = ord(gpuMode())
+      if settingCombo("Drawing", ["Automatic (the GPU when there is a real one)", "With the GPU",
+                                  "On the CPU"], gm):
+        setGpuMode(GpuMode(gm))
+        result = true
+      if pxScale >= 2:
+        var hd = if hdText(): 0 else: 1
+        if settingCombo("Pixel icons on HD screens", ["Smooth", "Pixels (as in 1998, magnified)"], hd):
+          setHdText(hd == 0)
+          result = true
+      var ics = ord(iconStyle())
+      if settingCombo("Icons", ["Automatic (line icons in dark colors)", "Pixels (as in 1994)",
+                                "Line (Nerd Fonts symbols)"], ics):
+        setIconStyle(IconStyle(ics))
+        result = true
+      var smooth = smoothScrolling
+      if settingToggle("Smooth scrolling", smooth,
+                       "Lists and pages glide; a flicked finger keeps them moving"):
+        setSmoothScrolling(smooth)
+        result = true
+  if fileDialog(fontFileOpen, fontFilePath, fmOpen, ["Fonts (*.ttf;*.otf;*.ttc;*.otc)", "All Files (*.*)"],
+                "Font File"):
+    try:
+      loadUiFontFile(fontFilePath)
+      result = true
+    except CatchableError:
+      fontFileError = fontFilePath.extractFilenameOf & ": not a font we read"
+  if fontFileError.len > 0:
+    label(fontFileError, color = color(160, 0, 0))
 
 # ---- a shelf of cards ----------------------------------------------------------------------------
 
@@ -2062,6 +2612,7 @@ proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool 
   elif matteLook():
     fill(full, th.face)
     hline(full.x, full.y + full.h - 1, full.w, mixColor(th.face, th.text, 0.2))
+  elif modernGlass(): fill(full, titleColors(true).bg)       # (the navigation bar's glass, the box a capsule on it)
   elif glassLook(): fill(full, mixColor(th.window, th.face, 0.5))
   else:
     fill(full, th.face)
@@ -2871,11 +3422,18 @@ proc bigButton*(label: string; tone = btGray; enabled = true; key = ""): bool =
     if hit.focused:
       ui.takesEnter = true
       if keyHit(KeyEnter): hit.clicked = true
-  let base = case tone
-             of btGray: color(139, 139, 139)
-             of btGreen: color(7, 177, 22)
-             of btRed: color(178, 12, 14)
-             of btBlue: glossTint(color(37, 98, 217))
+  let base = if modernGlass():
+               (case tone
+                of btGray: color(139, 139, 139)
+                of btGreen: color(36, 178, 84)
+                of btRed: color(232, 58, 58)
+                of btBlue: accentColor())
+             else:
+               (case tone
+                of btGray: color(139, 139, 139)
+                of btGreen: color(7, 177, 22)
+                of btRed: color(178, 12, 14)
+                of btBlue: glossTint(color(37, 98, 217)))
   var c = if enabled: base else: mixColor(base, th.window, 0.55)
   if hit.down: c = mixColor(c, black, 0.25)
   let gloss = glossLook()
@@ -2891,6 +3449,14 @@ proc bigButton*(label: string; tone = btGray; enabled = true; key = ""): bool =
     glossTwoTone(f, fr, mixColor(c, white, 0.4), mixColor(c, white, 0.1), c,
                  mixColor(c, if tone == btGray: white else: black, 0.2))
     roundFrame(f, fr, 1, withAlpha(black, 110))
+  elif modernGlass():
+    # (a capsule lit from above, glowing in its color on the window; the gray one a pill of
+    # glass, its label in the text's color)
+    let pr = float(r.h) / 2
+    if tone == btGray:
+      glassPlate(r, pr, if hit.down: mixColor(th.field, th.text, 0.1) else: th.field)
+      ink = if enabled: th.text else: th.gray
+    else: glassBlue(r, pr, hit.down, c = c, glow = enabled)
   elif glassLook():
     roundRect(r, if matteLook(): float(dp(2)) else: float(dp(12)), c)
     if tone == btGray: ink = th.text
@@ -2902,7 +3468,6 @@ proc bigButton*(label: string; tone = btGray; enabled = true; key = ""): bool =
                        of btBlue: th.select
                        of btGray: th.text)
           else: th.gray
-  if tone == btGray and glassLook() and not gloss: c = th.face
   let l = ellipsize(label, r.w - dp(16), lst)
   let lw = textWidth(l, lst)
   let ly = r.y + (h - lineHeight(lst)) div 2 + (if hit.down and not glassLook(): 1 else: 0)

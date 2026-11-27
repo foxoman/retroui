@@ -83,13 +83,23 @@ proc vpnReady*(s: Server): bool = s.doh.len + s.dot.len > 0
   ## `s` has encrypted DNS, which the VPN sends lookups with (Google Play
   ## wants what a VPN sends from the device encrypted).
 
-proc vpnConfig*(s: Server; next: openArray[Server] = []; blocks: openArray[string] = []): string =
-  ## The VPN's settings for `s`: DNS over HTTPS when it has it, else TLS, and an address of it
-  ## (no server name sent, where its certificate allows); then the servers it goes on to when
-  ## `s` stops answering, after "---" lines; then the block list ("block=name", "block=!name"
-  ## an exception).
+proc vpnMode*(s: Server; prefer = ""): string =
+  ## How the VPN reaches `s`: "doh" (DNS over HTTPS) or "dot" (DNS over TLS) -- `prefer`'s when
+  ## `s` has it ("doh", "dot"; "": HTTPS when it has it, else TLS).
+  if prefer == "dot" and s.dot.len > 0: "dot"
+  elif prefer == "doh" and s.doh.len > 0: "doh"
+  elif s.doh.len > 0: "doh"
+  else: "dot"
+
+proc vpnConfig*(s: Server; next: openArray[Server] = []; blocks: openArray[string] = [];
+                prefer = ""): string =
+  ## The VPN's settings for `s`: DNS over HTTPS when it has it, else TLS (`prefer`: "doh" or
+  ## "dot" first, where the server has it: `vpnMode`), and an address of it (no server name
+  ## sent, where its certificate allows); then the servers it goes on to when `s` stops
+  ## answering, after "---" lines; then the block list ("block=name", "block=!name" an
+  ## exception).
   proc one(s: Server): string =
-    "name=" & s.name & "\nmode=" & (if s.doh.len > 0: "doh" else: "dot") &
+    "name=" & s.name & "\nmode=" & vpnMode(s, prefer) &
       "\ndoh=" & s.doh & "\ndot=" & s.dot & "\nip=" & (if s.ipv4.len > 0: s.ipv4[0] else: "") & "\n"
   result = one(s)
   for n in next:

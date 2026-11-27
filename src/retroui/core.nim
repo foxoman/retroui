@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.79.0"
+const RetroVersion* = "0.80.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -435,29 +435,30 @@ const
     link: color(255, 214, 80), face2: color(62, 62, 68))
     ## Notes at night: near black, with the marker's yellow.
   GlassLight* = Theme(
-    window: color(238, 241, 246), text: color(29, 32, 40),
-    face: color(248, 249, 251), light: color(255, 255, 255),
-    shadow: color(178, 184, 197), frame: color(92, 98, 112),
-    select: color(10, 100, 220), selectText: color(255, 255, 255),
-    gray: color(150, 155, 168), field: color(255, 255, 255),
-    fieldText: color(29, 32, 40), scroll: color(232, 235, 241),
-    tip: color(252, 252, 254), tipText: color(29, 32, 40),
-    line: color(208, 212, 221), edge: color(178, 184, 197), link: color(31, 99, 216),
-    hover: color(225, 235, 252), face2: color(252, 253, 254),
-    inactiveTitle: color(238, 241, 246), inactiveTitleText: color(107, 112, 128))
-    ## For the Glass look (`uiLook`): cool white, frosted surfaces, a blue to choose with.
+    window: color(235, 241, 250), text: color(24, 30, 42),
+    face: color(250, 251, 253), light: color(255, 255, 255),
+    shadow: color(176, 186, 204), frame: color(88, 98, 118),
+    select: color(14, 106, 232), selectText: color(255, 255, 255),
+    gray: color(130, 139, 158), field: color(255, 255, 255),
+    fieldText: color(24, 30, 42), scroll: color(228, 235, 245),
+    tip: color(252, 253, 255), tipText: color(24, 30, 42),
+    line: color(214, 222, 235), edge: color(176, 186, 204), link: color(20, 104, 232),
+    hover: color(222, 234, 253), face2: color(252, 253, 255),
+    inactiveTitle: color(235, 241, 250), inactiveTitleText: color(104, 112, 130))
+    ## For the Glass look (`uiLook`): a light blue-white, white glass on it, a vivid blue to choose
+    ## with.
   GlassDark* = Theme(
-    window: color(28, 30, 36), text: color(236, 238, 243),
-    face: color(52, 55, 64), light: color(92, 96, 108),
-    shadow: color(16, 17, 21), frame: color(8, 9, 11),
-    select: color(36, 108, 230), selectText: color(255, 255, 255),
-    gray: color(112, 118, 132), field: color(20, 21, 26),
-    fieldText: color(236, 238, 243), scroll: color(36, 38, 45),
-    tip: color(46, 48, 56), tipText: color(236, 238, 243),
-    line: color(66, 69, 80), edge: color(78, 82, 95), link: color(110, 170, 255),
-    hover: color(40, 54, 80), face2: color(64, 67, 78),
-    inactiveTitle: color(28, 30, 36), inactiveTitleText: color(154, 160, 174))
-    ## ... and its dark one: near black, smoked glass.
+    window: color(15, 18, 26), text: color(236, 240, 247),
+    face: color(46, 51, 63), light: color(88, 95, 112),
+    shadow: color(8, 10, 14), frame: color(4, 5, 8),
+    select: color(30, 110, 240), selectText: color(255, 255, 255),
+    gray: color(118, 126, 144), field: color(30, 34, 44),
+    fieldText: color(236, 240, 247), scroll: color(26, 30, 39),
+    tip: color(40, 45, 56), tipText: color(236, 240, 247),
+    line: color(54, 60, 74), edge: color(70, 77, 94), link: color(112, 172, 255),
+    hover: color(34, 50, 84), face2: color(58, 64, 78),
+    inactiveTitle: color(15, 18, 26), inactiveTitleText: color(150, 158, 176))
+    ## ... and its dark one: deep blue-black, smoked glass.
   MatteLight* = Theme(
     window: color(246, 246, 246), text: color(38, 38, 38),
     face: color(236, 236, 236), light: color(255, 255, 255),
@@ -500,13 +501,27 @@ const
     face: color(78, 82, 90), light: color(118, 123, 134),
     shadow: color(14, 15, 18), frame: color(0, 0, 0),
     select: color(36, 112, 226), selectText: color(255, 255, 255),
-    gray: color(132, 138, 150), field: color(22, 23, 26),
+    gray: color(132, 138, 150), field: color(44, 46, 52),
     fieldText: color(238, 240, 244), scroll: color(44, 46, 51),
     tip: color(58, 61, 68), tipText: color(238, 240, 244),
     line: color(72, 76, 84), edge: color(96, 101, 112), link: color(120, 170, 255),
     hover: color(46, 62, 92), face2: color(90, 94, 103),
     inactiveTitle: color(34, 36, 40), inactiveTitleText: color(150, 156, 168))
     ## ... and its dark one: black gloss.
+  GlossOnyx* = Theme(
+    window: color(11, 11, 13), text: color(242, 242, 245),
+    face: color(40, 40, 44), light: color(92, 92, 98),
+    shadow: color(5, 5, 7), frame: color(0, 0, 0),
+    select: color(214, 34, 54), selectText: color(255, 255, 255),
+    gray: color(134, 134, 142), field: color(25, 25, 28),
+    fieldText: color(242, 242, 245), scroll: color(30, 30, 34),
+    tip: color(44, 44, 48), tipText: color(242, 242, 245),
+    line: color(52, 52, 58), edge: color(72, 72, 80), link: color(255, 112, 124),
+    hover: color(58, 28, 34), face2: color(52, 52, 58),
+    inactiveTitle: color(11, 11, 13), inactiveTitleText: color(150, 150, 158))
+    ## A third scheme for Gloss: black, its highlight crimson -- its tab bar a capsule of black
+    ## gloss floating over the window, the chosen place lit in the highlight; its buttons pills
+    ## of black gloss.
   builtinThemes* = [(name: "Classic", theme: Classic), (name: "Gray", theme: Gray),
                     (name: "Dark", theme: Dark), (name: "OLED Black", theme: Oled),
                     (name: "Ocean", theme: Ocean),
@@ -525,7 +540,8 @@ const
                     (name: "Dusk", theme: Dusk), (name: "Night Notes", theme: NightNotes),
                     (name: "Glass Light", theme: GlassLight), (name: "Glass Dark", theme: GlassDark),
                     (name: "Matte Light", theme: MatteLight), (name: "Matte Dark", theme: MatteDark),
-                    (name: "Gloss Light", theme: GlossLight), (name: "Gloss Dark", theme: GlossDark)]
+                    (name: "Gloss Light", theme: GlossLight), (name: "Gloss Dark", theme: GlossDark),
+                    (name: "Gloss Onyx", theme: GlossOnyx)]
     ## The color schemes that come with the toolkit, by name (new ones go at
     ## the end: settings keep a scheme's number).
 
@@ -809,7 +825,8 @@ template `redraw=`*(u: var Ctx; v: bool) =
     const at = instantiationInfo(-1)
     redrawSite = (at.filename, at.line)
 
-ui.theme = Classic
+ui.theme = when defined(android) or defined(ios): GlossLight else: Classic
+  # (a phone's or a tablet's app in Gloss's own colors, a computer's in 3.1's: `uiLook`)
 ui.m = DesktopMetrics
 ui.k = 1
 ui.density = 1
@@ -846,16 +863,18 @@ proc dpf*(v: float): float = v * ui.k
   ## `dp` for fractions: `v` design pixels in logical pixels, not rounded.
 
 proc glossLook*(): bool {.inline.}
+proc phoneLook*(): bool {.inline.}
 
 proc fingers*(): bool {.inline.} =
   ## Controls are finger-sized: on a phone (automatic sizes), or always
   ## (`csTouch`). A tablet has desktop sizes unless the user asks: the
   ## screen holds a desktop app's layout, and a finger still taps it --
-  ## but for the Gloss look on an Android or iOS tablet, made for fingers.
+  ## but for the Glass and Gloss looks on an Android or iOS tablet, made
+  ## for fingers (`phoneLook`).
   case ui.sizes
   of csTouch: true
   of csDesktop: false
-  of csAuto: ui.touch and (not ui.roomy or (defined(android) or defined(ios)) and glossLook())
+  of csAuto: ui.touch and (not ui.roomy or (defined(android) or defined(ios)) and phoneLook())
 
 const
   DesktopTextEm* = 12.0
@@ -1375,10 +1394,19 @@ type UiLook* = enum
                            ## bars and the blue parts in the hue of the scheme's highlight
                            ## (`GlossLight`, `GlossDark`)
 
-var uiLook* = lookClassic
-  ## The look of the controls (`UiLook`). Set it before `startApp` for the app's own default
-  ## (with `GlassLight` or `GlassDark` for colors made for it); the user's choice ("Look" in
-  ## `appearanceSettings`) is kept with the look (`storeAppearance`) and wins.
+var uiLook* = when defined(android) or defined(ios): lookGloss else: lookClassic
+  ## The look of the controls (`UiLook`): Windows 3.1's (Classic) on a computer, iOS 6's Gloss
+  ## (in `GlossLight` or `GlossDark`, as the system is light or dark) on Android and iOS. Set it
+  ## before `startApp` for the app's own default (with its own schemes: `lookSchemes`); the
+  ## user's choice ("Look" in `appearanceSettings`) is kept with the look (`storeAppearance`)
+  ## and wins.
+
+var systemColors* = defined(android) or defined(ios)
+  ## The colors light or dark as the system is (its dark theme, its Dark appearance): the look's
+  ## own two (`lookSchemes`), changed over when the system's changes -- on Android and iOS, phones
+  ## and tablets, unless the user picked a scheme of their own ("Light or dark as the system" in
+  ## `appearanceSettings`, kept with the look; picking a color scheme there turns it off). An
+  ## app's own theme (not one of `builtinThemes`) is left as it is, and so is $RETRO_THEME.
 
 var frostedGlass* = true
   ## In the Glass look, menus, dialogs and the lists a combo box drops down show what is under
@@ -1406,6 +1434,12 @@ proc matteLook*(): bool {.inline.} =
 proc glossLook*(): bool {.inline.} =
   ## The controls drawn in the Gloss look now (`uiLook`; not with a high-contrast scheme).
   uiLook == lookGloss and glassLook()
+
+proc phoneLook*(): bool {.inline.} =
+  ## The controls drawn in a look made for phones and tablets now -- Glass or Gloss (`uiLook`;
+  ## not with a high-contrast scheme): on Android and iOS they have touch sizes on a tablet too
+  ## (`fingers`), and dialogs open as pages (`dialogPages`).
+  uiLook in {lookGlass, lookGloss} and glassLook()
 
 var glossPinstripes* = false
   ## In the Gloss look on a light window, the window's thin upright stripes, a shade lighter
@@ -1758,6 +1792,12 @@ proc wantSeen*(): Rect =
   if ui.seeAt == ui.frameNo and ui.seeRect.w > 0: ui.seeRect
   elif ui.frameNo - ui.focusMoved == 1: ui.focusRect
   else: Rect()
+
+proc bringIntoSight*(r: Rect) =
+  ## Asks the view that scrolls round `r` (a page, a dialog) to bring it into sight this frame
+  ## (`wantSeen`): the chosen row of a list as it opens.
+  ui.seeRect = r
+  ui.seeAt = ui.frameNo
 
 proc tabStops*(): seq[Id] =
   ## The controls Tab stops at so far this frame, in the order it goes
@@ -4532,9 +4572,9 @@ proc smokeFrame() =
     wakeIn(15)
 
 proc themeFromEnv*() =
-  ## `RETRO_THEME` (a built-in theme's name, "OLED Black", or its number)
-  ## overrides the colors chosen: for tests and screenshots. `RETRO_LOOK` (classic, glass,
-  ## matte, gloss) the look.
+  ## `RETRO_THEME` (a built-in theme's name, "OLED Black", or its number; "light" or "dark":
+  ## the look's own, `lookSchemes`) overrides the colors chosen: for tests and screenshots.
+  ## `RETRO_LOOK` (classic, glass, matte, gloss) the look.
   case getEnv("RETRO_LOOK").toLowerAscii
   of "classic": uiLook = lookClassic
   of "glass": uiLook = lookGlass
@@ -4543,6 +4583,11 @@ proc themeFromEnv*() =
   else: discard
   let t = getEnv("RETRO_THEME")
   if t.len == 0: return
+  if cmpIgnoreCase(t, "light") == 0 or cmpIgnoreCase(t, "dark") == 0:
+    let (l, d) = lookSchemes(uiLook)
+    ui.theme = if cmpIgnoreCase(t, "dark") == 0: d else: l
+    ui.force = true
+    return
   for i, b in builtinThemes:
     if cmpIgnoreCase(b.name, t) == 0 or $i == t:
       ui.theme = b.theme

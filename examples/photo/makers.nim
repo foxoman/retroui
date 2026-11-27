@@ -800,9 +800,15 @@ proc appCommands(): seq[string] =
   for (_, _, c) in mIndex.found:
     if c in result or c.len == 0: continue
     if c in ["Quit", "Exit", "Close All", "Close", "Revert", "Ask AI...", "AI Connector...", "Assistant",
-             "Generative Fill...", "Generative Expand...", "Generate Image...", "Generate Vector...", "Models...",
+             "Generative Fill...", "Generative Expand...", "Generative Remove...", "Generate Image...",
+             "Generate Vector...", "Models...",
              "Shorten to Fit"]: continue
     result.add c
+
+var
+  comfyAsk: Job[tuple[said: string; models: seq[string]]]   ## (Find It: the ComfyUI server asked)
+  comfySaid = ""
+  comfyFound: seq[string]
 
 proc aiDialogs() =
   modelStoreDialog(modelsOpen, {muChat, muEmbed, muSubject, muDepth, muText},
@@ -817,18 +823,60 @@ proc aiDialogs() =
                 "each change shown before it is made. Off until you set one; nothing is sent anywhere before.",
                 color = ui.theme.gray)
       aiServiceForm(aiDlg.s, modelsOpen)
-      label("Pictures (Generate Image, Generative Fill and Expand):", bold = true)
-      paragraph("A service that speaks OpenAI's images API: its address and model (gpt-image-1, dall-e-2...); " &
-                "the key, if it is not the one above.", color = ui.theme.gray)
+      label("Pictures (Generate Image, Generative Fill, Expand and Remove):", bold = true)
+      var kind = if imgAi.s.comfy: 1 else: 0
       row([100, -1]):
-        label "Address:"
-        edit(imgAi.s.url)
-      row([100, -1]):
-        label "Model:"
-        edit(imgAi.s.model)
-      row([100, -1]):
-        label "Key:"
-        edit(imgAi.s.key, password = true)
+        label "Service:"
+        if combo(["OpenAI's images API (or one like it)", "ComfyUI on your computer"], kind):
+          imgAi.s.kind = if kind == 1: "comfyui" else: ""
+          comfyFound = @[]
+          comfySaid = ""
+      if imgAi.s.comfy:
+        paragraph("ComfyUI running on your computer: its address on your network (on the computer itself " &
+                  "http://127.0.0.1:8188; from a phone or a tablet the computer's, http://192.168.1.20:8188 -- " &
+                  "start ComfyUI with --listen). A checkpoint of its own makes the pictures; Remove uses LaMa " &
+                  "when comfyui-inpaint-nodes and big-lama.pt are there.", color = ui.theme.gray)
+        row([100, -1]):
+          label "Address:"
+          edit(imgAi.s.url, hint = "http://192.168.1.20:8188")
+        row([100, -1]):
+          label "Checkpoint:"
+          if comfyFound.len > 0:
+            var k = max(0, comfyFound.find(imgAi.s.model))
+            if combo(comfyFound, k): imgAi.s.model = comfyFound[k]
+          else: edit(imgAi.s.model, hint = "its first, when empty")
+        row:
+          if button("Find It", w = dp(100), enabled = imgAi.s.url.strip.len > 0 and
+                                                    (comfyAsk == nil or not comfyAsk.running)):
+            let u = imgAi.s.url
+            comfySaid = "Asking..."
+            comfyAsk = job(proc (): tuple[said: string; models: seq[string]] {.gcsafe.} =
+              let why = comfyPing(u)
+              if why.len > 0: ("Not found: " & why, newSeq[string]())
+              else:
+                let ms = comfyModels(u)
+                let lama = comfyLama(u)
+                ((if ms.len == 0: "Found, with no checkpoint yet (models/checkpoints)"
+                  else: "Found: " & $ms.len & (if ms.len == 1: " checkpoint" else: " checkpoints")) &
+                 (if lama.len > 0: ", and LaMa for Remove" else: ""), ms))
+          if comfyAsk != nil and comfyAsk.done and comfySaid == "Asking...":
+            comfySaid = comfyAsk.value.said
+            comfyFound = comfyAsk.value.models
+            if imgAi.s.model.len == 0 and comfyFound.len > 0: imgAi.s.model = comfyFound[0]
+          elif comfyAsk != nil and comfyAsk.running: wakeIn(200)
+          label(comfySaid, color = ui.theme.gray)
+      else:
+        paragraph("A service that speaks OpenAI's images API: its address and model (gpt-image-1, dall-e-2...); " &
+                  "the key, if it is not the one above.", color = ui.theme.gray)
+        row([100, -1]):
+          label "Address:"
+          edit(imgAi.s.url)
+        row([100, -1]):
+          label "Model:"
+          edit(imgAi.s.model)
+        row([100, -1]):
+          label "Key:"
+          edit(imgAi.s.key, password = true)
       row:
         if button("Disconnect", w = dp(100), enabled = aiDlg.s.connected or imgAi.s.connected):
           aiDlg.s = AiSettings()
@@ -843,7 +891,7 @@ proc aiDialogs() =
           imgAi.loaded = false
     if ok:
       aiDlg.open = false
-      if imgAi.s.url.strip.len > 0 and imgAi.s.key.len == 0: imgAi.s.key = aiDlg.s.key
+      if imgAi.s.url.strip.len > 0 and imgAi.s.key.len == 0 and not imgAi.s.comfy: imgAi.s.key = aiDlg.s.key
       let pics = saveAiImageSettings(AppData, imgAi.s)
       if assist != nil: assist.settings = aiDlg.s
       status = if not saveAi() or not pics: "AI Connector: not kept -- the settings or the keyring could not be written"
@@ -1078,6 +1126,8 @@ proc makersCommand(name: string): bool =
     if d != nil: genDlg = (true, 1, "", d.w + d.w div 4, d.h + d.h div 4)
   of "Generate Image...":
     if d != nil: genDlg = (true, 2, genDlg.prompt, 0, 0)
+  of "Generative Remove...":
+    if d != nil: genDlg = (true, 3, "", 0, 0)
   of "Generate Vector...":
     if d != nil:
       vecAsk.open = true

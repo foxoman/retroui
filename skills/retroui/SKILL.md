@@ -387,8 +387,10 @@ app "Staff", 520, 420:
   `assistantPanel(chat)` in a pane; `chat.tools.add uiTools()` lets it work the
   app's controls by name; `aiToolLater` for a tool done frames later (`done(text)`);
   `publishTools(tools)` for agents outside (`retrokit mcp PORT` with RETRO_DRIVE).
-  Pictures: `retroui/aiimage` (`generateImage`, `editImage` through a mask) as a
-  job's work. Vector art: `askVector(settings, words, vkIcon)` then
+  Pictures: `retroui/aiimage` (`generateImage`, `editImage` through a mask,
+  `removeFromImage`) as a job's work -- OpenAI's images API, or a ComfyUI server
+  of the user's (`kind = "comfyui"`, its address and checkpoint; `retroui/comfyui`:
+  `comfyPing`, `comfyModels`, `comfyLama`, `comfyGenerate`, `comfyFill`). Vector art: `askVector(settings, words, vkIcon)` then
   `vectorAnswer` (an SVG of shapes only) and `doc.placeSvg(svg, box)`
   (`retroui/aivector`; `akDevice` works offline); the whole dialog is
   `vectorDialog(newVectorAsk(), settings, proc (svg, error, words: string) = ...)`
@@ -422,6 +424,10 @@ app "Staff", 520, 420:
   (`"Could not open " & name`, `"Page " & $i & " of " & $n`) has its parts
   translated when they are keys with their spaces ("Could not open ",
   " of "). README's "Translating an app" has the whole of it.
+- Video: `videoView(url, height, w, autoplay = true, controls = false, key = "tv")` -- on
+  Android the system's player in a window of its own over the app (nothing of the app's drawn
+  over its picture: put a player's bars above and below it); `videoFullScreen("tv", true)`
+  while it is drawn as big as the window (the phone on its side, the bars away).
 - Sound: `audioView(url, speed = 1.5, title = "...", key = "player")`,
   `seekVideo("player", ms)`, `playVideo("player")`; it plays on in the
   background on Android (retroapk adds the service) and iOS. A player the app
@@ -728,6 +734,25 @@ costs what its visible rows cost.
   `glossTint(iOS6color)`, `glossDetail()` -- gray buttons and
   the default one blue -- `button(label, isDefault = true)`; `GlossLight`, `GlossDark`), at the same sizes; `glassLook()` is true in them too, `matteLook()` and
   `glossLook()` tell them apart; `lookSchemes(look)`, `titleBar`, `barFace`, `tintedFace`.
+  `GlossOnyx` is Gloss's third scheme (black, crimson; a floating tab bar and pill buttons:
+  `glossOnyx()`). Glass draws cards with `glassPlate(r, radius)` and the lit, glowing blue with
+  `glassBlue(r, radius)` (`modernGlass()`: Glass itself). On Android and iOS Glass and Gloss
+  are the phone's (`phoneLook()`): touch sizes on a tablet, dialogs as pages; and the look's own
+  colors follow the system's dark theme (`systemColors`, on there by default;
+  `followSystemColors()` runs in `appFrameDone`) -- don't fix a phone app to a light scheme.
+  The default look is Classic on computers and the web, Gloss on Android and iOS (set
+  `uiLook` before the app starts for a look of the app's own). In Gloss a scheme not of its
+  own (`glossOwnScheme()`) colors the bars, the tab bar and the side menu; the status bar
+  over the app's bars is the top bar's color, darker (`statusBarColor()`).
+- The phone controls' own colors and sizes, as `Theme` is for colors: `mobileStyle =
+  MobileStyle(bar: c, barText: c, statusBar: c, tabBar: c, tabText: c, tabChosen: c,
+  sideMenu: c, sideMenuText: c, group: c, groupLine: c, rowText: c, rowDetail: c,
+  groupCorner: 14.0, rowHeight: 50)` -- each left out stays the look's --, or
+  `withMobileStyle(s): ...` for a part of the window.
+- Settings rows (`settingToggle`, `settingCombo`, `settingLink`...) in a `tableGroup` are its
+  rows, as a phone's settings: `settingCombo` shows the chosen one at its end and opens a page
+  of choices. `appearanceSettings()` groups its rows by itself with touch sizes in Glass,
+  Matte or Gloss.
 - A phone app is made for tablets too: `isCompact()` (a phone in portrait) gives pages one
   over another with Back; otherwise (a tablet, a phone on its side, a computer) put the list
   down the left -- about a third, at most 340 dp -- and the page chosen beside it, each
@@ -738,7 +763,8 @@ costs what its visible rows cost.
   (returns `npBack`, `npAction`), `wheelPicker(items, sel)` (and `wheelPicker(count, item,
   sel)`), `dateWheels(d)`, `timeWheels(h, m, minuteStep, hours12)`, `quantity(v, lo, hi)`,
   `pageDots(page, pages)`, `swipeRow(title, actions, detail, glyph)` (a `SwipeHit`:
-  `clicked`, `action`), `actionSheet(open, title, actions, destructive)` (the index picked),
+  `clicked`, `action`), `actionSheet(open, title, actions, destructive)` (the index picked;
+  `tableRow(...).menu` -- a finger held on a row, a right click -- is when to open one for it),
   `cardShelf(cards, key)` (a sideways shelf of `ShelfCard`s: the one tapped),
   `textKeyboard(kbEmail, keNext)` before a text box (the phone's keyboard it asks for; number
   boxes ask for digits by themselves; Next comes as Tab), `pullRefresh(loading)` right after

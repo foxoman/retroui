@@ -32,7 +32,7 @@ import retroui/[photo, photopaint, photofx, photoartistic, photohdr, otshape, tt
               photobrushes, adobefiles, photobook, imagetrace, layouttemplates, liveshapes, idml, preflight,
               booklists, datamerge, textsearch, headless, perspectivegrid, pathbrush, photoblurs, pathtools,
               liveeffects, photoseps, mathtype, flexlayout, vectormake, photorelight, mockups, designstyles,
-              aiconnect, aichat, aiimage, aivector, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, arabicfonts, fontfolders,
+              aiconnect, aichat, aiimage, comfyui, aivector, assistant, modelstore, nnet, vision, photopublish, flows, dastkhat, arabicfonts, fontfolders,
               imaging, report, canvas2d, markdown, textengine, textwidgets, parallel, files, photoanim, webp, screenexport, threed, dimensions, quran, fetch,
               geopatterns, proctexture, photomore, jpeg, gltf]
 {.push warning[UnusedImport]: off.}
@@ -42,7 +42,7 @@ import retroui/photodeep   # (imported for what it sets up: filters, flattening 
 const
   AppName = "Retro Atelier"         # (Retro Photo until 5.0)
   AppData = "Retro Photo"           # (its settings and files stay where they were: the name they are kept under)
-  AppVersion = "5.18.2"
+  AppVersion = "5.19.0"
 const filesWhy = AppName & " opens and saves your pictures (the Pictures and DCIM folders). " &
                  "Without the access it keeps them in its own folder."
 
@@ -5981,6 +5981,7 @@ proc main() =
   windowIcon = windowIconFromPng(iconPng)   # (the taskbar's picture)
   reportedVersion = AppVersion
   reportedVersion = AppVersion           # (for a fault's report)
+  uiLook = lookClassic          # (its own look on a tablet too: the menus and palettes of then)
   startApp(AppName & " " & AppVersion, 1280, 800)
   autoFocus = false             # (the keys are the picture's until a palette's control is clicked)
   commandHudKeys = ""           # (its own command search: Edit > Search, Ctrl+F -- panels and tools too)

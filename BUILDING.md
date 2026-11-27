@@ -1037,7 +1037,7 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_SCALE=150` | everything this percent of its size, the window too |
 | `RETRO_ZOOM=2` | whole driver pixels per design pixel (1-4) |
 | `RETRO_TOUCH=1`, `RETRO_CONTROLS=touch` / `desktop` / `auto` | as on a touch screen; the controls' sizes only |
-| `RETRO_THEME=Dark` | a built-in theme |
+| `RETRO_THEME=Dark` | a built-in theme; `light` or `dark`: the look's own colors |
 | `RETRO_LOOK=gloss` | a look: `classic`, `glass`, `matte` or `gloss` |
 | `RETRO_TEXT=sharp` / `sharp-bgr` | letters drawn in the screen's color strips |
 | `RETRO_WINDOW=1` | on a screen with no window manager (Termux:X11): the app as a window of its own size, on a desktop the kit draws |
@@ -1061,6 +1061,7 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_DRIVE=PORT` | the driver: a program on this machine uses the app by its controls' names (`retrokit drive`) |
 | `RETRO_ACCESS=1` | the screen readers' tree made with no screen reader |
 | `RETRO_SMOKE=SECONDS`, `RETRO_SMOKE_OUT=FILE` | the smoke run: the first frame timed, 3 s untouched measured, then clicks and keys |
+| `RETRO_HELD_LOG=FILE` | what the program holds and holds on purpose, written there as it goes (`retroui/memwatch`; `tools/soak.sh` reads it) |
 | `RETRO_DEVICE_MB=N` | the device taken to have N MB, the program alone on it: the caches' budgets and the memory pressure (`retroui/memwatch`) as on a small phone |
 | `RETRO_SMOKE_SEED=N`, `RETRO_SMOKE_STAY=1` | the smoke run's other clicks and keys; an Exit or a close box clicked does not end it (`tools/soak.sh`) |
 | `RETRO_STATS=1` | the frames' times and counts on stderr, every 2 seconds, and each frame of 250 ms or more (where the mouse was, the key) |
@@ -1097,3 +1098,5 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_NDK_DIR=FOLDER`, `RETRO_NDK_URL=URL` | where the NDK is kept, and where it comes from |
 | `RETRO_TIMESTAMP=URL` | the time-stamp authority for Windows' signatures |
 | `RETRO_UPDATE_KEY=KEY` | the key `retrokit update-sign` signs with (in CI, a secret) |
+| `RETRO_MAIL_MICROSOFT_ID`, `RETRO_MAIL_GOOGLE_ID`, `RETRO_MAIL_GOOGLE_SECRET` | Retro Mail's app registrations, built in (examples/mail/appids.nim; docs/retromail.md) |
+| `RETRO_MUSIC_GOOGLE_ID`, `RETRO_MUSIC_GOOGLE_SECRET` | Retro Music's Google client, built in: Sign In with Google in one tap (examples/music/appids.nim; Retro Mail's when not given). Its Google Cloud project has the YouTube Data API v3 turned on |

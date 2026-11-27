@@ -796,6 +796,14 @@ proc playVideo*(key: string; play = true) =
   v.askPlay = ord(play)
   ui.redraw = true
 
+proc videoFullScreen*(key: string; on: bool) =
+  ## The `videoView` of `key` given the whole screen by the app (its `videoView` drawn as big as
+  ## the window): on Android the phone turned on its side and the system's bars out of the way
+  ## (they come back with a swipe from the edge); `on` false: the phone as it was. Elsewhere
+  ## nothing more is needed than the video drawn as big as the window.
+  if mediaThroughSystem:
+    discard systemCall("media.videoFull", key & "\t" & (if on: "1" else: "0"))
+
 proc closeVideo*(key: string) =
   ## Lets the player of the `videoView` (or `audioView`) with this `key`
   ## (or path) go.

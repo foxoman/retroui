@@ -1,5 +1,117 @@
 # Changes
 
+## 0.80.0
+
+- **Gloss is the default look on Android and iOS** (Gloss Light or Gloss Dark, as the system is);
+  Classic (Windows 3.1's) stays the default on computers and the web. An app that has a look of
+  its own sets `uiLook` before it starts (Retro Atelier and BMI Studio keep Classic).
+- **The phone controls in the scheme's colors**: in Gloss, a scheme that is not one of Gloss's own
+  (`glossOwnScheme`) colors the bars, their buttons, the tab bar and the side menu -- Dusk's in its
+  purples --; Gloss Light, Gloss Dark and Gloss Onyx keep iOS 6's steel blue and black. The
+  status bar over the app's own bars is the top bar's color, darker, in every look
+  (`statusBarColor`; before: black in Gloss and Matte).
+- **`MobileStyle`**, for the phone controls what `Theme` is for every control: the bars at the
+  top and their words, the status bar, the tab bar and its places, the side menu, a group's face,
+  corners and lines, a row's words, value and height, in colors and sizes of the app's own
+  (`mobileStyle`, `withMobileStyle`); what is left out stays the look's.
+- **Appearance as a phone's settings**: with touch sizes in Glass, Matte or Gloss,
+  `appearanceSettings` draws its rows in groups -- Look, Color scheme, Light or dark as the system;
+  the sizes with - and + (Normal Sizes when they are not); the font --, a choice a row with the
+  chosen one at its end, a tap showing the choices on a page of their own with a check by the
+  chosen one. The settings rows (`settingToggle`, `settingCombo`, `settingLink`, `settingChoice`,
+  `settingSlider`, `settingButtons`) are rows of a `tableGroup` they are put in. They live in
+  `retroui/mobile` now (`import retroui` brings them as before). `bringIntoSight(r)`: a page or a
+  dialog scrolls to `r` (the chosen one as a list of choices opens).
+- **Glass, made again for phones and tablets**, and for
+  desktops alike:
+  - its own colors anew: a light blue-white window, white cards standing on it with a soft
+    shadow; dark, deep blue-black, the cards smoked and lighter than the window (they read as
+    cards, not holes);
+  - the highlight's blue lit from above and glowing on the window -- the default button, a chosen
+    row, the chosen segment of `segmented`, a switch on, a chosen place in the side menu
+    (`glassBlue`, `glassPlate` for a card's face and shadow);
+  - `tableGroup`s rounder, their rows' icons on tiles lit from above, a pressed or chosen row a
+    blue pill in the card, white on it;
+  - `navBar`: a hairline under it, its buttons pills of glass (Done the blue one), the side
+    menu's button round;
+  - `bottomNav`: a capsule of glass floating over the window's foot, the chosen place in a
+    tinted pill;
+  - `searchBar`'s box a capsule; `bigButton`s capsules glowing in their color;
+  - sheets, action sheets and alerts: white glass on a light window, smoked glass on a dark one
+    (before: a light card with pale words, on a dark window too);
+  - `sideMenu`: a card of frosted glass over the page, in from the screen's edges, round;
+  - a toast on a phone: a card of glass sliding down from the top.
+- **Glass acts as Gloss on Android and iOS**: touch sizes on a tablet too (`fingers`, the new
+  `phoneLook`), dialogs as pages (`dialogPages`). Appearance's "Controls" now shows on a phone or
+  a tablet too, so the desktop's sizes can be chosen back.
+- **Light or dark as the system** (`systemColors`, `followSystemColors`): on Android and iOS the
+  look's own colors follow the system's dark theme by themselves, changing over when it does;
+  Appearance has "Light or dark as the system" (picking a scheme turns it off). A theme of the
+  app's own, and $RETRO_THEME, stay. $RETRO_THEME takes `light` and `dark`: the look's own.
+- **Gloss Onyx**, a third scheme for Gloss: black, its highlight crimson; its tab bar a capsule
+  of black gloss floating over the window, the chosen place lit in the highlight; its buttons
+  pills of black gloss. Gloss Dark stays as it was. Gloss Dark's cards and fields are lighter
+  than its window now, the lines between rows seen.
+- `tableRow` says when a finger was held on it or it was right-clicked (`menu`): the app's menu
+  for that row.
+- **`videoView` on Android shows the picture**: before, only its sound came -- the system's
+  video view sat inside the window the app draws itself. It is in a small window of its own
+  over the app now, as a web page is, touches going to the app under it; a video's error is
+  said. `videoFullScreen(key, on)`: the phone on its side and the system's bars out of the
+  way while the app draws the video as big as the window.
+- **`retroui/comfyui`**: a ComfyUI server of your own -- on your computer, reached from a phone
+  or a tablet over your network -- making pictures: from words, a picture's part made again
+  where a mask says, something taken out (LaMa when the server has the inpaint nodes). Its
+  checkpoints and LaMa found (`comfyModels`, `comfyLama`), the workflows made here.
+  `retroui/aiimage` takes it as a kind of service (`kind = "comfyui"`) and has
+  `removeFromImage`.
+- **Retro Atelier 5.19.0**: Edit > AI Connector > Pictures takes ComfyUI on your computer (its
+  address, Find It, its checkpoint); Generative Fill, Expand and Generate Image through it, and a
+  new **Generative Remove** (Edit): what is in the selection taken out, on a new layer masked to
+  it, one step to undo.
+- **Retro Music 2.1.0**:
+  - **TV**: the free channels of the world (the Free-TV list, fetched when TV is opened), by
+    country, their logos, a search; a channel held is kept in Your Channels. A channel plays in
+    the app as the players of 2012 showed a film: Done and its name, the time it has played
+    (LIVE), the picture, a panel with the channel before, play or pause, the next; Full Screen
+    turns the phone on its side, the picture the whole screen (a tap or Back: as it was). Left while it plays -- Done, the phone's Home -- its sound
+    goes on in the app's own player: in the background, on the lock screen, with a headset's
+    keys.
+  - **Sign In with Google** in one tap when it is built with the app's own Google client
+    (`RETRO_MUSIC_GOOGLE_ID`, `RETRO_MUSIC_GOOGLE_SECRET`; Retro Mail's when not given):
+    your YouTube playlists and likes, nothing to set up. A client of your own stays under
+    Advanced.
+  - Now Playing's cover fills the place between its panel and its controls on a tall phone; the
+    shade at its foot is a shade (it was a black band).
+  - **A music video plays with its picture** on Now Playing (MP4, M4V, MOV, MKV, WebM on the
+    device; an MP4 of sound alone stays a song), from where its sound was; left, its sound goes
+    on from there in the player that plays in the background.
+  - **Artwork for a song with no cover**, made from it: its album's two colors, waves of sound, a
+    record's grooves or a meter's bars, its title and artist written on it -- the same for all of
+    an album's songs.
+- **Retro Mail 1.5.0** on a phone or a tablet in the newer looks -- Gloss drawn as phones had
+  their mail in 2012: Mailboxes (All Inboxes, each account's, Flagged, Unread; your accounts and
+  Add Account; Calendar, People, To Do, Notes; Settings), an account's folders, a folder's
+  messages on white (the unread ones' blue dot, Focused and Other, the search, pulled down:
+  checked; Edit or a finger held: several chosen, Mark, Move, Trash), one message with "3 of 9"
+  and its arrows, its sender and who it went to in capsules, its toolbar (Flag or Mark, Move,
+  Trash, Reply, New Message) and their sheets; writing with Cancel and Send, To, Cc, Bcc,
+  Subject, Insert Photo or Video, the signature. On a tablet the mailboxes and the list stay
+  down the left, the message beside them. A phone starts in Gloss.
+- **Retro DNS 1.9.0** on a phone or a tablet, in Gloss and Glass: the state at the top of DNS (a
+  badge, Protected or not, where the lookups go, the VPN's lookups, their time, the names
+  blocked) and a big Connect or Disconnect; Encryption (Automatic, HTTPS, TLS); Fastest from
+  Here, numbered, and Use the Fastest; a server held: Connect, Test, Favourite, Copy; Activity:
+  the names the phone looked up, the newest first, one held to Block or Unblock, and what reached
+  what; Favourites' Edit, their order the one the VPN goes on to; on a tablet the state over the
+  sections down the left.
+- **Retro Mail's Settings on a phone**: the accounts and Add Account; New Mail (check every, keep
+  to read offline, while closed, Tell Me, Sound); Reading; Writing; Kept Safe; Appearance; More
+  Options for the rest -- each kept as it is changed.
+- Tests: test_dnsapp, test_mailtouch, test_comfyui; TV, a music video and artwork in
+  test_musicsources; the system's dark theme, Gloss's bars in a scheme's colors and `MobileStyle`
+  in test_looks; Settings and Appearance in test_mailtouch.
+
 ## 0.79.0
 
 - **New phone parts**, drawn in every look (Gloss as iOS 6 had them), worked

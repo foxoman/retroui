@@ -312,6 +312,15 @@ proc lookOf(name: string; lk: UiLook; dark = false): Look =
 let phoneLooks = @[lookOf("Gloss", lookGloss), lookOf("Glass", lookGlass), lookOf("Matte", lookMatte),
                    lookOf("Gloss, dark", lookGloss, true)]
 
+proc schemeLook(name: string; lk: UiLook; t: Theme): Look =
+  ## (a picture in one of the newer looks in another scheme: its bars in that scheme's colors)
+  look(name, proc () =
+    uiLook = lk
+    ui.theme = t,
+    proc () =
+      uiLook = lookClassic
+      ui.theme = Classic, touch = true)
+
 proc sized(looks: seq[Look]; w, h: int; glossOnly = true): seq[Look] =
   ## (those looks' pictures `w` x `h` -- Gloss's alone, its iOS 6 sizes bigger)
   for l in looks:
@@ -700,6 +709,7 @@ example("segmented", "segmented",
 do:
   segmented(["Day", "Week", "Month"], view2, enabled = shotEnabled)
   aim()
+opts(looks = phoneLooks, both = true)
 
 example("menubutton", "menuButton, splitButton",
         "A button that drops a menu (`menuButton`: the index chosen, else -1), and a button with two parts (`splitButton`): the left one does the usual thing, the arrow offers the others.",
@@ -1694,6 +1704,18 @@ do:
   discard settingCombo("Color scheme", ["Classic", "Ocean", "Desert"], setCombo)
   discard settingButtons("Cache", ["Clear"], "12 MB")
 
+example("settingsgroup", "Settings rows in a tableGroup",
+        "The same rows in a `tableGroup`, as a phone's settings are: a switch's row, a choice's row with the chosen one at its end and a chevron -- a tap shows the choices on a page of their own (a dialog where dialogs are windows), a check by the chosen one --, a row that leads somewhere; the details gray under the titles. `appearanceSettings` puts its rows in groups by itself with touch sizes in Glass, Matte and Gloss, the sizes with - and +.",
+        360, 230, ["settingToggle", "settingCombo", "settingLink"], std3):
+  var mailOn = true
+  var checkEvery = 1
+do:
+  tableGroup("New Mail", "Kept as they are changed."):
+    settingToggle("Notifications", mailOn, "For new messages")
+    discard settingCombo("Check every", ["1 minute", "5 minutes", "15 minutes"], checkEvery)
+    discard settingLink("Signature", "Sent from my phone")
+opts(looks = phoneLooks)
+
 example("animated", "animated",
         "A number that glides to where it is asked to be: when `target` changes, the value goes from where it was to it in `ms` (fast, then slowing), a frame at a time -- a panel sliding in, a bar growing, a glow fading; `start` makes it glide from there the first time (a total counting up as its page opens). At once when the user asked for less movement. Each call is its own value, by where it is in the code (`key` for one in a loop). `easedSince(start, ms, delay)` is a timeline of a page's own: things that follow one another, each with its delay.",
         320, 60, ["animated", "animatedAt", "easeOut", "easedSince"], std3):
@@ -1724,6 +1746,7 @@ example("appearance", "appearanceSettings",
         "The look of every app in a few rows: the color scheme, the size of everything, the size of the text, controls for a mouse or fingers, the window's frame, the title bars' buttons and the font. `app`'s `look` keeps the user's choice by itself.",
         460, 610, ["appearanceSettings", "storeAppearance", "restoreAppearance"], std3):
   appearanceSettings()
+opts(looks = phoneLooks.sized(380, 960, glossOnly = false), both = true)
 
 example("avatar", "avatar, factList",
         "A person's initials in a colored circle (true when clicked), and facts as name and value lines.",
@@ -1755,13 +1778,43 @@ opts(noPicture = "Drawn with the window's frame: see the pictures in [The window
 # ======================================================================================================
 
 part("Phone controls", """
-What phones have and desktops can use as well (`retroui/mobile`): a navigation bar, picker
-wheels, a number with - and +, page dots, rows with actions behind them, an action sheet, a
-bottom sheet and a popover. They are drawn in every look -- the pictures show the Classic
-one; the gallery's Forms & Code > Phone page shows them in Glass, Matte and Gloss -- and work
-with the mouse, the keys, fingers and screen readers. Some show the newer looks too: Gloss as
-phones drew their controls in 2012, Glass as they draw them now, Matte flat and sharp.
+What phones have and desktops can use as well (`retroui/mobile`, brought by `import retroui`):
+a navigation bar, a tab bar, a side menu, rows in groups, a search bar, picker wheels, a number
+with - and +, page dots, rows with actions behind them, an action sheet, a bottom sheet, a
+popover, an alert and more. They are drawn in every look and work with the mouse, the keys,
+fingers and screen readers. Each control's pictures show Classic -- as it is, on a touch screen,
+in a dark scheme -- and then the phone's looks: **Gloss**, iOS 6's glossy look, the default on
+Android and iOS (in Gloss Light, Gloss Dark when the phone is dark); **Glass**, as phones draw
+them now; **Matte**, flat and sharp. In a scheme that is not Gloss's own the bars, the tab bar
+and the side menu take that scheme's colors (Dusk below); `MobileStyle` gives them colors and
+sizes of the app's own.
+
+A page of a phone app is these controls one under another, as below: the tab bar first (it
+takes the window's foot), then the navigation bar, the search bar, the groups of rows. The same
+code is a computer's window in Classic.
 """)
+
+example("phonepage", "A phone's page: navBar, searchBar, tableGroup, bottomNav",
+        "The phone controls together, as an app's page is made of them: `bottomNav` first -- the places at the window's foot --, then `navBar` (here with the side menu's button, `menu = true`, and Edit), `searchBar`, and `tableGroup`s of `tableRow`s (an icon on its tile, a count, a chevron: it leads to a page) and a `tableSwitch`. On a tablet the rows go down the left and the page chosen beside them (`tableRow(selected = true)`). Gloss in Dusk shows a scheme that is not Gloss's own coloring its bars and tab bar.",
+        360, 560, ["navBar", "bottomNav", "searchBar", "tableGroup", "tableRow", "tableSwitch"], @[ssNormal, ssDark]):
+  var pageFind = ""
+  var pageTab = 0
+  var pageAlerts = true
+do:
+  discard bottomNav([(nfInbox, "Mail"), (nfSearch, "Search"), (nfCog, "Settings")], pageTab)
+  case navBar("Mailboxes", menu = true, action = "Edit")
+  of npBack: discard            # (the side menu's button: open it)
+  of npAction: discard          # (Edit)
+  of npNone: discard
+  searchBar(pageFind, "Search mail")
+  tableGroup("Inboxes"):
+    if tableRow("All Inboxes", "", taChevron, glyph = nfInbox, tint = color(38, 110, 220), count = "3").clicked:
+      discard                   # (its page)
+    discard tableRow("Flagged", "", taChevron, glyph = nfFlag, tint = color(236, 136, 24))
+  tableGroup("Settings", "Kept as they are changed."):
+    tableSwitch("New Mail Alerts", pageAlerts, glyph = nfBell, tint = color(220, 60, 50))
+    discard tableRow("Signature", "Sent from my phone", taChevron)
+opts(looks = phoneLooks & @[schemeLook("Gloss, Dusk", lookGloss, Dusk), schemeLook("Glass, Dusk", lookGlass, Dusk)])
 
 example("navbar", "navBar",
         "A phone's navigation bar: the page's title in the middle, Back before it, a button after it. Alt+Left is Back too. In Gloss the glossy blue-gray bar with bordered buttons; in Glass and Matte the buttons are their labels in the highlight.",
@@ -1803,6 +1856,7 @@ do:
     label "Cups:"
     quantity(basket, 1, 12, label = "Cups")
     aim()
+opts(looks = phoneLooks, both = true)
 
 example("pagedots", "pageDots",
         "A phone's page dots: one a page, the one shown filled. Click a dot, or either side of them for the page before or after; Left and Right, Home and End.",
@@ -1835,6 +1889,7 @@ do:
   if pullRefresh(inboxLoading): inboxLoading = true      # (fetch the mail; false when it came)
   for m in ["Al Noor Trading", "Sohar Port", "Nizwa Dates"]: label m
   endPanel()
+opts(looks = phoneLooks, both = true)
 
 example("swiperow", "swipeRow",
         "A list's row with actions behind it: swiped left (or dragged with the mouse) it slides aside and shows them; a tap on one picks it. Left, Right and Enter with the keys; a right click opens them as a menu. One row's actions show at a time.",
@@ -1846,6 +1901,7 @@ do:
                        glyph = nfEnvelope, key = inbox[i])
     if hit.action == 1: inbox.delete(i)
   aim()
+opts(looks = phoneLooks, both = true)
 
 example("actionsheet", "actionSheet",
         "A phone's action sheet: what can be done to something, a button each -- the destructive one in red --, Cancel apart. On a phone it comes up from the bottom, elsewhere in the middle of the window; what is behind it dims. Esc, the phone's Back or a tap beside it cancel it.",
@@ -1910,6 +1966,20 @@ do:
     discard tableRow("AdGuard", "", taInfo, subtitle = "Blocks ads")
   tableGroup "":
     discard tableButton("Reset Settings", destructive = true)
+opts(looks = phoneLooks)
+
+example("mobilestyle", "MobileStyle, withMobileStyle",
+        "The phone controls in colors and sizes of the app's own, past the scheme and the look, as `withTheme` does for every control: the bars at the top and the status bar over them, the tab bar, the side menu, a group's face and corners, the lines between its rows, a row's words, its value and its height (`MobileStyle`; a color with alpha 0, a size 0: the look's own). `mobileStyle` for the whole app, `withMobileStyle` for a part of it. Without one, Gloss's bars, tab bar and side menu take the scheme's colors -- iOS 6's steel blue and black in Gloss's own schemes (`glossOwnScheme`) -- and the status bar the top bar's, darker (`statusBarColor`, `glossDarkFace`).",
+        360, 200, ["MobileStyle", "mobileStyle", "withMobileStyle", "statusBarColor", "glossOwnScheme",
+                   "glossDarkFace"], std3):
+  var wifiOn = true
+do:
+  withMobileStyle(MobileStyle(bar: color(150, 30, 60), group: color(255, 248, 240), rowText: color(60, 20, 30),
+                              rowDetail: color(150, 30, 60), groupCorner: 14)):
+    discard navBar("Settings", back = "Back")
+    tableGroup "":
+      tableSwitch("Wi-Fi", wifiOn)
+      discard tableRow("Bluetooth", "On", taChevron)
 opts(looks = phoneLooks)
 
 example("searchbar", "searchBar",
@@ -2023,6 +2093,7 @@ do:
   for i, k in [txLinen, txPaper, txFelt, txLeather, txPinstripe]:
     texture(rect(r.x + i * (w + dp(6)), r.y, w, r.h), k,
             tint = if k == txPinstripe: color(197, 204, 212) else: Color())
+opts(looks = phoneLooks, both = true)
 
 example("vslider", "vslider",
         "A slider standing up, its highest value at its top: an equalizer's bands, a mixer's channels -- a label under each. Drag the knob or click along it; Up, Down, Page Up, Page Down, Home and End with the focus. Gloss: blue from its foot up to a round knob, as the sliders of then.",
@@ -2086,6 +2157,7 @@ do:
     for i in 0 ..< tl.len: flowCovers.add demoCover(i)
   discard coverFlow(flowCovers, flowAt, tl, sub, h = dp(260))
   aim()
+opts(looks = phoneLooks, both = true)
 
 example("sidemenu", "sideMenu",
         "The app's places in a menu that slides out from the left over the page -- the page dimmed beside it --, as the music apps of 2012 had it: `sideMenuItem`s (an icon, a title, a count, the place shown drawn chosen) under `sideMenuHeader`s. `navBar(title, menu = true)` puts its three lines at the bar's start; Esc, the phone's Back or a tap beside the menu close it. On a tablet the same items sit down the left of the window, always there: `sideMenuItem` outside a `sideMenu`, `sideMenuBack` under them. Gloss: the charcoal menu, its headers in lighter bars.",
@@ -2696,8 +2768,8 @@ do:
     label "An animated GIF"
 
 example("videoview", "videoView",
-        "A video with play, pause, a position bar and the time: a file or a web address (HLS where the system plays it), played by the system's own player and drawn by the kit in the window -- Media Foundation on Windows, AVFoundation on macOS and iOS, GStreamer on Linux, Android's VideoView. Space plays and pauses.",
-        420, 280, ["videoView", "closeVideo"], std3):
+        "A video with play, pause, a position bar and the time: a file or a web address (HLS where the system plays it), played by the system's own player and drawn by the kit in the window -- Media Foundation on Windows, AVFoundation on macOS and iOS, GStreamer on Linux, Android's VideoView. Space plays and pauses. `videoFullScreen(key, true)` gives it the whole screen: on Android the phone turned on its side, the system's bars out of the way.",
+        420, 280, ["videoView", "closeVideo", "videoFullScreen"], std3):
   let movie = getHomeDir() / "Videos" / "Harbour.avi"
 do:
   videoView(movie, height = 260)

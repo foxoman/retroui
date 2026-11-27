@@ -24,7 +24,7 @@ from retroui/system import homeWidget, notificationActions
 import retrodns/[catalog, androidglue, tester, vpn, desktop]
 
 const
-  retrodnsVersion {.strdefine.} = "1.8.1"   # (build.sh passes its VERSION)
+  retrodnsVersion {.strdefine.} = "1.9.0"   # (build.sh passes its VERSION)
   AppTitle = "Retro DNS"
   AppVersion = retrodnsVersion
   AppId = "RetroDNS"
@@ -95,6 +95,7 @@ var
   lookOpen = false
   aboutOpen = false
   autoSwitch = true                     # the VPN goes on to another server when one stops answering
+  encryption = 0                        # how the VPN sends lookups: 0 automatic, 1 HTTPS, 2 TLS
   blockText = ""                        # the block list (a name a line, "!name" an exception)
   blockOpen = false
   blockEdit = ""
@@ -135,6 +136,7 @@ proc saveState() =
   s["hereProfile"] = $hereProfile
   s["lastVpn"] = lastVpnKey
   s["autoSwitch"] = $autoSwitch
+  s["encryption"] = $encryption
   s["blockList"] = blockText
   var h: seq[string]
   for k, v in history:
@@ -160,6 +162,8 @@ proc loadState() =
   hereProfile = s.getOrDefault("hereProfile") == "true"
   lastVpnKey = s.getOrDefault("lastVpn")
   autoSwitch = s.getOrDefault("autoSwitch", "true") != "false"
+  try: encryption = clamp(parseInt(s.getOrDefault("encryption", "0")), 0, 2)
+  except ValueError: discard
   blockText = s.getOrDefault("blockList")
   for e in s.getOrDefault("history").split(';'):
     let eq = e.find('=')
@@ -305,7 +309,11 @@ proc vpnStart(key: string) =
   vpnKey = key
   lastVpnKey = key
   stateDirty = true
-  let r = vpnConnect(vpnConfig(s, nextServers(s), blockLines(blockText)))
+  let prefer = case encryption
+               of 1: "doh"
+               of 2: "dot"
+               else: ""
+  let r = vpnConnect(vpnConfig(s, nextServers(s), blockLines(blockText), prefer))
   if r == "asking":
     vpnAsking = true
     lastAsk = epochTime()
@@ -1028,9 +1036,10 @@ proc dialogs() =
 
   dialog(lookOpen, "Appearance", 460):
     discard appearanceSettings()
-    row:
-      spring()
-      if button("OK", isDefault = true): lookOpen = false
+    if not dialogsAsPages():      # (a page: Close on its bar)
+      row:
+        spring()
+        if button("OK", isDefault = true): lookOpen = false
 
   # questions and problems
   let delAt = indexOfKey(selKey)
@@ -1059,11 +1068,35 @@ proc statusText(list: seq[int]): string =
 
 # ---- a phone in the newer looks: tabs, pages and rows in groups, as phone apps are ---------------
 
+type Section = enum
+  secDns, secServers, secActivity, secFavourites, secMore
+
+const SectionInfo: array[Section, tuple[glyph, name, home: string; tint: Color]] = [
+  (nfShield, "DNS", "dns", color(38, 94, 196)), (nfServer, "Servers", "servers", color(84, 96, 118)),
+  (nfHistory, "Activity", "activity", color(40, 150, 90)), (nfStar, "Favourites", "favourites", color(236, 150, 24)),
+  (nfCog, "More", "more", color(128, 128, 136))]
+
 var
-  phoneTab = 0
-  phoneNav = [initPages("dns"), initPages("servers"), initPages("favourites"), initPages("more")]
+  phoneSec = secDns
+  phoneNav: array[Section, PageStack] = [initPages("dns"), initPages("servers"), initPages("activity"),
+                                         initPages("favourites"), initPages("more")]
   phoneDetail = ""                      # the server whose page is open
   removeAsk = false
+  rowMenuOpen = false                   # a server row held: what can be done to it
+  rowMenuKey = ""
+  favEditing = false                    # Favourites' Edit: the rows' minus and grip
+  activityShown = 0                     # Activity: 0 the names looked up, 1 what reached what
+  activityQuery = ""
+  nameMenuOpen = false                  # a name of Activity held: Block, Copy
+  nameMenuName = ""
+  recentNow: seq[tuple[app, name: string; count, agoMs: int]]
+  recentAt = -10_000
+  showActivity = onAndroid()            # (Activity: the VPN's lookups -- Android's)
+  layoutWanted = 0                      # (0: the screen's; 1 a phone's, 2 a tablet's: tests)
+
+proc sections(): seq[Section] =
+  for s in Section:
+    if s != secActivity or showActivity: result.add s
 
 proc phoneSpeed(key: string): string =
   if key in testing: return "testing..."
@@ -1081,13 +1114,18 @@ proc phoneFind(): seq[int] =
         if word notin hay: ok = false
       if ok: result.add i
 
-proc serverRow(i: int; nav: var PageStack) =
+proc openServer(key: string) =
+  ## (a server's page, over the section's)
+  phoneDetail = key
+  phoneNav[phoneSec].push("server")
+
+proc serverRow(i: int; detail = ""; glyph = ""; tint = Color()) =
   ## (a server's row: ticked when it is the one picked; its speed; a tap picks it, its info
-  ## button opens its page)
+  ## button opens its page, a finger held on it what can be done to it)
   let s = servers[i]
   let inUse = vpnServes(s) or (not onAndroid() and s.key == hereKey)
-  let h = tableRow(s.name, phoneSpeed(s.key), taInfo,
-                   glyph = if s.key == selKey: nfCheck else: " ",
+  let h = tableRow(s.name, if detail.len > 0: detail else: phoneSpeed(s.key), taInfo,
+                   glyph = if glyph.len > 0: glyph elif s.key == selKey: nfCheck else: " ", tint = tint,
                    subtitle = if inUse: "In use" elif s.key in favs: "Favourite" else: "",
                    key = s.key)
   if h.clicked and s.key != selKey:
@@ -1095,78 +1133,250 @@ proc serverRow(i: int; nav: var PageStack) =
     stateDirty = true
     # (the VPN on: it goes to the server picked)
     if onAndroid() and vpnNow.state == vsOn and vpnReady(s): vpnStart(s.key)
-  if h.info:
-    phoneDetail = s.key
-    nav.push("server")
+  if h.info: openServer(s.key)
+  if h.menu:
+    rowMenuKey = s.key
+    rowMenuOpen = true
 
-proc phoneDns() =
-  let cur = indexOfKey(selKey)
-  let curName = if cur >= 0: servers[cur].name else: "Pick one"
+proc rowMenu() =
+  ## (a server row held: Connect or Use, Test, Favourite, Copy, its page)
+  let i = indexOfKey(rowMenuKey)
+  if i < 0:
+    rowMenuOpen = false
+    return
+  let s = servers[i]
+  var acts: seq[string]
+  let way = hereWay(s)
+  let useWord = if way == hwVpn: "Connect" elif way == hwProfile: "Install Profile"
+                else: "Use on This " & deviceWord().capitalizeAscii
+  if way != hwNone and (way != hwVpn or vpnReady(s)): acts.add useWord
+  acts.add "Test"
+  acts.add(if s.key in favs: "Remove from Favourites" else: "Add to Favourites")
+  if s.doh.len > 0: acts.add "Copy the DoH Address"
+  elif s.dot.len > 0: acts.add "Copy the Host"
+  acts.add "Details"
+  let k = actionSheet(rowMenuOpen, s.name, acts)
+  if k < 0: return
+  case acts[k]
+  of "Test": testServer(s)
+  of "Add to Favourites", "Remove from Favourites": toggleFav(s.key)
+  of "Copy the DoH Address":
+    putClipboardText(s.doh)
+    toast("Copied: paste it in your browser's secure DNS setting")
+  of "Copy the Host":
+    putClipboardText(s.dot)
+    toast("Copied: Android's Settings, Private DNS takes it too")
+  of "Details": openServer(s.key)
+  else:
+    selKey = s.key
+    stateDirty = true
+    useHere(s.key)
+
+# (the colors of the state: on, on its way, off)
+proc okColor(): Color =
+  if glossLook(): color(46, 168, 64) else: color(48, 190, 92)
+proc waitColor(): Color = color(232, 150, 32)
+proc offColor(): Color = mixColor(ui.theme.field, ui.theme.fieldText, 0.35)
+
+proc lineColor(): Color =
+  ## (a line between parts of a card, as between its rows)
+  if glossLook(): (if lumaOfColor(ui.theme.window) < 128: mixColor(ui.theme.field, color(255, 255, 255), 0.08)
+                   else: color(217, 217, 217))
+  else: mixColor(ui.theme.field, ui.theme.fieldText, 0.12)
+
+proc emblem(cx, cy, d: int; c: Color; glyph: string) =
+  ## (a round badge in `c`, lit from above, `glyph` white on it)
+  let r = float(d) / 2
+  disc(float(cx), float(cy) + 1, r, withAlpha(color(0, 0, 0), 40))
+  discShaded(float(cx), float(cy), r, mixColor(c, color(255, 255, 255), 0.22), mixColor(c, color(0, 0, 0), 0.12))
+  if glossLook():
+    pushClip(rect(cx - d div 2, cy - d div 2, d, d div 2))
+    disc(float(cx), float(cy), r - 1, withAlpha(color(255, 255, 255), 46))
+    popClip()
+  let gs = style(size = float(d) / float(FontH) * 0.5)
+  text(cx - textWidth(glyph, gs) div 2, cy - lineHeight(gs) div 2, glyph, color(255, 255, 255), gs)
+
+type DnsState = tuple[on, busy: bool; title, sub: string]
+
+proc dnsState(): DnsState =
+  ## (where the lookups go now, in words)
   if onAndroid():
-    if not vpnNow.present:
-      tableGroup("", "This build has no VPN in it: build it with build.sh, whose --java gives " &
-                     "retroapk the VPN."):
-        discard tableRow("VPN", "not here")
-    else:
-      let on = vpnNow.state == vsOn
-      var want = on or vpnNow.state == vsStarting or vpnAsking
-      let note = if vpnNow.state == vsFailed and vpnNow.error.len > 0: vpnNow.error
-                 elif on: "Lookups go to " & vpnNow.server & ", encrypted (" & vpnNow.mode & ")."
-                 else: "Turn it on to send this phone's lookups to the server picked, encrypted."
-      tableGroup("", note):
-        if tableSwitch("VPN", want, glyph = nfShield, tint = color(38, 94, 196),
-                       subtitle = if vpnAsking: "Waiting for Android's permission..." else: vpnLine(),
-                       enabled = cur >= 0 or on):
-          if want: vpnStart(selKey)
-          else:
-            vpnAsking = false
-            vpnStop()
-        if tableRow("Server", curName, taChevron, glyph = nfServer).clicked: phoneTab = 1
-      if on:
-        tableGroup("Lookups"):
-          discard tableRow("Answered", $vpnNow.answered)
-          if vpnNow.avgMs >= 0: discard tableRow("On average", $vpnNow.avgMs & " ms")
-          if vpnNow.failed > 0: discard tableRow("Failed", $vpnNow.failed, subtitle = vpnNow.lastFailure)
-          if vpnNow.blockedNames > 0: discard tableRow("Blocked", $vpnNow.blockedNames)
-          if vpnNow.memKb > 0:
-            discard tableRow("The VPN's memory", $((vpnNow.memKb + 512) div 1024) & " MB")
-        lookupGraph()
-        reachGraph()
+    result.on = vpnNow.state == vsOn
+    result.busy = vpnNow.state == vsStarting or vpnAsking
+    result.title = if result.on: "Protected" elif result.busy: "Connecting..." else: "Not Protected"
+    result.sub = if result.on: vpnNow.server & " · " & vpnNow.mode
+                 elif vpnAsking: "Waiting for Android's permission"
+                 elif vpnNow.state == vsFailed and vpnNow.error.len > 0: vpnNow.error
+                 elif not vpnNow.present: "This build has no VPN in it"
+                 else: "Your network's own DNS"
   else:
     let at = indexOfKey(hereKey)
-    let i = cur
-    let way = if i >= 0: hereWay(servers[i]) else: hwNone
-    tableGroup("This " & deviceWord().capitalizeAscii,
-               if at >= 0 and hereProfile: "Its profile sends the lookups there, encrypted." else: ""):
-      discard tableRow("DNS", if at >= 0: servers[at].name else: "Automatic", glyph = nfGlobe,
-                       tint = color(40, 150, 90))
-      if tableRow("Server", curName, taChevron, glyph = nfServer).clicked: phoneTab = 1
-      if adminAsk.len > 0: discard tableRow("Waiting for the system...")
-      else:
-        let useText = if way == hwProfile: "Install Profile" else: "Use on This " & deviceWord().capitalizeAscii
-        if tableButton(useText, enabled = i >= 0 and way != hwNone and servers[i].key != hereKey):
-          useHere(selKey)
-        if at >= 0 and tableButton("Back to Automatic"): resetHere()
-  # (the two buttons of the page, side by side under its groups: the one that matters most blue
-  # in Gloss)
-  space(dp(10))
+    result.on = at >= 0
+    result.busy = adminAsk.len > 0
+    result.title = if result.busy: "Changing..." elif result.on: "DNS Changed" else: "Automatic DNS"
+    result.sub = if result.busy: "Waiting for the system"
+                 elif result.on: servers[at].name & (if hereProfile: " · a profile, encrypted" else: "")
+                 else: "This " & deviceWord() & "'s network's own"
+
+proc statusCard(small = false) =
+  ## The head of the DNS page: a badge, the state in large words, where the lookups go; with
+  ## the VPN on, its numbers under them -- lookups, their time, the names blocked. `small`: a
+  ## tablet's, over its sections.
+  let st = dnsState()
+  let c = if st.on: okColor() elif st.busy: waitColor() else: offColor()
+  let stats = onAndroid() and st.on and not small
+  tableGroup(""):
+    let pad = if fingers(): dp(14) else: dp(12)
+    let headH = if small: max(dp(62), 2 * FontH + dp(24)) else: max(dp(84), 2 * FontH + dp(40))
+    let r = place(0, headH + (if stats: max(dp(58), 2 * FontH + dp(18)) else: 0), fill = true)
+    let d = if small: dp(38) else: dp(54)
+    emblem(r.x + pad + d div 2, r.y + headH div 2, d, c, if st.on: nfShield else: nfGlobe)
+    let tx = r.x + pad + d + dp(14)
+    let tst = style(bold = true, size = if small: 1.15 else: 1.45)
+    let room = r.x + r.w - pad - tx
+    let ty = r.y + (headH - lineHeight(tst) - FontH - dp(3)) div 2
+    let t = ellipsize(st.title, room - dp(16), tst)
+    text(tx, ty, t, ui.theme.fieldText, tst)
+    # (the dot: green on, amber on its way, gray off)
+    let dr = float(max(dp(4), 3))
+    disc(float(tx + textWidth(t, tst) + dp(10)), float(ty) + float(lineHeight(tst)) / 2, dr, c)
+    text(tx, ty + lineHeight(tst) + dp(3), ellipsize(st.sub, room), ui.theme.gray)
+    if accessOn: accessNode(arLabel, st.title & ", " & st.sub, r = r)
+    if stats:
+      let sy = r.y + headH
+      hline(r.x + pad, sy, r.w - 2 * pad, lineColor())
+      let parts = [($vpnNow.answered, "Lookups"),
+                   ((if vpnNow.avgMs >= 0: $vpnNow.avgMs & " ms" else: "-"), "On Average"),
+                   ($vpnNow.blockedNames, "Blocked")]
+      let cw = r.w div parts.len
+      let nst = style(bold = true, size = 1.25)
+      let sh = r.y + r.h - sy
+      for k, (n, what) in parts:
+        let cx = r.x + k * cw
+        if k > 0: vline(cx, sy + dp(10), sh - dp(20), lineColor())
+        let ny = sy + (sh - lineHeight(nst) - FontH) div 2
+        text(cx + (cw - textWidth(n, nst)) div 2, ny, n, ui.theme.fieldText, nst)
+        text(cx + (cw - textWidth(what)) div 2, ny + lineHeight(nst), what, ui.theme.gray)
+
+proc connectButton() =
+  ## (the page's big button: Connect or Disconnect; on a computer, Use and Back to Automatic)
+  let cur = indexOfKey(selKey)
+  if onAndroid():
+    if not vpnNow.present: return
+    if vpnAsking or vpnNow.state == vsStarting:
+      if bigButton("Cancel", btGray):
+        vpnAsking = false
+        vpnStop()
+    elif vpnNow.state == vsOn:
+      let picked = if cur >= 0: servers[cur].name else: ""
+      if picked.len > 0 and picked != vpnNow.server and vpnReady(servers[cur]):
+        if bigButton("Switch to " & picked, btBlue): vpnStart(selKey)
+      if bigButton("Disconnect", btRed): vpnStop()
+    elif bigButton("Connect", btGreen, enabled = cur >= 0): vpnStart(selKey)
+  else:
+    when not (defined(wasm) or defined(js)):
+      let at = indexOfKey(hereKey)
+      let way = if cur >= 0: hereWay(servers[cur]) else: hwNone
+      if adminAsk.len == 0:
+        if cur >= 0 and servers[cur].key != hereKey and way != hwNone:
+          let useText = if way == hwProfile: "Install Profile" else: "Use on This " & deviceWord().capitalizeAscii
+          if bigButton(useText, btBlue): useHere(selKey)
+        if at >= 0 and bigButton("Back to Automatic", btGray): resetHere()
+
+proc segmentRow(options: openArray[string]; sel: var int): bool =
+  ## (a row of a group holding a segmented choice, as wide as it)
+  let r = place(0, (if fingers(): dp(48) else: CtrlH + dp(14)), fill = true)
+  let pad = if fingers(): dp(10) else: dp(8)
+  pushFrame(rect(r.x + pad, r.y + (r.h - CtrlH) div 2, r.w - 2 * pad, 0))
+  result = segmented(options, sel, w = r.w - 2 * pad)
+  discard popFrame()
+
+proc fastest(n: int): seq[int] =
+  ## (the `n` servers that answered fastest from here, the fastest first)
+  var tested: seq[(int, int)]
+  for i, s in servers:
+    let v = speedOf(s.key)
+    if v >= 0 and v != int.high: tested.add (v, i)
+  tested.sort()
+  for k in 0 ..< min(n, tested.len): result.add tested[k][1]
+
+proc pageNote(s: string) =
+  ## (a gray note under the page's groups, in the middle)
+  for ln in wrapLines(s, cellRoom()):
+    let lr = place(0, FontH + dp(1), fill = true)
+    let ink = if glossLook() and lumaOfColor(ui.theme.window) >= 128: color(76, 86, 108) else: ui.theme.gray
+    text(lr.x + (lr.w - textWidth(ln)) div 2, lr.y, ln, ink)
+
+proc twoButtons(a, b: string; enabledB = true): int =
+  ## (two buttons side by side under the groups, the first the default: 1 or 2 when clicked)
   let room = cellRoom()
   let bw = min((room - Gap) div 2, dp(200))
   let bh = if fingers(): dp(44) else: 0
   row:
     space((room - 2 * bw - Gap) div 2)
-    if button("Test All Servers", isDefault = true, w = bw, h = bh): testAll(phoneFind())
-    if button("Pick the Fastest", w = bw, h = bh):
+    if button(a, isDefault = true, w = bw, h = bh): result = 1
+    if button(b, w = bw, h = bh, enabled = enabledB): result = 2
+
+proc phoneDns() =
+  let cur = indexOfKey(selKey)
+  let curName = if cur >= 0: servers[cur].name else: "Pick one"
+  statusCard()
+  connectButton()
+  if onAndroid() and not vpnNow.present:
+    tableGroup("", "This build has no VPN in it: build it with build.sh, whose --java gives " &
+                   "retroapk the VPN."):
+      discard tableRow("VPN", "not here")
+  tableGroup(if onAndroid(): "Server" else: "This " & deviceWord().capitalizeAscii):
+    if tableRow("Server", curName, taChevron, glyph = nfServer, tint = color(84, 96, 118)).clicked:
+      phoneSec = secServers
+    if cur >= 0 and onAndroid():
+      let s = servers[cur]
+      let kinds = (if s.doh.len > 0: @["HTTPS"] else: @[]) & (if s.dot.len > 0: @["TLS"] else: @[])
+      discard tableRow("Encrypted With", if kinds.len > 0: kinds.join(", ") else: "none: for Wi-Fi only",
+                       glyph = nfLock, tint = color(40, 150, 90))
+    if onAndroid() and tableSwitch("Switch When One Stops", autoSwitch, glyph = nfBolt,
+                                   tint = color(232, 150, 32)):
+      stateDirty = true
+  if onAndroid():
+    tableGroup("Encryption", case encryption
+                             of 1: "DNS over HTTPS where the server has it: it looks like any web page."
+                             of 2: "DNS over TLS where the server has it: Android's Private DNS way."
+                             else: "HTTPS where the server has it, else TLS."):
+      if segmentRow(["Automatic", "HTTPS", "TLS"], encryption):
+        stateDirty = true
+        if vpnNow.state == vsOn and vpnKey.len > 0: vpnStart(vpnKey)    # (the VPN takes it now)
+  # the fastest from here, numbered; Test All and Use the Fastest
+  let best = fastest(5)
+  if best.len > 0:
+    tableGroup("Fastest from Here"):
+      for k, i in best:
+        serverRow(i, $speedOf(servers[i].key) & " ms", glyph = $(k + 1),
+                  tint = if k == 0: color(232, 150, 32) else: color(130, 138, 152))
+  case twoButtons(if testing.len > 0: "Testing " & $testing.len & "..." else: "Test All Servers",
+                  "Use the Fastest", enabledB = testing.len == 0)
+  of 1: testAll(phoneFind())
+  of 2:
+    if best.len > 0:
+      selKey = servers[best[0]].key
+      stateDirty = true
+      useHere(selKey)
+    else:
       testAll(phoneFind())
       fastestAsked = true
+  else: discard
   space(dp(4))
-  for ln in wrapLines("Each server reached from this network: its time is on its row.", cellRoom()):
-    let lr = place(0, FontH + dp(1), fill = true)
-    let ink = if glossLook() and lumaOfColor(ui.theme.window) >= 128: color(76, 86, 108) else: ui.theme.gray
-    text(lr.x + (lr.w - textWidth(ln)) div 2, lr.y, ln, ink)
+  pageNote(if best.len == 0: "Test the servers: the ones that answer fastest from this network come here."
+           else: "Each server's time to answer from this network.")
+  if onAndroid() and vpnNow.state == vsOn:
+    if vpnNow.failed > 0 or vpnNow.memKb > 0 or vpnNow.getsPast.len > 0 or vpnNow.switched.len > 0:
+      tableGroup("The VPN"):
+        if vpnNow.failed > 0: discard tableRow("Failed", $vpnNow.failed, subtitle = vpnNow.lastFailure)
+        if vpnNow.getsPast.len > 0: discard tableRow("Getting Past", "", subtitle = vpnNow.getsPast)
+        if vpnNow.switched.len > 0: discard tableRow("Switched", "", subtitle = vpnNow.switched)
+        if vpnNow.memKb > 0: discard tableRow("Its Memory", $((vpnNow.memKb + 512) div 1024) & " MB")
+    lookupGraph()
 
-proc phoneServers(nav: var PageStack; search = true) =
-  if search: searchBar(query, "Search servers")
+proc phoneServers() =
   let found = phoneFind()
   if found.len == 0:
     emptyState(pxSearch, "No server matches", detail = "Try other words.")
@@ -1180,7 +1390,8 @@ proc phoneServers(nav: var PageStack; search = true) =
       list.sort(proc (a, b: int): int = cmp(speedRank(servers[a].key), speedRank(servers[b].key)))
     if list.len == 0: continue
     tableGroup(g):
-      for i in list: serverRow(i, nav)
+      for i in list: serverRow(i)
+  pageNote("Hold a server for what you can do with it.")
 
 proc phoneServer() =
   let i = indexOfKey(phoneDetail)
@@ -1236,32 +1447,115 @@ proc phoneServer() =
   of 1:
     selKey = s.key
     deleteSelected()
-    discard phoneNav[phoneTab].pop()
+    discard phoneNav[phoneSec].pop()
   else: discard
 
-proc phoneFavourites(nav: var PageStack) =
+proc phoneFavourites() =
   var list: seq[int]
-  for i, s in servers:
-    if s.key in favs: list.add i
+  for k in favs:
+    let i = indexOfKey(k)
+    if i >= 0: list.add i
   if list.len == 0:
-    emptyState(pxStar, "No favourites yet", detail = "A server's page has Favourite.")
+    favEditing = false
+    emptyState(pxStar, "No favourites yet", detail = "Hold a server, Add to Favourites.")
+    return
+  if favEditing:
+    # (Edit: a minus to take one away, a grip to put them in your order -- the VPN goes on to
+    # the first of them when its server stops answering)
+    var change = RowEdit()
+    tableGroup("", "Drag them in your order: when a server stops answering, the VPN goes to " &
+                   "the first of these that can take it."):
+      for n, i in list:
+        let e = editRow(servers[i].name, n, detail = phoneSpeed(servers[i].key), key = servers[i].key)
+        if e.kind != reNone: change = e
+    case change.kind
+    of reDelete:
+      favs.delete(change.index)
+      stateDirty = true
+    of reMove:
+      let k = favs[change.index]
+      favs.delete(change.index)
+      favs.insert(k, change.to)
+      stateDirty = true
+    else: discard
     return
   tableGroup(""):
-    for i in list: serverRow(i, nav)
+    for i in list: serverRow(i)
+
+proc recentLookups(): seq[tuple[app, name: string; count, agoMs: int]] =
+  ## (the VPN's names looked up lately, the newest first: asked every 2 seconds at most)
+  if ui.now - recentAt >= 2000:
+    recentAt = ui.now
+    recentNow = vpnRecent()
+  for k in countdown(recentNow.high, 0): result.add recentNow[k]
+
+proc blocked(name: string): bool =
+  for b in blockLines(blockText):
+    if b == name: return true
+
+proc agoText(ms: int): string =
+  let s = ms div 1000
+  if s < 5: "now" elif s < 60: $s & " s ago" elif s < 3600: $(s div 60) & " min ago" else: $(s div 3600) & " h ago"
+
+proc phoneActivity() =
+  ## The names this phone looked up through the VPN, the newest first (a tap or a finger held on
+  ## one: Block it, Copy it), or what reached what, as a graph.
+  tableGroup(""):
+    discard segmentRow(["Lookups", "Apps and Sites"], activityShown)
+  if activityShown == 1:
+    reachGraph()
+    if reach.len == 0: pageNote("Turn the VPN on: each app comes here with the sites it reached.")
+    return
+  if vpnNow.state != vsOn and recentNow.len == 0:
+    emptyState(pxGlobe, "No lookups yet", detail = "Turn the VPN on: the names this phone looks up " &
+                                                   "come here, and you can block them.")
+    discard recentLookups()
+    return
+  var shown = 0
+  tableGroup("The Last Minutes", "A name blocked is answered \"no such name\" on the phone; its " &
+                                 "subdomains too."):
+    for r in recentLookups():
+      if activityQuery.len > 0 and activityQuery.toLowerAscii notin r.name and
+         activityQuery.toLowerAscii notin r.app.toLowerAscii: continue
+      inc shown
+      if shown > 120: break
+      let isBlocked = blocked(r.name)
+      let h = tableRow(r.name, agoText(r.agoMs),
+                       subtitle = appWord(r.app) & (if r.count > 1: " · " & $r.count & " times" else: "") &
+                                  (if isBlocked: " · blocked" else: ""),
+                       glyph = if isBlocked: nfBan else: " ", tint = color(214, 60, 52),
+                       key = "name:" & r.name & r.app)
+      if h.clicked or h.menu:
+        nameMenuName = r.name
+        nameMenuOpen = true
+  if shown == 0: pageNote("No name matches.")
+  let isBlocked = blocked(nameMenuName)
+  let acts = [if isBlocked: "Unblock" else: "Block " & nameMenuName, "Copy the Name"]
+  case actionSheet(nameMenuOpen, nameMenuName, acts, destructive = (if isBlocked: -1 else: 0))
+  of 0:
+    var lines: seq[string]
+    for l in blockText.splitLines:
+      if l.strip.toLowerAscii != nameMenuName: lines.add l
+    if not isBlocked: lines.add nameMenuName
+    blockText = lines.filterIt(it.strip.len > 0).join("\n")
+    stateDirty = true
+    toast(if isBlocked: nameMenuName & ": unblocked" else: nameMenuName & ": blocked")
+    if vpnNow.state == vsOn and vpnKey.len > 0: vpnStart(vpnKey)   # (the VPN takes it now)
+  of 1:
+    putClipboardText(nameMenuName)
+    toast("Copied")
+  else: discard
 
 proc phoneMore() =
   if onAndroid():
     tableGroup("VPN", "Blocked names are answered \"no such name\" on the phone, sending nothing."):
-      if tableSwitch("Switch When One Stops", autoSwitch,
-                     subtitle = "To another server when this one stops answering"):
-        stateDirty = true
       var n = 0
       for l in blockText.splitLines:
         if l.strip.len > 0 and not l.strip.startsWith("#"): inc n
-      if tableRow("Block List", $n & " names", taChevron).clicked:
+      if tableRow("Block List", $n & " names", taChevron, glyph = nfBan, tint = color(214, 60, 52)).clicked:
         blockEdit = blockText
         blockOpen = true
-      if tableRow("Android's VPN Settings", "", taChevron).clicked:
+      if tableRow("Android's VPN Settings", "", taChevron, glyph = nfCog, tint = color(128, 128, 136)).clicked:
         openSettingsPage("android.settings.VPN_SETTINGS")
   tableGroup("Your Servers"):
     if tableRow("Add a Server", "", taChevron).clicked: startEdit("")
@@ -1276,76 +1570,87 @@ proc phoneMore() =
 proc phonePage(tablet = false) =
   ## (the section's page on top, under its navigation bar; on a tablet, beside the list, the
   ## page's groups in from its sides)
-  template nav: untyped = phoneNav[phoneTab]
+  template nav: untyped = phoneNav[phoneSec]
   let title = case nav.page
               of "dns": (if tablet: "DNS" else: "Retro DNS")
-              of "servers": "Servers"
-              of "favourites": "Favourites"
-              of "more": "More"
-              else:
+              of "server":
                 let i = indexOfKey(phoneDetail)
                 if i >= 0: servers[i].name else: "Server"
-  let back = if nav.atHome: "" elif phoneTab == 1: "Servers" elif phoneTab == 2: "Favourites" else: "Back"
-  let action = if nav.page == "servers": "Add" else: ""
+              else: SectionInfo[phoneSec].name
+  let back = if nav.atHome: "" else: SectionInfo[phoneSec].name
+  let action = if nav.page == "servers": "Add"
+               elif nav.page == "favourites" and favs.len > 0: (if favEditing: "Done" else: "Edit")
+               else: ""
   # (the search bar right under the navigation bar, from one side to the other as it is, its box
   # in it as it was -- not in the page, where it stood in from the sides)
-  let searchOn = nav.page == "servers"
+  let searchOn = nav.page in ["servers", "activity"]
   let g = ui.m.gap
   if searchOn: ui.m.gap = 0
-  case navBar(title, back = back, action = action)
+  case navBar(title, back = back, action = action, done = favEditing)
   of npBack: discard nav.pop()
-  of npAction: startEdit("")
+  of npAction:
+    if nav.page == "favourites": favEditing = not favEditing
+    else: startEdit("")
   of npNone: discard
   if searchOn:
-    searchBar(query, "Search servers")
+    if nav.page == "servers": searchBar(query, "Search servers")
+    else: searchBar(activityQuery, "Search names and apps")
     ui.m.gap = g
   pageView(nav):
-    beginPanel(-1, "phone:" & $phoneTab & ":" & nav.page, plain = true)
+    beginPanel(-1, "phone:" & $phoneSec & ":" & nav.page, plain = true)
     # (Servers and Favourites pulled down: every server tested again, its time on its row)
-    if nav.page in ["servers", "favourites"] and pullRefresh(testing.len > 0): testAll(phoneFind())
+    if nav.page in ["servers", "favourites", "dns"] and pullRefresh(testing.len > 0): testAll(phoneFind())
     let m = if tablet: dp(24) else: 0
     if m > 0:
       let (fx, _) = layoutOrigin()
       pushFrame(rect(fx + m, layoutY() + dp(4), layoutWidth() - 2 * m, 0))
     case nav.page
     of "dns": phoneDns()
-    of "servers": phoneServers(nav, search = false)
-    of "favourites": phoneFavourites(nav)
+    of "servers": phoneServers()
+    of "activity": phoneActivity()
+    of "favourites": phoneFavourites()
     of "more": phoneMore()
     of "server": phoneServer()
     else: discard
     if m > 0: discard place(0, popFrame() + dp(12))
     endPanel()
-
-const Sections = [(nfGlobe, "DNS", color(38, 94, 196)), (nfServer, "Servers", color(84, 96, 118)),
-                  (nfStar, "Favourites", color(236, 150, 24)), (nfCog, "More", color(128, 128, 136))]
+  rowMenu()
 
 proc phoneShell() =
   ## A phone in the Glass, Matte or Gloss look: a tab bar, a navigation bar, pages that slide
   ## in, the servers in rows in groups.
   var tabs: seq[(string, string)]
-  for (g, name, _) in Sections: tabs.add (g, name)
-  discard bottomNav(tabs, phoneTab)
+  let shown = sections()
+  for s in shown: tabs.add (SectionInfo[s].glyph, SectionInfo[s].name)
+  var sel = max(0, shown.find(phoneSec))
+  if bottomNav(tabs, sel): phoneSec = shown[sel]
   phonePage()
 
 proc tabletShell() =
-  ## A tablet in the newer looks, as tablets showed their settings: the sections in a list down
-  ## the left under the app's navigation bar, the page of the one picked beside it under its
-  ## own, a line between them.
+  ## A tablet in the newer looks, as tablets showed their settings: the state and the sections
+  ## in a list down the left under the app's navigation bar, the page of the one picked beside
+  ## it under its own, a line between them.
   let top = ui.barY
   let h = ui.bottom - top
   let x0 = ui.winX + ui.safe.left
   let w = ui.w - ui.safe.left - ui.safe.right
-  let mw = min(dp(320), w * 2 div 5)
+  let mw = min(dp(330), w * 2 div 5)
   pushFrame(rect(x0, top, mw, h))
   discard navBar("Retro DNS")
   beginPanel(-1, "tablet:sections", plain = true)
   let (fx, _) = layoutOrigin()
   pushFrame(rect(fx + dp(8), layoutY() + dp(6), layoutWidth() - dp(16), 0))
+  statusCard(small = true)
+  connectButton()
   tableGroup(""):
-    for i, (g, name, tint) in Sections:
-      if tableRow(name, "", taChevron, glyph = g, tint = tint, selected = phoneTab == i).clicked:
-        if phoneTab == i: phoneNav[i].goHome() else: phoneTab = i
+    for s in sections():
+      let (glyph, name, _, tint) = SectionInfo[s]
+      let detail = case s
+                   of secServers: $servers.len
+                   of secFavourites: (if favs.len > 0: $favs.len else: "")
+                   else: ""
+      if tableRow(name, detail, taChevron, glyph = glyph, tint = tint, selected = phoneSec == s).clicked:
+        if phoneSec == s: phoneNav[s].goHome() else: phoneSec = s
   discard place(0, popFrame() + dp(12))
   endPanel()
   discard popFrame()
@@ -1356,8 +1661,8 @@ proc tabletShell() =
   discard popFrame()
 
 proc shell() =
-  if glassLook() and (isCompact() or ui.touch):
-    if isCompact(): phoneShell() else: tabletShell()
+  if layoutWanted > 0 or (glassLook() and (isCompact() or ui.touch)):
+    if layoutWanted == 1 or (layoutWanted == 0 and isCompact()): phoneShell() else: tabletShell()
     dialogs()
     return
   let list = shownServers()
@@ -1436,4 +1741,4 @@ proc main() =
   saveState()
   closeApp()
 
-main()
+when not defined(retrodnsTest): main()      # (tests/test_dnsapp.nim draws its pages itself)

@@ -272,8 +272,25 @@ and asks each server the same thing its own way (IMAP's SEARCH, Gmail's
 search, Microsoft's KQL, JMAP's filter, Exchange's AQS), so it finds what
 the same search finds here.
 
-On a phone each screen comes alone (folders, list, conversation, writing)
-and the Outlook bar sits at the bottom; swipe a message right to archive
+On a phone or a tablet in Glass, Matte or Gloss (a phone starts in Gloss;
+Tools > Options > Appearance changes it) Retro Mail is a phone's mail as 2012
+drew it: Mailboxes -- All Inboxes and each account's inbox with its unread,
+Flagged, Unread, your accounts, Add Account, Calendar, People, To Do, Notes,
+Settings --, a folder's messages on white with a blue dot on the unread ones
+(Edit, or a finger held on one, chooses several: Mark, Move, Trash), one
+message with "3 of 9" and its arrows, its toolbar (Flag or Mark, Move, Trash,
+Reply, New Message), writing with Cancel and Send. Settings is a phone's, in
+groups: your accounts and Add Account; New Mail (how often it is checked, how
+long it is kept to read offline, while Retro Mail is closed, Tell Me, Sound);
+Reading (threads, Focused Inbox, when a message is marked read, pictures from
+the web, plain text); Writing (replies in blue, Undo Send); Kept Safe (the
+mail kept encrypted, look-alikes, trackers); Appearance; and More Options for
+the rest (signatures, spelling, swipes, tags, the assistant) -- each kept as
+it is changed. On a tablet the mailboxes and the list stay down the left, the
+message beside them.
+
+On a phone in the 3.1 look each screen comes alone (folders, list,
+conversation, writing) and the Outlook bar sits at the bottom; swipe a message right to archive
 it, left to delete it (Tools > Options > Swipe changes what they do), hold
 one to choose several, pull the list down to check for mail, swipe a
 message you read sideways for the next one, pinch to make its text larger.

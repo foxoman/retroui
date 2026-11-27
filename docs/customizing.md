@@ -124,10 +124,35 @@ if button("&Calculate BMI", nfCalculator, isDefault = true, accent = true,
 | the 3.1 title bar | `app(..., frame = wfClassic, captionIcon = true, captionAlign = caLeft, captionStyle = style(...))` |
 | the title bars' buttons | `captionButtons = cbWin31` |
 | every control | `uiLook = lookGlass`: the Glass look, frosted and rounded, in any scheme (`GlassLight`, `GlassDark` made for it); a control of your own asks `glassLook()` and draws with `glassFace(r, pressed, hot)` (a capsule's face), `glassWell(r)` (a field's), `glassAccent(r)` (the highlight's, a switch that is on), `fieldFace(r, back, enabled, focused)` (a field: rounded, the highlight's ring while it has the keys), `glassTrack(r)` (the track of a segmented choice), `glassCard()` (a card's color), `softShadow(r, radius)` (under what floats), `selectFill(r)` (a chosen row), `glassHair`, `glassRadius(r)`, `withAlpha(c, a)`, `roundFrame` and `roundRectShaded(r, radius, top, bottom)` (`retroui/gfx`: lit from above). `uiLook = lookMatte` (flat, sharp; `MatteLight`, `MatteDark`) and `lookGloss` (glossy, its bars and blue parts in the scheme's hue: `glossTone(s, v)`, `glossDetail()`; `GlossLight`, `GlossDark`) draw through the same procs; `matteLook()` and `glossLook()` tell them apart, `lookSchemes(look)` gives a look's own schemes, `titleBar(r, active)` a title bar's band, `barFace(r)` a tool bar's face, `tintedFace(r, color)` a button's face in a color of its own; Gloss's parts: `glossBarFill(r)` (a bar), `glossBarButton(r, pressed, back, done)`, `glossBlue(r)` (a chosen row), `glossButtonFace(r, pressed, primary)` (a push button: gray, the default one blue), `glossTwoTone(r, radius, top, mid, low, foot)` (a face lit as glass was then), `glossPopoverFrame(r, arrowX, arrowUp)` and `glossMenuEdge()` (a popover's dark frame, as Gloss's menus and dropped lists have), `buttonInk(pressed, enabled, primary)`, `buttonLabel`, `buttonBold`; `polygonShaded`, `discShaded` (`retroui/gfx`) |
+| the phone controls | `MobileStyle` (below) |
 | the focus ring | `focusRing = false`: 3.1's dotted rectangle alone |
 | icons | `setIconStyle(...)`: 3.1's pixel icons or their line twins |
 
 docs/controls.md has each control's options under its picture.
+
+### The phone controls
+
+The phone's controls -- `navBar`, `bottomNav`, `sideMenu`, `tableGroup` and its rows, the
+settings rows in a group -- take the scheme's colors as every control does. In Gloss a scheme
+of its own (Gloss Light, Gloss Dark, Gloss Onyx) keeps iOS 6's steel blue and black bars; any
+other scheme colors the bars, the tab bar and the side menu, and the status bar over the app's
+bars is the top bar's color, darker. For colors and sizes of the app's own, past the scheme,
+there is `MobileStyle`, as `Theme` is for colors:
+
+```nim
+mobileStyle = MobileStyle(
+  bar: color(150, 30, 60),            # the bars at the top (`barText`: their words)
+  statusBar: color(90, 14, 34),       # under the system's status bar (left out: the bar's, darker)
+  tabBar: color(40, 10, 20), tabChosen: color(255, 160, 180),   # bottomNav (`tabText`: the others)
+  sideMenu: color(60, 16, 30),        # the side menu's face (`sideMenuText`: its words)
+  group: color(255, 248, 240),        # a tableGroup's face (`groupLine`: between its rows)
+  rowText: color(60, 20, 30), rowDetail: color(150, 30, 60),     # a row's title, its value
+  groupCorner: 14,                    # a group's corners (a negative: square)
+  rowHeight: 50)                      # a row's height, in design pixels
+```
+
+A color left out (alpha 0) and a size left at 0 stay the look's own. `withMobileStyle(s): ...`
+draws a part of the window in one, then puts the app's back, as `withTheme` does.
 
 ## 2. Put controls together
 

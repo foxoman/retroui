@@ -16,6 +16,9 @@ import api
 
 const
   PlayerKey* = "music-local"     ## (the player's name for retroui/media)
+  VideoKey* = "music-video"      ## (a video's, while Now Playing shows its picture)
+  VideoExts = [".mp4", ".m4v", ".mov", ".3gp", ".mkv", ".webm"]
+    ## (files that may be videos: music videos play with their picture)
   UnknownArtist* = "Unknown Artist"
   UnknownAlbum* = "Unknown Album"
 
@@ -110,6 +113,9 @@ var
   accessAsked* = false
   userVolume* = 100                      ## (the player's volume slider, 0..100)
   showList* = false                      ## (Now Playing: the queue's songs instead of the cover)
+  videoOn = false                        ## (a video plays with its picture: Now Playing shows it)
+  videoShownAt = -10                     ## (... the frame it was last shown in)
+  videoKinds: Table[string, bool]        ## (a file is a video, or sound alone: looked at once)
 
 proc appDir(): string = dataDir("RetroMusic")
 
@@ -216,7 +222,7 @@ proc scanFolders(dirs: seq[string]; known: Table[string, (int64, float)]): seq[S
     if not dirExists(d): continue
     try:
       for p in walkDirRec(d, yieldFilter = {pcFile, pcLinkToFile}, skipSpecial = true):
-        if not isAudioFile(p) or p in seen: continue
+        if not (isAudioFile(p) or p.splitFile.ext.toLowerAscii in VideoExts) or p in seen: continue
         if "/." in p or "/Android/data/" in p: continue        # (hidden folders, apps' own)
         seen[p] = true
         var size = 0'i64
@@ -423,6 +429,40 @@ proc artPath(s: Song): string =
 
 # ---- the player -----------------------------------------------------------------------------------
 
+proc hasPicture(path: string): bool =
+  ## (a file with a video in it, not sound alone: an MP4's track whose handler is "vide", a
+  ## Matroska's or WebM's codec "V_..." -- the file's start read, and an MP4's end, where its index
+  ## may be)
+  var f: File
+  if not open(f, path): return false
+  defer: f.close()
+  let size = getFileSize(f)
+  proc chunk(at, n: int64): string =
+    result = newString(int(min(n, max(0'i64, size - at))))
+    if result.len == 0: return
+    f.setFilePos(at)
+    result.setLen(f.readBuffer(result[0].addr, result.len))
+  let ext = path.splitFile.ext.toLowerAscii
+  if ext in [".mkv", ".webm"]:
+    let head = chunk(0, 1 shl 20)
+    for codec in ["V_VP8", "V_VP9", "V_AV1", "V_MPEG4", "V_MPEGH", "V_THEORA"]:
+      if codec in head: return true
+    return false
+  for part in [chunk(0, 2 shl 20), chunk(max(0'i64, size - (8 shl 20)), 8 shl 20)]:
+    var i = part.find("hdlr")
+    while i >= 0:
+      if i + 16 <= part.len and part[i + 12 ..< i + 16] == "vide": return true
+      i = part.find("hdlr", i + 4)
+  false
+
+proc isVideo*(path: string): bool =
+  ## A song that is a video (a music video on the device): Now Playing shows its picture.
+  if path.splitFile.ext.toLowerAscii notin VideoExts or not fileExists(path): return false
+  if path notin videoKinds: videoKinds[path] = hasPicture(path)
+  videoKinds[path]
+
+proc playerKey(): string = (if videoOn: VideoKey else: PlayerKey)
+
 proc currentPath*(): string = (if qAt >= 0 and qAt < queue.len: queue[qAt] else: "")
 proc currentSong*(): Song = songAt(currentPath())
 proc localTrack*(): Track = (if currentPath().len > 0: trackOf(currentSong()) else: Track())
@@ -440,6 +480,8 @@ proc start(at: int) =
   countedFor = ""
   if stopOthers != nil: stopOthers()
   closeVideo(PlayerKey)
+  closeVideo(VideoKey)
+  videoOn = false
   changed()
   ui.redraw = true
 
@@ -500,7 +542,7 @@ proc setShuffle*(on: bool) =
   changed()
 
 proc pauseLocal*() =
-  if localActive and localPlaying: playVideo(PlayerKey, false)
+  if localActive and localPlaying: playVideo(playerKey(), false)
   wantPlay = false
   localPlaying = false
 
@@ -509,7 +551,7 @@ proc resumeLocal*() =
   localActive = true
   wantPlay = true
   if stopOthers != nil: stopOthers()
-  playVideo(PlayerKey, true)
+  playVideo(playerKey(), true)
 
 proc toggleLocal*() =
   if localPlaying: pauseLocal() else: resumeLocal()
@@ -521,12 +563,12 @@ proc nextSong*(byUser = true) =
 
 proc previousSong*() =
   if localPos > 3000 or qAt == 0:
-    seekVideo(PlayerKey, 0)
+    seekVideo(playerKey(), 0)
     localPos = 0
   else: start(qAt - 1)
 
 proc seekLocal*(ms: int) =
-  seekVideo(PlayerKey, ms)
+  seekVideo(playerKey(), ms)
   localPos = ms
 
 proc eqGains*(): seq[float] =
@@ -541,27 +583,19 @@ proc sleepLeft*(): string =
   elif sleepAt > 0: $max(1, int(ceil((sleepAt - epochTime()) / 60))) & " min"
   else: ""
 
-proc localTick*() =
-  ## Every frame: the scan's answer; the song playing -- where it is, its end (the next one, as
-  ## Repeat says), its play counted, its loudness, the equalizer, the sleep timer --; the system's
-  ## controls; the library kept now and then.
-  pollScan()
-  if not scanAsked:
-    scanAsked = true
-    if musicAccess(): scanLibrary()
-  if dirty and epochTime() - savedAt > 5: saveLibrary()
+proc followPlayer(ev: VideoEvent) =
+  ## (what the player says of the song playing -- where it is, its end (the next one, as Repeat
+  ## says), its play counted --, and what is asked of it: its loudness, the equalizer)
   let path = currentPath()
-  if path.len == 0 or not localActive: return
   let s = currentSong()
-  let ev = audioPlayer(path, PlayerKey, autoplay = wantPlay)
   localPlaying = ev.playing
   localPos = ev.positionMs
   localDur = if ev.durationMs > 0: ev.durationMs else: s.durationMs
   localError = ev.error
   # (its loudness: ReplayGain's, 6 dB up -- louder than recorded only where the player can)
   let gain = if levelOn and s.hasGain: min(1.0, pow(10.0, (s.gainDb + 6) / 20)) else: 1.0
-  setPlayerVolume(PlayerKey, gain * float(clamp(userVolume, 0, 100)) / 100)
-  setPlayerEqualizer(PlayerKey, eqGains())
+  setPlayerVolume(playerKey(), gain * float(clamp(userVolume, 0, 100)) / 100)
+  setPlayerEqualizer(playerKey(), eqGains())
   # (played: half of it, or 30 seconds -- once)
   if countedFor != path and localDur > 0 and localPos >= min(30_000, localDur div 2):
     countedFor = path
@@ -577,6 +611,43 @@ proc localTick*() =
     elif repeatMode == rpOne: start(qAt)
     elif qAt + 1 < queue.len or repeatMode == rpAll: nextSong(byUser = false)
     else: wantPlay = false
+
+proc showVideo(r: Rect) =
+  ## (the song's video in `r`, as big as fits: it plays from where its sound was)
+  let s = currentSong()
+  if not videoOn:
+    let at = localPos
+    closeVideo(PlayerKey)
+    closeVideo(VideoKey)
+    videoOn = true
+    if at > 0: seekVideo(VideoKey, at)
+  videoShownAt = ui.frameNo
+  pushFrame(rect(r.x, r.y, r.w, 0))
+  let ev = videoView(s.path, height = r.h, key = VideoKey, autoplay = wantPlay, controls = false,
+                     title = s.title)
+  discard popFrame()
+  followPlayer(ev)
+
+proc localTick*() =
+  ## Every frame: the scan's answer; the song playing -- where it is, its end (the next one, as
+  ## Repeat says), its play counted, its loudness, the equalizer, the sleep timer --; the system's
+  ## controls; the library kept now and then.
+  pollScan()
+  if not scanAsked:
+    scanAsked = true
+    if musicAccess(): scanLibrary()
+  if dirty and epochTime() - savedAt > 5: saveLibrary()
+  let path = currentPath()
+  if path.len == 0 or not localActive: return
+  let s = currentSong()
+  # (a video's picture no longer shown -- Now Playing left, the app in the background --: its
+  # sound plays on from there, in the player that plays on in the background)
+  if videoOn and (ui.paused or videoShownAt < ui.frameNo - 1):
+    let at = localPos
+    closeVideo(VideoKey)
+    videoOn = false
+    if at > 0: seekVideo(PlayerKey, at)
+  if not videoOn: followPlayer(audioPlayer(path, PlayerKey, autoplay = wantPlay))
   if sleepAt > 0 and epochTime() >= sleepAt:
     sleepAt = 0
     pauseLocal()
@@ -982,6 +1053,101 @@ proc glyphButton(id: Id; r: Rect; glyph: string; size: float; ink: Color; enable
   if hit.focused: focusDots(inset(r, 2))
   hit.clicked
 
+proc fadeDown(r: Rect; aTop, aFoot: int) =
+  ## (black over `r`, from `aTop` opaque at its top to `aFoot` at its foot, a line at a time: what
+  ## is under it shows through, darker down to its foot)
+  for k in 0 ..< r.h:
+    let a = aTop + (aFoot - aTop) * k div max(1, r.h - 1)
+    if a > 0: hline(r.x, r.y + k, r.w, withAlpha(black, a))
+
+proc hsvColor(h, s, v: float): Color =
+  ## (a color by its hue -- degrees --, its saturation and its brightness, 0..1)
+  let hh = (h mod 360.0 + 360.0) mod 360.0 / 60.0
+  let i = int(hh) mod 6
+  let f = hh - floor(hh)
+  let p = v * (1 - s)
+  let q = v * (1 - s * f)
+  let t = v * (1 - s * (1 - f))
+  let (r, g, b) = case i
+    of 0: (v, t, p)
+    of 1: (q, v, p)
+    of 2: (p, v, t)
+    of 3: (p, q, v)
+    of 4: (t, p, v)
+    else: (v, p, q)
+  color(uint8(clamp(r * 255, 0, 255)), uint8(clamp(g * 255, 0, 255)), uint8(clamp(b * 255, 0, 255)))
+
+proc drawArtwork*(r: Rect; s: Song; top = 0; words = true) =
+  ## Artwork made from a song with no cover, the same for all of its album's songs: two colors of
+  ## the album's own, and waves of sound, a record's grooves or a meter's bars, as its name falls;
+  ## its title and its artist written on it (`words`), under `top` (what is drawn over its top).
+  var h = 2166136261'u32
+  for c in s.album & "\0" & s.artist & "\0" & (if s.album.len == 0 or s.album == UnknownAlbum: s.title else: ""):
+    h = (h xor uint32(ord(c))) * 16777619'u32
+  if h == 0: h = 1
+  proc next(): float =
+    h = h xor (h shl 13)
+    h = h xor (h shr 17)
+    h = h xor (h shl 5)
+    float(h and 0xFFFF) / 65535.0
+  let hue = next() * 360
+  let light = hsvColor(hue, 0.5 + 0.3 * next(), 0.86)
+  let deep = hsvColor(hue + 30 + 60 * next(), 0.8, 0.30)
+  roundRectShaded(r, 0, light, deep)
+  pushClip(r)
+  let side = float(min(r.w, r.h))
+  let line = max(1.5, side / 180)
+  case int(next() * 3) mod 3
+  of 0:
+    # waves of sound across it
+    for k in 0 ..< 6:
+      let amp = side * (0.03 + 0.07 * next())
+      let freq = 1.0 + 3 * next()
+      let phase = next() * 2 * PI
+      let y0 = float(r.y) + float(r.h) * (0.2 + 0.6 * float(k) / 5)
+      var px = float(r.x)
+      var py = y0 + amp * sin(phase)
+      for j in 1 .. 64:
+        let x = float(r.x) + float(r.w) * float(j) / 64
+        let y = y0 + amp * sin(phase + freq * 2 * PI * float(j) / 64)
+        thickLine(px, py, x, y, line, withAlpha(white, 36 + 10 * k))
+        px = x
+        py = y
+  of 1:
+    # a record's grooves round a point of it
+    let cx = float(r.x) + float(r.w) * (0.25 + 0.5 * next())
+    let cy = float(r.y) + float(r.h) * (0.3 + 0.4 * next())
+    for k in 1 .. 12:
+      ring(cx, cy, side * 0.06 * float(k), line, withAlpha(white, max(12, 80 - k * 6)))
+    disc(cx, cy, side * 0.045, withAlpha(white, 110))
+    disc(cx, cy, side * 0.012, deep)
+  else:
+    # a level meter's bars along its foot
+    let n = 16
+    let bw = float(r.w) / float(n)
+    for k in 0 ..< n:
+      let bh = float(r.h) * (0.12 + 0.5 * next())
+      fill(rect(r.x + int(bw * float(k)) + dp(2), r.y + r.h - int(bh), max(1, int(bw) - dp(4)), int(bh)),
+           withAlpha(white, 46))
+  if words and r.w > dp(80):
+    # its title, big, and its artist under it
+    let bigSize = clamp(side / float(FontH) / 9, 1.2, 3.2)
+    let big = style(bold = true, size = bigSize)
+    let small = style(size = clamp(side / float(FontH) / 16, 1.0, 1.8))
+    let room = r.w - dp(48)
+    var lines = wrapLines(s.title, int(float(room) / bigSize), bold = true)
+    if lines.len > 3: lines.setLen(3)
+    let artist = if s.artist == UnknownArtist: "" else: ellipsize(s.artist, room, small)
+    let textH = lines.len * lineHeight(big) + (if artist.len > 0: lineHeight(small) + dp(6) else: 0)
+    var y = r.y + top + max(dp(16), (r.h * 45 div 100 - top - textH) div 2)
+    for ln in lines:
+      text(r.x + (r.w - textWidth(ln, big)) div 2, y + 1, ln, withAlpha(black, 70), big)
+      text(r.x + (r.w - textWidth(ln, big)) div 2, y, ln, white, big)
+      y += lineHeight(big)
+    if artist.len > 0:
+      text(r.x + (r.w - textWidth(artist, small)) div 2, y + dp(6), artist, withAlpha(white, 215), small)
+  popClip()
+
 proc darkBar(r: Rect; lighter = false) =
   ## (the player's bars: black glass in Gloss -- its top half lit --, flat dark in the others)
   if glossLook():
@@ -1081,23 +1247,32 @@ proc playerScreen*(area: Rect; lyrics: openArray[LyricLine]; lyricText: string; 
     endPanel()
     discard popFrame()
   else:
-    let side = min(midR.w, midR.h)
-    let cr = rect(midR.x + (midR.w - side) div 2, midR.y, side, side)
-    let b = coverOf(s)
-    if b != nil: drawBitmap(cr, b)
-    else:
-      roundRectShaded(cr, 0, color(58, 60, 66), color(26, 27, 30))
-      let st = style(size = 5.0)
-      text(cr.x + (cr.w - textWidth(nfMusic, st)) div 2, cr.y + (cr.h - lineHeight(st)) div 2, nfMusic,
-           color(90, 92, 98), st)
+    # (the cover fills the place from the panel to the controls -- a tall phone's too, its sides
+    # cut off --, as the players of then filled the screen with it)
+    let side = max(midR.w, midR.h)
+    let cr = rect(midR.x + (midR.w - side) div 2, midR.y + (midR.h - side) div 2, side, side)
+    let video = isVideo(s.path) and videoPlaysInWindow()
+    let b = if video: nil else: coverOf(s)
+    pushClip(midR)
+    if video:
+      # (a video: its picture between the panel and the controls -- a tap plays or pauses it)
+      fill(midR, black)
+      showVideo(rect(midR.x, midR.y + panelH, midR.w, midR.h - panelH))
+    elif b != nil: drawBitmap(cr, b)
+    else: drawArtwork(midR, s, top = panelH)
+    popClip()
     # (a tap on the cover: the queue)
-    if interact(id + 3, cr, focusable = false).clicked: showList = true
-    # the lyrics, over the cover's foot and under it: the line sung lit, the others gray
-    let lyrR = rect(midR.x, cr.y + cr.h * 55 div 100, midR.w, midR.y + midR.h - (cr.y + cr.h * 55 div 100))
-    if lyrics.len > 0 or lyricText.len > 0:
-      roundRectShaded(rect(lyrR.x, lyrR.y, lyrR.w, min(lyrR.h, cr.y + cr.h - lyrR.y)), 0,
-                      withAlpha(black, 0), withAlpha(black, 200))
-      if lyrR.y + lyrR.h > cr.y + cr.h: fill(rect(lyrR.x, cr.y + cr.h, lyrR.w, lyrR.y + lyrR.h - cr.y - cr.h), withAlpha(black, 200))
+    if not video and interact(id + 3, midR, focusable = false).clicked: showList = true
+    # the lyrics, over the cover's foot: the line sung lit, the others gray; without them, the
+    # cover's foot darker into the controls (not over a video's picture)
+    let lyrTop = midR.y + midR.h * 55 div 100
+    let lyrR = rect(midR.x, lyrTop, midR.w, midR.y + midR.h - lyrTop)
+    if video: discard
+    elif lyrics.len == 0 and lyricText.len == 0:
+      fadeDown(rect(midR.x, midR.y + midR.h - dp(60), midR.w, dp(60)), 0, 150)
+    if not video and (lyrics.len > 0 or lyricText.len > 0):
+      fadeDown(rect(lyrR.x, lyrR.y, lyrR.w, lyrR.h div 3), 0, 200)
+      fill(rect(lyrR.x, lyrR.y + lyrR.h div 3, lyrR.w, lyrR.h - lyrR.h div 3), withAlpha(black, 200))
       let big = style(bold = true, size = 1.15)
       let lh2 = lineHeight(big) + dp(4)
       pushClip(lyrR)

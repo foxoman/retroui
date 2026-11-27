@@ -7,7 +7,6 @@
 
 import std/[strutils, math, tables]
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
-import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import core, widgets, business, platform, nerdicons, pixelicons
 import uirelays/input
 
@@ -79,6 +78,11 @@ proc searchBox*(s: var string; placeholder = "Search"; w = 0;
       let rad = float(r.h) / 2
       roundRect(r, rad, if lumaOfColor(th.window) < 128: color(0, 0, 0) else: glossTint(color(124, 143, 164)))
       roundRect(inset(r, 1), rad - 1, th.field)
+    elif modernGlass():
+      # (Glass: a capsule of glass, a ring of the highlight round it while it has the keys)
+      let rad = float(r.h) / 2
+      if enabled and ui.focus == id: roundFrame(inset(r, -2), rad + 2, 2, withAlpha(accentColor(), 110))
+      glassPlate(r, rad, th.field, lift = 2)
     else: fieldFace(r, th.field, enabled, enabled and ui.focus == id)
     let k = float(r.h) / 7
     let cx = float(r.x) + float(iw) / 2 - k * 0.4
@@ -95,7 +99,7 @@ proc searchBox*(s: var string; placeholder = "Search"; w = 0;
   # (Glass: the text's box inside the field's hairline, not over it)
   let er = if gl: rect(r.x + iw - 4, r.y + 1,
                       r.w - iw + 4 - cw - 1 -
-                        (if cw > 0: 0 elif glossLook(): r.h div 2 + 1 else: min(dp(6), r.h div 2)), r.h - 2)
+                        (if cw > 0: 0 elif glossLook() or modernGlass(): r.h div 2 + 1 else: min(dp(6), r.h div 2)), r.h - 2)
            else: rect(r.x + iw - 4, r.y, r.w - iw + 4 - cw, r.h)
   if accessOn: accessNameOr(tr(placeholder))
   result = editAt(id, s, er, false, false, enabled, frameless = true)
@@ -215,7 +219,8 @@ proc drawSwitch*(track: Rect; on, enabled: bool; down = false; thumbX = -1) =
     let kx = if thumbX >= 0: clamp(thumbX, inner.x, inner.x + inner.w - kd)
              elif on: inner.x + inner.w - kd else: inner.x
     let onPart = kx > inner.x + 1 or on
-    if enabled and onPart: glassAccent(track, float(track.h) / 2)
+    if enabled and onPart and modernGlass(): glassBlue(track, float(track.h) / 2, glow = false)
+    elif enabled and onPart: glassAccent(track, float(track.h) / 2)
     else: glassWell(track, float(track.h) / 2, mixColor(th.window, th.text, if enabled: 0.14 else: 0.07))
     let k = rect(kx, inner.y, kd, kd)
     roundRect(rect(k.x, k.y + 1, k.w, k.h), float(kd) / 2, withAlpha(color(0, 0, 0), 60))
@@ -432,9 +437,10 @@ proc segmented*(options: openArray[string]; sel: var int; w = 0;
       # the pointer)
       let pill = rect(br.x + dp(2), br.y + dp(2), br.w - dp(4) - (if i < options.high: 1 else: 0), br.h - dp(4))
       # (Matte and Gloss: the chosen one in the highlight, its label in the highlight's ink)
-      let inked = down and enabled and (matteLook() or glossLook())
+      let inked = down and enabled and (matteLook() or glossLook() or modernGlass())
       if down:
-        if inked: glassAccent(pill, glassRadius(pill))
+        if inked and modernGlass(): glassBlue(pill, float(pill.h) / 2, glow = false)
+        elif inked: glassAccent(pill, glassRadius(pill))
         else: glassFace(pill, radius = float(pill.h) / 2)
       elif enabled and hovered(pill) and canInput():
         roundRect(pill, glassRadius(pill), withAlpha(th.text, if lumaOfColor(th.window) < 128: 26 else: 14))
@@ -899,21 +905,31 @@ proc drawToast() {.nimcall.} =
     ui.redraw = true
     return
   pushLayer(LayerTip)
-  if glossLook() and fingers():
+  if (glossLook() or modernGlass()) and fingers():
     # (Gloss on a phone: iOS 6's banner -- black glass across the top, an icon on a tile, the
-    # title bold and the message after it, sliding down as it comes and up as it goes)
-    let h = max(dp(40), FontH + dp(16))
-    let slide = dp(6) + h
+    # title bold and the message after it, sliding down as it comes and up as it goes; Glass: a
+    # card of glass over the top, its corners round, sliding down the same way)
+    let glass = modernGlass()
+    let h = if glass: max(dp(52), FontH + dp(26)) else: max(dp(40), FontH + dp(16))
+    let slide = dp(6) + h + (if glass: dp(8) else: 0)
     let age = ui.now - toastFrom
     let left = toastUntil - ui.now
     let k = clamp(min(float(age), float(left)) / 250.0, 0, 1)
-    let y = ui.safe.top - int(float(slide) * (1 - (1 - pow(1 - k, 3))))
-    let r = rect(0, y, ui.w, h)
+    let y = ui.safe.top - int(float(slide) * (1 - (1 - pow(1 - k, 3)))) + (if glass: dp(8) else: 0)
+    let r = if glass: rect(ui.safe.left + dp(8), y, ui.w - ui.safe.left - ui.safe.right - dp(16), h)
+            else: rect(0, y, ui.w, h)
     toastRect = r
-    fill(r, color(0, 0, 0))
-    roundRectShaded(rect(r.x, r.y, r.w, h div 2), 0, color(58, 58, 60), color(30, 30, 32))
-    hline(r.x, r.y + r.h - 1, r.w, color(70, 70, 74))
-    var x = r.x + dp(10) + ui.safe.left
+    let rad = float(dp(16))
+    if glass:
+      if not frostedFace(r, withAlpha(th.field, 240), rad): glassPlate(r, rad, th.field, lift = 5)
+      else: roundFrame(r, rad, 1, glassHair())
+    else:
+      fill(r, color(0, 0, 0))
+      roundRectShaded(rect(r.x, r.y, r.w, h div 2), 0, color(58, 58, 60), color(30, 30, 32))
+      hline(r.x, r.y + r.h - 1, r.w, color(70, 70, 74))
+    let ink = if glass: th.text else: color(255, 255, 255)
+    let msgInk = if glass: mixColor(th.text, th.field, 0.25) else: color(220, 220, 224)
+    var x = r.x + dp(10) + (if glass: dp(4) else: ui.safe.left)
     let tile = dp(22)
     if toastIcon.len > 0:
       let tr = rect(x, r.y + (h - tile) div 2, tile, tile)
@@ -921,14 +937,15 @@ proc drawToast() {.nimcall.} =
       let gs = style(size = 0.9)
       text(tr.x + (tile - textWidth(toastIcon, gs)) div 2, tr.y + (tile - lineHeight(gs)) div 2, toastIcon, color(255, 255, 255), gs)
       x += tile + dp(8)
-    let room = ui.w - ui.safe.right - dp(10) - x
+    let endX = r.x + r.w - dp(10) - (if glass: dp(4) else: ui.safe.right)
+    let room = endX - x
     let ty = r.y + (h - FontH) div 2
     if toastTitle.len > 0:
       let t = ellipsize(toastTitle, room, style(bold = true))
-      text(x, ty, t, color(255, 255, 255), true)
+      text(x, ty, t, ink, true)
       x += textWidth(t, true) + dp(6)
-    let msg = ellipsize(toastMsg.replace('\n', ' '), max(0, ui.w - ui.safe.right - dp(10) - x))
-    text(x, ty, msg, color(220, 220, 224))
+    let msg = ellipsize(toastMsg.replace('\n', ' '), max(0, endX - x))
+    text(x, ty, msg, msgInk)
     popLayer()
     wakeIn(if k < 1: 16 else: max(16, left - 250))
     return
@@ -1628,276 +1645,6 @@ proc factList*(facts: openArray[(string, string)]; w = 0) =
   ui.lastRect = r
   discard drawFacts(r.x, r.y, r.w, facts)
 
-# ---- settings rows ------------------------------------------------------------------------------
-
-proc settingRow(title, detail: string; controlW: int; stack: var bool):
-    tuple[r, ctl: Rect; textW: int] =
-  ## The cell of a settings row: the title and its detail at the left, the
-  ## control at the right (or under them, when the row is narrow).
-  let w = available()
-  stack = controlW > w * 11 div 20
-  let textW = if stack: w - dp(16) else: w - controlW - dp(24)
-  let st = style(size = 0.9)
-  let lines = if detail.len > 0: wrapLines(tr(detail), textW) else: @[]
-  let textH = FontH + lines.len * lineHeight(st)
-  let minH = if fingers(): dp(52) else: dp(36)
-  let h = if stack: textH + CtrlH + dp(20) else: max(minH, max(textH, CtrlH) + dp(14))
-  let r = place(0, h, fill = true)
-  ui.lastRect = r
-  var y = if stack: r.y + dp(6) else: r.y + (r.h - textH) div 2
-  drawLabel(r.x + dp(8), y, title, th.text)
-  if accessOn:
-    accessLabelFor(title)
-    if detail.len > 0: accessNode(arLabel, tr(detail), id = 0, r = rect(r.x, y + FontH, textW, h - FontH))
-  y += FontH
-  for line in lines:
-    text(r.x + dp(8), y, line, th.gray, st)
-    y += lineHeight(st)
-  let ctl = if stack: rect(r.x + dp(8), r.y + r.h - CtrlH - dp(8), r.w - dp(16), CtrlH)
-            else: rect(r.x + r.w - controlW - dp(8), r.y + (r.h - CtrlH) div 2, controlW, CtrlH)
-  (r, ctl, textW)
-
-proc settingToggle*(title: string; v: var bool; detail = "";
-                    enabled = true): bool {.discardable.} =
-  ## A settings row: a title, a line or two of detail, and a switch at the
-  ## right; a click anywhere on the row flips it. True when it changed.
-  var stack = false
-  let (sw, sh) = switchSize()
-  let (r, ctl, _) = settingRow(title, detail, sw, stack)
-  let id = idOf(v, title)
-  var hit = interact(id, r, enabled = enabled)
-  if enabled:
-    spaceKey(id, hit)
-    if mnemonicHit(title): hit.clicked = true
-  let track = rect(r.x + r.w - sw - dp(8), r.y + (r.h - sh) div 2, sw, sh)
-  discard ctl
-  result = switchAt(id, track, v, hit, enabled)
-  if hit.focused: focusDots(inset(r, 2))
-  if accessOn:
-    accessNode(arCheckBox, title, id = id, r = r,
-               states = accessOff(enabled) + (if v: {asChecked} else: {}), help = tr(detail))
-  ui.lastId = id
-  ui.lastRect = r
-
-proc settingChoice*(title: string; options: openArray[string]; v: var int;
-                    detail = ""; enabled = true): bool {.discardable.} =
-  ## A settings row with a choice of a few (segmented buttons), under the
-  ## title when the row is narrow.
-  var widths = 0
-  for o in options: widths += labelWidth(o) + dp(20)
-  var stack = false
-  let (r, ctl, _) = settingRow(title, detail, widths, stack)
-  pushFrame(rect(ctl.x, ctl.y, ctl.w, 0))
-  result = segmented(options, v, w = (if stack: ctl.w else: widths), enabled = enabled)
-  discard popFrame()
-  ui.lastRect = r
-
-proc settingCombo*(title: string; options: openArray[string]; v: var int;
-                   detail = ""; enabled = true): bool {.discardable.} =
-  ## A settings row with a drop-down list at the right (a choice of many).
-  var widest = 0
-  for o in options: widest = max(widest, labelWidth(o))
-  let cw = widest + SbW + dp(20)
-  var stack = false
-  let (r, ctl, _) = settingRow(title, detail, cw, stack)
-  pushFrame(rect(ctl.x, ctl.y, ctl.w, 0))
-  result = combo(options, v, w = (if stack: ctl.w else: cw), enabled = enabled)
-  discard popFrame()
-  ui.lastRect = r
-
-proc settingSlider*(title: string; v: var int; lo, hi: int; detail = "";
-                    suffix = ""; enabled = true): bool {.discardable.} =
-  ## A settings row with a slider and its value ("120%").
-  var stack = false
-  let vw = textWidth($hi & suffix) + dp(8)
-  let (r, ctl, _) = settingRow(title, detail, dp(200) + vw, stack)
-  pushFrame(rect(ctl.x, ctl.y, ctl.w, 0))
-  row:
-    result = slider(v, lo, hi, w = ctl.w - vw - Gap, ticks = 0, enabled = enabled)
-    label $v & suffix
-  discard popFrame()
-  ui.lastRect = r
-
-proc settingButtons*(title: string; buttons: openArray[string]; detail = "";
-                     enabled = true): int =
-  ## A settings row with buttons (`["Smaller", "Normal", "Larger"]`);
-  ## which was clicked (1-based), 0 if none.
-  var widths = 0
-  for b in buttons: widths += max(dp(56), labelWidth(b) + dp(20)) + Gap
-  var stack = false
-  let (r, ctl, _) = settingRow(title, detail, widths, stack)
-  pushFrame(rect(ctl.x, ctl.y, ctl.w, 0))
-  row:
-    if not stack: spring()
-    for i, b in buttons:
-      if button(b, enabled = enabled, w = max(dp(56), labelWidth(b) + dp(20))):
-        result = i + 1
-  discard popFrame()
-  ui.lastRect = r
-
-proc settingLink*(title: string; detail = ""; glyph = nfChevronRight;
-                  enabled = true): bool =
-  ## A settings row that leads somewhere (another page, a dialog): true
-  ## when clicked.
-  var stack = false
-  let gw = textWidth(glyph) + dp(8)
-  let (r, ctl, _) = settingRow(title, detail, gw, stack)
-  let id = idOf("settinglink:" & title)
-  var hit = interact(id, r, enabled = enabled)
-  if enabled:
-    spaceKey(id, hit)
-    if mnemonicHit(title): hit.clicked = true
-  text(ctl.x + ctl.w - gw, r.y + (r.h - FontH) div 2, glyph, th.gray)
-  if hit.focused: focusDots(inset(r, 2))
-  if accessOn:
-    accessNode(arButton, title, id = id, r = r, states = accessOff(enabled), help = tr(detail))
-  hit.clicked
-
-var
-  fontFileOpen = false
-  fontFilePath = ""
-  fontFileError = ""
-
-proc extractFilenameOf(p: string): string =
-  var i = p.len - 1
-  while i >= 0 and p[i] notin {'/', '\\'}: dec i
-  p[i + 1 .. ^1]
-
-proc appearanceRows(): bool
-
-proc appearanceSettings*(): bool {.discardable.} =
-  ## Settings rows for how every app looks: the color scheme, the look of the controls
-  ## (`uiLook`: Classic, Glass, Matte or Gloss), the size of
-  ## everything, the size of the text, the size of controls (for a mouse
-  ## or fingers), the window's frame (on desktops: the system's or Windows
-  ## 3.1's), the title bars' buttons (`captionButtons`) and the font. In an
-  ## Android or iOS app only the look, its colors, the sizes and the font. True
-  ## when something changed (store them with
-  ## `storeAppearance`; `app`'s `look` keeps them by itself).
-  result = appearanceRows()
-  if result: noteLookChanged()
-
-const phoneSystem = androidApp or defined(ios)
-  ## (an Android or iOS app: Appearance has what matters on a phone or a tablet -- the look, its
-  ## colors, the sizes, the font --, not a desktop's frame, title bar buttons, drawing, icons)
-
-proc appearanceRows(): bool =
-  var t = max(0, themeIndex())
-  var names: seq[string]
-  for th in builtinThemes: names.add th.name
-  if settingCombo("Color scheme", names, t):
-    ui.theme = builtinThemes[t].theme
-    invalidate()
-    result = true
-  # (the controls' look, in whatever scheme: Windows 3.1's, or frosted glass)
-  var lk = ord(uiLook)
-  if settingCombo("Look", ["Classic (Windows 3.1)", "Glass", "Matte", "Gloss"], lk):
-    let was = uiLook
-    uiLook = UiLook(lk)
-    # (a look picked with a scheme of before, or with another look's own: its own colors with
-    # it, light or dark as the scheme was)
-    let (wl, wd) = lookSchemes(was)
-    if uiLook != lookClassic and (t in [0, 1, 2, 3] or (was != lookClassic and ui.theme in [wl, wd])):
-      let dark = t in [2, 3] or ui.theme == wd
-      let (l, d) = lookSchemes(uiLook)
-      ui.theme = if dark: d else: l
-    invalidate()
-    result = true
-  if uiLook == lookGlass:
-    if settingToggle("See-through menus and dialogs", frostedGlass,
-                     "What is under them shows blurred, as through frosted glass"):
-      invalidate()
-      result = true
-  case settingButtons("Size of everything", ["Smaller", "Normal", "Larger"],
-                      $uiScale() & "%")
-  of 1: setUiScale(scaleStep(-1)); result = true
-  of 2: setUiScale(100); result = true
-  of 3: setUiScale(scaleStep(1)); result = true
-  else: discard
-  var cs = ord(controlSizes())
-  if not phoneSystem and settingCombo("Controls", ["Automatic (touch sizes on phones)",
-                                                   "Desktop sizes (mouse, pen)", "Touch sizes (fingers)"], cs):
-    setControlSizes(ControlSizes(cs))
-    result = true
-  if canClassicFrame() and userFrameChoice and not phoneSystem:
-    # (the window's frame: the desktop's, or the 3.1 one the app draws --
-    # on X11 and Wayland the way back to the 3.1 one, their window
-    # managers' menus taking no item of the app's)
-    var fr = ord(classicFrame())
-    let own = if platformName() == "windows": "Windows' own frame"
-              else: "The desktop's own frame"
-    if settingCombo("Window", [own, "Windows 3.1 frame"], fr):
-      chooseClassicFrame(fr == 1)       # (kept for the app's next start)
-      result = true
-  # (the title bars the toolkit draws: the 3.1 frame's, dialogs', the windows' in the app)
-  var cb = ord(captionButtons)
-  if not phoneSystem and settingCombo("Title bar buttons", ["Windows 95 (with close)", "Windows 3.1 (no close)"], cb):
-    captionButtons = CaptionButtons(cb)
-    invalidate()
-    result = true
-  var gm = ord(gpuMode())
-  if not phoneSystem and settingCombo("Drawing", ["Automatic (the GPU when there is a real one)", "With the GPU",
-                                                  "On the CPU"], gm):
-    setGpuMode(GpuMode(gm))
-    result = true
-  case settingButtons("Size of the text", ["A-", "A", "A+"], $textScale() & "%")
-  of 1: setTextScale(textScale() - 10); result = true
-  of 2: setTextScale(100); result = true
-  of 3: setTextScale(textScale() + 10); result = true
-  else: discard
-  # (GNU FreeFont's three in their menu order, then a font from a file)
-  var fonts: seq[UiFont]
-  var fontNames: seq[string]
-  for u in builtinUiFonts:
-    fonts.add u
-    fontNames.add $u
-  fonts.add ufFile
-  fontNames.add(if uiFontPath.len > 0: tr("Font File: ") & uiFontPath.extractFilenameOf else: "A Font File...")
-  var f = max(0, fonts.find(uiFont()))
-  if settingCombo("Font", fontNames, f):
-    if fonts[f] == ufFile and uiFontPath.len == 0:
-      fontFileOpen = true                 # (which font: asked first)
-    elif fonts[f] == ufFile:
-      try:
-        loadUiFontFile(uiFontPath)
-        result = true
-      except CatchableError: fontFileOpen = true
-    else:
-      setUiFont(fonts[f])
-      result = true
-  when not androidApp and not defined(ios):
-    if pxScale == 1:
-      var sharp = if subpixelText(): 0 else: 1
-      if settingCombo("Text edges", ["Sharp", "Smooth"], sharp):
-        setSubpixelText(sharp == 0)
-        result = true
-  if pxScale >= 2 and not phoneSystem:
-    var hd = if hdText(): 0 else: 1
-    if settingCombo("Pixel icons on HD screens", ["Smooth", "Pixels (as in 1998, magnified)"], hd):
-      setHdText(hd == 0)
-      result = true
-  var ics = ord(iconStyle())
-  if not phoneSystem and settingCombo("Icons", ["Automatic (line icons in dark colors)", "Pixels (as in 1994)",
-                                                "Line (Nerd Fonts symbols)"], ics):
-    setIconStyle(IconStyle(ics))
-    result = true
-  if uiFont() == ufFile:
-    if settingButtons("Font file", ["Choose..."], uiFontPath.extractFilenameOf) == 1: fontFileOpen = true
-  if fileDialog(fontFileOpen, fontFilePath, fmOpen, ["Fonts (*.ttf;*.otf;*.ttc;*.otc)", "All Files (*.*)"],
-                "Font File"):
-    try:
-      loadUiFontFile(fontFilePath)
-      result = true
-    except CatchableError:
-      fontFileError = fontFilePath.extractFilenameOf & ": not a font we read"
-  if fontFileError.len > 0:
-    label(fontFileError, color = color(160, 0, 0))
-  var smooth = smoothScrolling
-  if not phoneSystem and settingToggle("Smooth scrolling", smooth,
-                   "Lists and pages glide; a flicked finger keeps them moving"):
-    setSmoothScrolling(smooth)
-    result = true
-
 # ---- avatar, steps, banner, pages --------------------------------------------------------------
 
 const avatarColors = [color(219, 68, 55), color(15, 157, 88), color(66, 133, 244),
@@ -2118,31 +1865,59 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   let st = style(size = 0.8)
   # (the bottom-most bar also covers the system's gesture area)
   let below = if ui.bottom >= ui.h - ui.safe.bottom: ui.h - ui.bottom else: 0
-  let gloss = glossLook()
+  let glass = modernGlass()
+  # (Glass, and Gloss Onyx: a capsule floating over the foot of the window)
+  let floating = glass or glossOnyx()
+  let gloss = glossLook() and not floating
+  let darkGloss = glossLook() and floating
   let matte = matteLook()
-  let h = (if fingers(): (if gloss: dp(49) else: dp(56)) else: dp(44))
+  let h = if floating: (if fingers(): dp(66) else: dp(54))
+          elif fingers(): (if gloss: dp(49) else: dp(56)) else: dp(44)
   let r = rect(0, ui.bottom - h, ui.w, h + below)
   pushLayer(LayerBase)
   defer: popLayer()
   # (Gloss: iOS 6's black tab bar -- its top half lit as glass, a dark line along its top and a
-  # light one under it; Matte: a dark bar, the chosen one marked by the highlight along its top)
-  if gloss:
-    fill(r, color(0, 0, 0))
-    roundRectShaded(rect(r.x, r.y, r.w, (h * 51 + 50) div 100), 0, color(51, 51, 51), color(20, 20, 20))
+  # light one under it; Matte: a dark bar, the chosen one marked by the highlight along its top;
+  # Glass: a capsule of white glass standing on the window; Gloss Onyx: a capsule of black
+  # gloss, the chosen one lit in the highlight)
+  let cap = rect(ui.safe.left + dp(14), r.y + dp(5), ui.w - ui.safe.left - ui.safe.right - dp(28), h - dp(11))
+  let capR = float(cap.h) / 2
+  if floating:
+    fill(r, th.window)
+    if glass:
+      if not frostedFace(cap, withAlpha(th.field, 235), capR): glassPlate(cap, capR, th.field, lift = 5)
+      else: roundFrame(cap, capR, 1, glassHair())
+    else:
+      softShadow(cap, capR, 5)
+      let face = if mobileStyle.tabBar.a != 0: mobileStyle.tabBar else: color(0, 0, 0)
+      roundRect(cap, capR, face)
+      glossShine(inset(cap, 1), capR - 1, mixColor(face, color(44, 45, 50), 0.9), true)
+  elif gloss:
+    # (in a scheme of Gloss's own iOS 6's black; in another the bars' color, darker:
+    # `glossDarkFace`)
+    let own = glossOwnScheme() and mobileStyle.tabBar.a == 0 and mobileStyle.bar.a == 0
+    let face = if mobileStyle.tabBar.a != 0: mobileStyle.tabBar elif own: color(0, 0, 0) else: glossDarkFace()
+    fill(r, face)
+    if own: roundRectShaded(rect(r.x, r.y, r.w, (h * 51 + 50) div 100), 0, color(51, 51, 51), color(20, 20, 20))
+    else: roundRectShaded(rect(r.x, r.y, r.w, (h * 51 + 50) div 100), 0, mixColor(face, color(255, 255, 255), 0.2),
+                          mixColor(face, color(255, 255, 255), 0.07))
     hline(0, r.y - 1, ui.w, withAlpha(color(0, 0, 0), 77))
-    hline(0, r.y, ui.w, color(12, 12, 12))
-    hline(0, r.y + 1, ui.w, mixColor(color(48, 48, 48), color(255, 255, 255), 0.18))
+    hline(0, r.y, ui.w, if own: color(12, 12, 12) else: mixColor(face, color(0, 0, 0), 0.6))
+    hline(0, r.y + 1, ui.w, mixColor(if own: color(48, 48, 48) else: mixColor(face, color(255, 255, 255), 0.1),
+                                     color(255, 255, 255), 0.18))
   elif matte:
-    fill(r, color(30, 30, 32))
-    hline(0, r.y, ui.w, color(64, 64, 68))
+    let face = if mobileStyle.tabBar.a != 0: mobileStyle.tabBar else: color(30, 30, 32)
+    fill(r, face)
+    hline(0, r.y, ui.w, if mobileStyle.tabBar.a == 0: color(64, 64, 68) else: mixColor(face, color(255, 255, 255), 0.15))
   else:
-    fill(r, th.face)
+    fill(r, if mobileStyle.tabBar.a != 0: mobileStyle.tabBar else: th.face)
     hline(0, r.y, ui.w, th.frame)
     hline(0, r.y + 1, ui.w, th.light)
   ui.bottom = r.y
-  let inner = rect(ui.safe.left, r.y + 2, ui.w - ui.safe.left - ui.safe.right, h - 2)
+  let inner = if floating: rect(cap.x + dp(5), cap.y, cap.w - dp(10), cap.h)
+              else: rect(ui.safe.left, r.y + 2, ui.w - ui.safe.left - ui.safe.right, h - 2)
   let slot = inner.w div items.len
-  let gst = style(size = if gloss and fingers(): 1.6 else: 1.35)
+  let gst = style(size = if gloss and fingers(): 1.6 elif floating: 1.25 else: 1.35)
   let gid = idOf("bottomnav:" & $items.len & items[0][1])
   let focused = tabStop(gid, inner)
   if accessOn: accessBegin(arTabList, "", inner, gid)
@@ -2159,8 +1934,8 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
       result = true
   # (Gloss: pixel icons drawn as their line twins on the black bar, in its grays and blue)
   let lineWas = lineIcons()
-  if gloss: setLineIcons(true, color(168, 168, 168))
-  defer: (if gloss: setLineIcons(lineWas, th.text))
+  if gloss or darkGloss: setLineIcons(true, color(168, 168, 168))
+  defer: (if gloss or darkGloss: setLineIcons(lineWas, th.text))
   for i, (glyph, label) in items:
     let cell = rect(inner.x + slot * i, inner.y, slot, inner.h)
     let id = idOf("bottomnav:" & $i & label)
@@ -2178,6 +1953,20 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
       elif hit.showsHover: roundRect(box, float(dp(3)), withAlpha(color(255, 255, 255), 16))
       c = color(168, 168, 168)
       lc = if on: color(255, 255, 255) else: color(153, 153, 153)
+    elif floating:
+      # (the chosen one a pill in the capsule: Glass's tinted by the highlight, its glyph and
+      # label in it; Gloss's lit in the highlight, white on it)
+      let pill = rect(cell.x + dp(2), cap.y + dp(5), cell.w - dp(4), cap.h - dp(10))
+      let pr = float(pill.h) / 2
+      if on and darkGloss:
+        let a = accentColor()
+        roundRect(pill, pr, mixColor(a, color(0, 0, 0), 0.5))
+        glossShine(inset(pill, 1), pr - 1, a, true)
+      elif on: roundRect(pill, pr, mixColor(th.field, accentColor(), if lumaOfColor(th.window) < 128: 0.28 else: 0.13))
+      elif hit.showsHover: roundRect(pill, pr, withAlpha(th.text, 14))
+      c = if on and darkGloss: color(255, 255, 255) elif on: (if lumaOfColor(th.window) < 128: mixColor(accentColor(), color(255, 255, 255), 0.4) else: accentColor())
+          elif darkGloss: color(160, 162, 168) else: th.gray
+      lc = c
     elif matte:
       if on: fill(rect(cell.x, r.y, cell.w, max(2, dp(3))), accentColor())
       elif hit.showsHover: fill(inset(cell, 2), color(44, 44, 48))
@@ -2191,6 +1980,13 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
         roundRect(rect(cell.x + cell.w div 2 - dp(28), cell.y + dp(4), dp(56),
                        lineHeight(gst) + dp(2)), (lineHeight(gst) + dp(2)) / 2,
                   mixColor(th.face, th.select, 0.18))
+    # (the app's own colors for the places: `MobileStyle.tabText`, `tabChosen`)
+    if on and mobileStyle.tabChosen.a != 0:
+      c = mobileStyle.tabChosen
+      lc = c
+    elif not on and mobileStyle.tabText.a != 0:
+      c = mobileStyle.tabText
+      lc = c
     let gx = cell.x + (cell.w - textWidth(glyph, gst)) div 2
     let lst = if gloss: style(size = if fingers(): 0.667 else: 0.8, bold = true) else: st
     if gloss:
@@ -2200,11 +1996,12 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
       let gh = lineHeight(gst)
       if on:
         text(gx, gy + 1, glyph, withAlpha(color(0, 0, 0), 150), gst)
+        let own = mobileStyle.tabChosen
         pushClip(rect(cell.x, gy, cell.w, gh div 2))
-        text(gx, gy, glyph, glossTone(0.42, 1.0), gst)
+        text(gx, gy, glyph, if own.a != 0: mixColor(own, color(255, 255, 255), 0.4) else: glossTone(0.42, 1.0), gst)
         popClip()
         pushClip(rect(cell.x, gy + gh div 2, cell.w, gh - gh div 2))
-        text(gx, gy, glyph, glossTone(0.86, 0.94), gst)
+        text(gx, gy, glyph, if own.a != 0: own else: glossTone(0.86, 0.94), gst)
         popClip()
       else:
         text(gx, gy - 1, glyph, withAlpha(color(0, 0, 0), 191), gst)
@@ -2214,6 +2011,13 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
           popClip()
       let l = ellipsize(label, slot - dp(4), lst)
       text(cell.x + (cell.w - textWidth(l, lst)) div 2, gy + gh, l, lc, lst)
+    elif floating:
+      let lst = style(size = 0.78, bold = true)
+      let gy = cell.y + (cell.h - lineHeight(gst) - lineHeight(lst)) div 2
+      if darkGloss and i == sel: text(gx, gy - 1, glyph, withAlpha(color(0, 0, 0), 90), gst)
+      text(gx, gy, glyph, c, gst)
+      let l = ellipsize(label, slot - dp(8), lst)
+      text(cell.x + (cell.w - textWidth(l, lst)) div 2, gy + lineHeight(gst), l, lc, lst)
     else:
       text(gx, cell.y + dp(5), glyph, c, gst)
       let l = ellipsize(label, slot - dp(4), st)

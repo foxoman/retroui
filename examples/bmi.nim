@@ -299,6 +299,7 @@ proc bmiFrame*() =
 
 when isMainModule and not declared(bmiUnderTest):
   calculate()
+  uiLook = lookClassic          # (a look of its own, on a phone too: its title strips, its digits)
   app "BMI Studio", 680, 610, theme = StudioTheme, frame = wfClassic, icon = AppIcon,
       id = "bmistudio", version = BmiVersion, captionIcon = true, captionAlign = caLeft,
       captionStyle = style(bold = true, serif = true, size = 1.35):
