@@ -1,7 +1,8 @@
 ## Tests of the phone's newer parts (retroui/mobile) and of the Gloss look's iOS 6 colors: round
 ## buttons, the index down a list's side, message bubbles, the clock, app icons, the textures --
 ## by the mouse and the keys, in every look --; Gloss's own colors in its schemes, its window's
-## pinstripes; a row in a row after one that took the line.
+## pinstripes; a row in a row after one that took the line; vslider, ratingStars, editRow (the minus
+## and Delete, the grip dragged, Alt+Down), coverFlow.
 
 import retroui
 import retroui/uirelays/[coords, input]
@@ -207,5 +208,192 @@ block:
         b = ui.lastRect
   run(3)
   doAssert a.y == b.y and b.x > a.x, "side by side on the new line: " & $a & " " & $b
+
+# ---- vslider: dragged to its top, the keys -------------------------------------------------------
+
+for look in [lookClassic, lookGloss]:
+  inLook(look, proc () =
+    var v = 0
+    var r: Rect
+    view = proc () =
+      discard vslider(v, -12, 12, h = 200, label = "125")
+      r = ui.lastRect
+    run(2)
+    doAssert r.h > 200 and r.w > 10
+    let x = r.x + r.w div 2
+    down(x, r.y + (r.h - 20) div 2)
+    run(2)
+    move(x, r.y - 50)
+    run(2)
+    up(x, r.y - 50)
+    run(2)
+    doAssert v == 12, "dragged up past its top: its highest, " & $v & " " & $look
+    key(KeyDown); run(2)
+    doAssert v == 11
+    key(KeyEnd); run(2)
+    doAssert v == -12, "End: its lowest")
+
+# ---- ratingStars: a tap, the same again, the keys ------------------------------------------------
+
+block:
+  var stars = 0
+  var r: Rect
+  view = proc () =
+    discard ratingStars(stars)
+    r = ui.lastRect
+  run(2)
+  let d = r.w div 5
+  click(r, dx = 2 * d + d div 2, dy = r.h div 2)
+  doAssert stars == 3, "the third star: 3, " & $stars
+  click(r, dx = 2 * d + d div 2, dy = r.h div 2)
+  doAssert stars == 0, "the same again: none"
+  click(r, dx = 4 * d + d div 2, dy = r.h div 2)
+  doAssert stars == 5
+  key(KeyLeft); run(2)
+  doAssert stars == 4
+  typeText("2"); run(2)
+  doAssert stars == 2, "a digit: " & $stars
+
+# ---- editRow: the minus then Delete; the grip dragged; Alt+Down ----------------------------------
+
+for look in [lookClassic, lookGloss]:
+  inLook(look, proc () =
+    var items = @["One", "Two", "Three", "Four"]
+    var rows: seq[Rect]
+    var last: RowEdit
+    view = proc () =
+      rows.setLen(0)
+      tableGroup "List":
+        for i, t in items:
+          let e = editRow(t, i)
+          rows.add ui.lastRect
+          if e.kind != reNone: last = e
+      case last.kind
+      of reDelete: items.delete(last.index)
+      of reMove:
+        let x = items[last.index]
+        items.delete(last.index)
+        items.insert(x, last.to)
+      of reNone: discard
+      last = RowEdit()
+    run(3)
+    doAssert rows.len == 4
+    # (the minus of "Two", then the Delete that came at its end)
+    click(rows[1], dx = 22, dy = rows[1].h div 2)
+    run(2)
+    doAssert items.len == 4, "the minus alone deletes nothing"
+    let delAt = rows[1].x + rows[1].w - 80
+    var reddish = 0
+    for x in rows[1].x + rows[1].w div 2 ..< rows[1].x + rows[1].w - 10:
+      let p = px(x, rows[1].y + rows[1].h div 2)
+      if int((p shr 16) and 255) > int((p shr 8) and 255) + 60: inc reddish
+    if look == lookGloss: doAssert reddish > 10, "its red Delete: " & $reddish
+    var hitDel = false
+    for dx in countdown(rows[1].w - 40, rows[1].w div 2, 6):
+      if hitDel: break
+      click(rows[1], dx = dx, dy = rows[1].h div 2)
+      run(2)
+      if items.len == 3: hitDel = true
+    doAssert hitDel and items == @["One", "Three", "Four"], "Delete: " & $items & " " & $look
+    discard delAt
+    # (the grip of "One" dragged two rows down)
+    run(2)
+    let g = rows[0]
+    let gx = g.x + g.w - 12
+    down(gx, g.y + g.h div 2); run(2)
+    for k in 1 .. 8:
+      move(gx, g.y + g.h div 2 + k * g.h * 2 div 8); run(2)
+    up(gx, g.y + g.h div 2 + g.h * 2); run(3)
+    doAssert items == @["Three", "Four", "One"], "dragged down two: " & $items & " " & $look
+    # (Alt+Down on the focused row: "Three" after "Four")
+    click(rows[0], dx = rows[0].w div 2, dy = rows[0].h div 2)
+    run(2)
+    key(KeyDown, {AltPressed}); run(3)
+    doAssert items == @["Four", "Three", "One"], "Alt+Down: " & $items)
+
+# ---- coverFlow: Right, a tap at its side, a flick, a tap in the middle -----------------------------
+
+block:
+  var covers: seq[Bitmap]
+  for i in 0 ..< 7:
+    let b = newBitmap(20, 20)
+    for k in 0 ..< b.px.len: b.px[k] = 0xFF000000'u32 or uint32(i * 30) shl 16
+    b.changed()
+    covers.add b
+  var sel = 0
+  var opened = -1
+  var r: Rect
+  view = proc () =
+    let o = coverFlow(covers, sel, ["a", "b", "c", "d", "e", "f", "g"], h = 260)
+    if o >= 0: opened = o
+    r = ui.lastRect
+  run(3)
+  click(r, dx = r.w div 2, dy = r.h div 3)
+  doAssert opened == 0, "the middle one tapped: opened, " & $opened
+  key(KeyRight); run(2)
+  doAssert sel == 1
+  click(r, dx = r.w - 30, dy = r.h div 3)
+  doAssert sel > 1, "a tap at its right side: further on, " & $sel
+  key(KeyHome); run(2)
+  ticks += 1000; run(2)
+  let before = sel
+  let y = r.y + r.h div 3
+  down(r.x + r.w div 2, y); run(1)
+  for k in 1 .. 6:
+    move(r.x + r.w div 2 - k * 30, y); ticks += 16; run(1)
+  up(r.x + r.w div 2 - 180, y); run(2)
+  doAssert sel > before, "dragged to the left: on along, " & $before & " -> " & $sel
+  key(KeyEnd); run(2)
+  doAssert sel == 6
+
+# ---- sideMenu: the navigation bar's button, a place, a click beside it, Esc; on the right in RTL --
+
+block:
+  for look in [lookClassic, lookGlass, lookMatte, lookGloss]:
+    uiLook = look
+    var open = false
+    var place = 0
+    var bar = rect(0, 0, 0, 0)
+    view = proc () =
+      if navBar("Places", menu = true) == npBack: open = true
+      bar = ui.lastRect
+      sideMenu(open, 240):
+        sideMenuHeader("Listen")
+        for i, name in ["Home", "Radio", "Library"]:
+          if sideMenuItem(name, nfHome, if i == 1: "4" else: "", selected = place == i):
+            place = i
+            open = false
+    run(3)
+    accessKeep = true
+    run(2)
+    let m = findNode(accessLast, "Menu", {arButton})
+    doAssert m >= 0, "the navigation bar's menu button"
+    click(nodeRect(accessLast[m]), dx = nodeRect(accessLast[m]).w div 2)
+    ticks += 400; run(3)
+    doAssert open, "its button: the menu out"
+    let radio = findNode(accessLast, "Radio", {arButton})
+    doAssert radio >= 0 and nodeRect(accessLast[radio]).x < 40, "its items at the left"
+    click(nodeRect(accessLast[radio]), dx = 30)
+    doAssert place == 1 and not open, "an item: it, the menu in"
+    open = true
+    ticks += 400; run(3)
+    click(rect(W - 20, H div 2, 4, 4), dx = 2)
+    doAssert not open, "a click beside it: in"
+    open = true
+    ticks += 400; run(3)
+    key(KeyEsc); run(2)
+    doAssert not open, "Esc: in"
+    # right to left: from the right
+    ui.rtl = true
+    open = true
+    ticks += 400; run(3)
+    let r2 = findNode(accessLast, "Radio", {arButton})
+    doAssert r2 >= 0 and nodeRect(accessLast[r2]).x + nodeRect(accessLast[r2]).w > W - 40,
+             "right to left: the menu at the right"
+    ui.rtl = false
+    open = false
+    run(2)
+    accessKeep = false
+  uiLook = lookClassic
 
 echo "phoneparts: ok"

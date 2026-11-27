@@ -186,10 +186,11 @@ proc main() =
   args.add nimFlags
   args.add src
   discard run(quoteShellCommand(args), "compiling")
-  # (the app plays sounds with audioView: they play on in the background)
+  # (the app plays sounds with audioView or audioPlayer: they play on in the background)
   var audio = false
   for f in walkFiles(work / "nimcache" / "*media.nim.c"):
-    if "audioView__" in readFile(f): audio = true
+    let c = readFile(f)
+    if "audioView__" in c or "audioPlayer__" in c: audio = true
   writeFile(outDir / "Info.plist",
             infoPlist(name, id, exe, version, code, minIos, simulator, audio, cleartext))
   writeFile(outDir / "PkgInfo", "APPL????")

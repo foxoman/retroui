@@ -11,6 +11,7 @@ import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
 import android.media.MediaPlayer;
+import android.media.audiofx.Equalizer;
 import android.os.Build;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -57,6 +58,54 @@ public class RetroMedia {
     volatile int pos, dur, seekWhenReady = -1;
     volatile String error = "";
     float rate = 1f;
+    float volume = 1f;
+    float[] eq;              // (the 10 bands asked for, dB; null: off)
+    Equalizer fx;            // (the device's equalizer on the player's sound)
+  }
+
+  /** The middle of each of the kit's 10 bands (Hz). */
+  static final double[] BANDS = {31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+
+  static void applyVolume(Audio x) {
+    if (x.p == null || !x.prepared) return;
+    float v = Math.max(0f, Math.min(1f, x.volume));
+    try { x.p.setVolume(v, v); } catch (Throwable t) { }
+  }
+
+  /** The 10 bands asked for laid on the device's own (5 on most): each of its bands the gain
+   *  at its middle, between the two of the kit's around it (on a scale of octaves). */
+  static void applyEq(Audio x) {
+    if (x.p == null || !x.prepared) return;
+    try {
+      if (x.eq == null) {
+        if (x.fx != null) x.fx.setEnabled(false);
+        return;
+      }
+      if (x.fx == null) x.fx = new Equalizer(0, x.p.getAudioSessionId());
+      short[] range = x.fx.getBandLevelRange();
+      short n = x.fx.getNumberOfBands();
+      for (short b = 0; b < n; b++) {
+        double hz = x.fx.getCenterFreq(b) / 1000.0;
+        double o = Math.log(Math.max(1, hz) / BANDS[0]) / Math.log(2);
+        int i = (int) Math.floor(o);
+        double g;
+        if (i < 0) g = x.eq[0];
+        else if (i >= BANDS.length - 1) g = x.eq[BANDS.length - 1];
+        else { double f = o - i; g = x.eq[i] * (1 - f) + x.eq[i + 1] * f; }
+        int mb = (int) Math.round(g * 100);
+        x.fx.setBandLevel(b, (short) Math.max(range[0], Math.min(range[1], mb)));
+      }
+      x.fx.setEnabled(true);
+    } catch (Throwable t) {
+      // (no equalizer on this device, or not for this sound: it plays as recorded)
+    }
+  }
+
+  static void releaseFx(Audio x) {
+    if (x.fx != null) {
+      try { x.fx.release(); } catch (Throwable t) { }
+      x.fx = null;
+    }
   }
 
   /** What went wrong, in words, for the kit to show under the player. */
@@ -139,12 +188,14 @@ public class RetroMedia {
       if (known != null) {
         synchronized (known) {
           known.closed = true;
+          releaseFx(known);
           try { known.p.release(); } catch (Throwable t) { }
         }
         audios.remove(key);
       }
       final Audio x = new Audio();
       x.path = path;
+      if (known != null) { x.volume = known.volume; x.eq = known.eq; }
       x.p = new MediaPlayer();
       x.startWhenReady = args.length > 6 && args[6].equals("1");
       try {
@@ -152,6 +203,8 @@ public class RetroMedia {
           public void onPrepared(MediaPlayer mp) {
             x.prepared = true;
             x.dur = Math.max(0, mp.getDuration());
+            applyVolume(x);
+            applyEq(x);
             if (x.seekWhenReady >= 0) { mp.seekTo(x.seekWhenReady); x.seekWhenReady = -1; }
             if (x.startWhenReady) { mp.start(); x.playing = true; applyRate(x); anyPlaying(a); }
           }
@@ -198,11 +251,24 @@ public class RetroMedia {
       } else if (what.equals("Rate")) {
         known.rate = Float.parseFloat(args[1]);
         applyRate(known);
+      } else if (what.equals("Volume")) {
+        known.volume = Float.parseFloat(args[1]);
+        applyVolume(known);
+      } else if (what.equals("Eq")) {
+        String[] g = args.length > 1 ? args[1].split(",") : new String[0];
+        if (g.length < BANDS.length || args[1].length() == 0) known.eq = null;
+        else {
+          float[] e = new float[BANDS.length];
+          for (int i = 0; i < e.length; i++) e[i] = Float.parseFloat(g[i]);
+          known.eq = e;
+        }
+        applyEq(known);
       } else if (what.equals("Close")) {
         known.playing = false;
         audios.remove(key);
         synchronized (known) {
           known.closed = true;
+          releaseFx(known);
           known.p.release();
         }
       }
@@ -248,8 +314,34 @@ public class RetroMedia {
     if (what.equals("encFrame")) return encFrame(args);
     if (what.equals("encEnd")) return encEnd(args);
     if (what.equals("decode")) return decode(args);
+    if (what.equals("musicAccess")) return musicAccess(a) ? "1" : "0";
+    if (what.equals("askMusicAccess")) {
+      if (!musicAccess(a) && Build.VERSION.SDK_INT >= 23) {
+        final String perm = Build.VERSION.SDK_INT >= 33 ? "android.permission.READ_MEDIA_AUDIO"
+                                                         : "android.permission.READ_EXTERNAL_STORAGE";
+        a.runOnUiThread(new Runnable() { public void run() {
+          try { a.requestPermissions(new String[] { perm }, 7312); } catch (Throwable t) { }
+        }});
+      }
+      return "1";
+    }
     if (what.startsWith("video")) return video(a, what.substring(5), args);
     return null;
+  }
+
+  /** May the app read the music on the device: Android 13 on "Music and audio", before it the
+   *  storage (or all files). */
+  static boolean musicAccess(Activity a) {
+    if (Build.VERSION.SDK_INT < 23) return true;
+    try {
+      if (Build.VERSION.SDK_INT >= 33 &&
+          a.checkSelfPermission("android.permission.READ_MEDIA_AUDIO") == 0) return true;
+      if (a.checkSelfPermission("android.permission.READ_EXTERNAL_STORAGE") == 0 &&
+          Build.VERSION.SDK_INT < 33) return true;
+      if (Build.VERSION.SDK_INT >= 30)
+        return (Boolean) android.os.Environment.class.getMethod("isExternalStorageManager").invoke(null);
+    } catch (Throwable t) { }
+    return false;
   }
 
   /** A picture of a video (a tenth of the way in), no larger than args[2]

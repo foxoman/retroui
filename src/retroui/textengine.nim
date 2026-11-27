@@ -439,6 +439,17 @@ proc entryFace(e: FontEntry): Face =
     loaded.del oldest
     loadedUse.del oldest
 
+proc letGoOfFonts*() =
+  ## The fonts' files read and kept (`fontMemoryHeld`) let go of -- the device short of memory:
+  ## each is read again when a text asks for it -- and the outlines and pictures made from them.
+  ## On the thread that draws, between frames.
+  if typeWorker(): return
+  loaded.clear()
+  loadedUse.clear()
+  loadedBytes = 0
+  outlineCache.clear()
+  pictureCache.clear()
+
 proc fontFileOf*(family, style: string): string =
   ## The file a family's style is read from ("" built in, or not found) -- File > Package
   ## copies it.

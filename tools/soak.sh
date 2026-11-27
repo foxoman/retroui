@@ -51,12 +51,13 @@ for app in $apps; do
   fi
   home=$(mktemp -d)
   root=$(pwd)
+  : > "$out/$app.held"
   web=""
   [ "$app" = navigator ] && web="RETRO_WEB=kit"
   ( cd "$home" && exec env HOME="$home" XDG_CONFIG_HOME="$home/.config" \
       XDG_DATA_HOME="$home/.local/share" XDG_CACHE_HOME="$home/.cache" \
       RETRO_SMOKE=$secs RETRO_SMOKE_STAY=1 RETRO_SMOKE_SEED=$$ RETRO_DEVICE_MB=${SOAK_DEVICE_MB:-2048} RETRO_MEMLOG=1 \
-      $web "$root/$out/$app" > "$root/$out/$app-run.txt" 2>&1 ) &
+      RETRO_HELD_LOG="$root/$out/$app.held" $web "$root/$out/$app" > "$root/$out/$app-run.txt" 2>&1 ) &
   pid=$!
   : > "$out/$app.mem"
   t=0
@@ -70,27 +71,38 @@ for app in $apps; do
   wait $pid
   code=$?
   rm -rf "$home"
-  # its memory half way in, at the end (the middle of a sixth of
-  # the samples each), the most
-  line=$(awk -v warm=$(( secs / 2 > 60 ? secs / 2 : 60 )) -v limit=$limit -v app=$app -v code=$code '
+  # what it holds (RETRO_HELD_LOG: its memory allocator's count once the caches let go of what
+  # can be made again, less what it says it holds on purpose -- its open documents --; else what
+  # the system says it uses, resident): half way in, at the end (the middle of a sixth of the
+  # samples each); the most it used
+  src="$out/$app.mem"
+  by=resident
+  if [ "$(wc -l < "$out/$app.held")" -ge 6 ]; then
+    most=$(awk '$2 > m { m = $2 } END { print m + 0 }' "$out/$app.mem")
+    awk -v most="$most" '{ print $1, $2 - $4 } END { print -1, most }' "$out/$app.held" > "$out/$app.judged"
+    src="$out/$app.judged"
+    by=held
+  fi
+  line=$(awk -v warm=$(( secs / 2 > 60 ? secs / 2 : 60 )) -v limit=$limit -v app=$app -v code=$code -v by=$by '
     function mid(a, b,   n, i, j, v, x) {
       n = 0; for (i = a; i <= b; i++) x[++n] = m[i]
       for (i = 2; i <= n; i++) { v = x[i]; for (j = i - 1; j >= 1 && x[j] > v; j--) x[j + 1] = x[j]; x[j + 1] = v }
       return x[int((n + 1) / 2)]
     }
-    { t[NR] = $1; m[NR] = $2; if ($2 > most) most = $2 }
+    $1 == -1 { most = $2; next }
+    { N++; t[N] = $1; m[N] = $2; if ($2 > most) most = $2 }
     END {
-      if (NR < 6) { printf "%s: too few samples (exit %d)\n", app, code; exit }
-      w = 1; while (w < NR && t[w] < warm) w++
-      k = int((NR - w + 1) / 6); if (k < 2) k = 2
-      if (w + k - 1 > NR - k) w = NR - 2 * k + 1
+      if (N < 6) { printf "%s: too few samples (exit %d)\n", app, code; exit }
+      w = 1; while (w < N && t[w] < warm) w++
+      k = int((N - w + 1) / 6); if (k < 2) k = 2
+      if (w + k - 1 > N - k) w = N - 2 * k + 1
       if (w < 1) w = 1
-      early = mid(w, w + k - 1); late = mid(NR - k + 1, NR)
+      early = mid(w, w + k - 1); late = mid(N - k + 1, N)
       grew = (late - early) / 1024
       room = limit; if (early / 1024 / 20 > room) room = early / 1024 / 20
       verdict = (grew > room || code != 0) ? "FAIL" : "ok"
-      printf "%s\t%.1f\t%.1f\t%.1f\t%+.1f\t%d\t%s\n", app, early / 1024, late / 1024, most / 1024, grew, code, verdict
-    }' "$out/$app.mem")
+      printf "%s\t%.1f\t%.1f\t%.1f\t%+.1f\t%d\t%s\t%s\n", app, early / 1024, late / 1024, most / 1024, grew, code, verdict, by
+    }' "$src")
   echo "$line" | tee -a "$out/results.txt"
   case "$line" in
     *FAIL*|*"too few"*)
@@ -102,9 +114,9 @@ for app in $apps; do
   esac
 done
 {
-  echo "| App | Half way in | At the end | Most | Grew | Exit | |"
-  echo "|---|---|---|---|---|---|---|"
-  awk -F'\t' 'NF >= 7 { printf "| %s | %s MB | %s MB | %s MB | %s MB | %s | %s |\n", $1, $2, $3, $4, $5, $6, $7 }' "$out/results.txt"
+  echo "| App | Half way in | At the end | Grew | Most used | Exit | | Measured |"
+  echo "|---|---|---|---|---|---|---|---|"
+  awk -F'\t' 'NF >= 7 { printf "| %s | %s MB | %s MB | %s MB | %s MB | %s | %s | %s |\n", $1, $2, $3, $5, $4, $6, $7, $8 }' "$out/results.txt"
 } > "$out/table.md"
 cat "$out/table.md"
 [ -z "$failed" ] || { echo "soak: failed:$failed"; exit 1; }

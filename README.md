@@ -18,9 +18,10 @@ writing an app, every form of it as a small program with a picture of what
 it draws: what `row([50, -1])` does with the 50 and the -1, binding, events,
 containers, dialogs, how it is built and why it is easy to follow.
 
-**Step by step: [tutorials/](tutorials/)** -- sixteen lessons, from a first
-window to phone layouts, the web, your own controls and the stores: each
-step a whole program with a picture of what it draws.
+**Step by step: [tutorials/](tutorials/)** -- seventeen lessons, from a first
+window to phone layouts, the web, your own controls, the stores and a whole
+phone app (tasks and notes, then its APK): each step a whole program with a
+picture of what it draws.
 
 **Documentation: [docs/controls.md](docs/controls.md)** -- every control with
 pictures: getting started, layout, each control's example and API, the looks.
@@ -536,9 +537,15 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   Shift+F6 from one part of the window to the next, Space and
   Enter activate, arrows/Home/End/PageUp/PageDown move, Esc closes,
   Alt+letter for `&` mnemonics, the menu key or Shift+F10 for context
-  menus. Fingers: a tap activates (a drag cancels it), dragging scrolls
-  lists and pages, a long press is the right click, and a held-then-moved
-  finger drags items. Hover effects appear only for a real mouse.
+  menus; the wheel changes a slider, a number box or a drop-down list
+  while it has the focus (scrolling a page past one never does). Fingers:
+  a tap activates (a drag cancels it -- a move of 8 points, at any
+  density), a press just beside a small control is that control's, as if
+  it were 44 points across (`TouchTarget`), dragging scrolls lists and
+  pages, a long press is the right click -- on a word in a text box it
+  chooses the word, on a list's row that row --, and a held-then-moved
+  finger drags items. Hover effects appear only for a real mouse; Glass
+  and Matte light text boxes, check boxes and radio buttons under it.
 - **Looks.** The 3.1 look (bevels, X check boxes, navy selections, group
   boxes, bold menus) in thirty-four color schemes (`builtinThemes`:
   Classic, Gray, Dark, OLED Black, Ocean, Desert, Plum, Hot Dog, Paper,
@@ -589,7 +596,7 @@ each state, is **[docs/controls.md](docs/controls.md)**. In short:
 | Dialogs | `dialog`, `msgBox`, `inputBox`, `progressBox`, `wizard`, `aboutBox`, `fileDialog` (3.1), `filePicker` (modern), `propertiesDialog` |
 | Desktop | `mdiArea` / `mdiWindow`, `mdiWindowMenu`, `hotkeyPressed`, `findIn`, `replaceAllIn` |
 | App parts | `settingToggle`, `settingChoice`, `settingSlider`, `settingButtons`, `settingCombo`, `settingLink`, `appearanceSettings`, `avatar`, `factList`, `bottomNav`, `fab`, `captionBar` |
-| From phones | `navBar`, `searchBar`, `tableGroup` (`tableRow`, `tableSwitch`, `tableButton`), `wheelPicker`, `wheelGroup`, `dateWheels`, `timeWheels`, `quantity`, `pageDots`, `swipeRow`, `actionSheet`, `alertBox`, `actionBar`, `bottomSheet`, `popover`, `cardShelf`, `roundButton`, `indexBar`, `messageBubble`, `clockFace`, `appIcon`, `texture` (`retroui/mobile`: on desktops too; `appNavBars`: the app's own bars instead of the window's caption on phones); on a touch screen a page's ends stretch, `pullRefresh`, `scrollHint`, a long page's thumb, Back by a swipe (`pageView`); dialogs as pages in Gloss on Android and iOS (`dialogPages`); the on-screen keyboard a box asks for (`textKeyboard`: digits, an email's, a web address's...; Enter as Next, Done, Search), the bottom bars left out while it is up, a tap on nothing letting it go |
+| From phones | `navBar`, `searchBar`, `tableGroup` (`tableRow`, `tableSwitch`, `tableButton`), `wheelPicker`, `wheelGroup`, `dateWheels`, `timeWheels`, `quantity`, `pageDots`, `swipeRow`, `actionSheet`, `alertBox`, `actionBar`, `bottomSheet`, `popover`, `cardShelf`, `roundButton`, `indexBar`, `messageBubble`, `clockFace`, `appIcon`, `texture`, `checkRow` (a to-do's round check), `editRow` (a list edited: delete, drag in order), `vslider`, `ratingStars`, `coverFlow`, `slideToConfirm`, `bigButton`, `sideMenu` (`sideMenuItem`, `sideMenuHeader`; `navBar(menu = true)`; on a tablet the items down the left, `sideMenuBack`) (`retroui/mobile`: on desktops too; `appNavBars`: the app's own bars instead of the window's caption on phones); on a touch screen a page's ends stretch and a flick into one goes on past it and springs back, `pullRefresh`, `scrollHint`, a long page's thumb, Back by a swipe (`pageView`); dialogs as pages in Gloss on Android and iOS (`dialogPages`); the on-screen keyboard a box asks for (`textKeyboard`: digits, an email's, a web address's...; Enter as Next, Done, Search), the bottom bars left out while it is up, a tap on nothing letting it go |
 | Business views | `chart` (21 kinds), `gauge`, `kanbanBoard`, `ganttView`, `agendaView`, `kpiTile`, `statCard`, `orgChart`, `reportView` |
 | Files | `fileList`, `filePreview`, `folderTree`, `placesView`, `trashList`, `driveBar`, `pathBar`, `textFileView`, `hexFileView`, `runJobDialog` |
 | Media and more | `mapView`, `view3d`, `canvas2d`, `htmlView`, `webView`, `markdownView`, `imageView`, `animation`, `videoView`, `audioView` (any speed) |
@@ -2815,8 +2822,13 @@ the look its APK starts in, as phone apps were drawn in 2012. On a tablet
 the sections are a list down the left, the page of the one picked beside
 it.
 
-**Retro Music** (`examples/music.nim`, `nimble music`) plays Spotify and
-YouTube through their own services: Spotify's Web API (search, your
+**Retro Music** (`examples/music.nim`, `nimble music`) plays your own
+music -- the songs on the phone or the computer by songs, albums (Cover Flow
+on its side), artists and genres, your playlists and lists made by
+themselves, Up Next, shuffle and repeat, an equalizer of 10 bands, songs at
+one loudness, a sleep timer, on in the background with the lock screen's
+controls (`retroui/audiotags`, `audioPlayer`) -- and Spotify and YouTube
+through their own services: Spotify's Web API (search, your
 playlists and liked songs) with your own developer app, playback on your
 Spotify apps and speakers through Spotify Connect (Premium) with Retro
 Music as their remote and screen; your YouTube Music -- your playlists and
@@ -2826,6 +2838,13 @@ LrcLib, timed to the song. A tab bar, a mini player and pages on a phone;
 on a tablet or a computer the sections down the left, the page beside
 them; in Gloss, with a step-by-step guide in its Settings to connect
 Spotify and YouTube ([the examples](examples/README.md#retro-music)).
+
+**Retro Tasks** (`examples/tasks.nim`, `nimble tasks`) is a whole phone
+app: tasks in lists, ticked off with a round check and put in order, each
+with its day and time on wheels, a reminder (the phone's notification, also
+with the app closed), a flag and a priority; Today, Upcoming, Flagged and
+Completed; notes; a search -- its lists beside the page chosen on a
+tablet -- [lesson 17](tutorials/17-whole-app/) builds it step by step.
 
 **Retro Navigator** (`examples/navigator.nim`, `nimble navigator`) is a
 whole browser made this way: a 1995 window around the system's engine,
@@ -3713,10 +3732,14 @@ way (other clicks, other keys).
 (`xvfb-run -a` on Linux without a screen) gives each app the smoke run's
 random input for an hour (`RETRO_SMOKE_STAY=1`: an Exit or a close box
 clicked does not end it) and samples its memory every 20 seconds, as on a
-phone of 2 GB (`RETRO_DEVICE_MB`: the caches' budgets follow it): an app
-that holds more than 16 MB more at the end than half way in (a cache
-filled once does not count), or that faults, fails. The nightly workflow
-soaks ten apps for an hour each.
+phone of 2 GB (`RETRO_DEVICE_MB`: the caches' budgets follow it). What it
+judges is what the app holds: each time its caches let go of what can be
+made again, then its memory allocator says what is still held (`heapHeld`),
+less what the app holds on purpose and knows the size of (`heldAccounted`:
+Retro Atelier's open images) -- not what the system shows as used, which
+keeps memory let go of and not taken back. An app that holds more than
+16 MB more at the end than half way in, or that faults, fails. The nightly
+workflow soaks ten apps for an hour each.
 
 **Every app driven by its controls' names:** `sh tests/drive/run.sh`
 starts the apps with `RETRO_DRIVE` and clicks every tab, opens and closes
@@ -3785,7 +3808,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_photo` | the image engine: blend modes, layers, undo and cancelled steps, the selection and channels, Quick Mask, paths, every painting tool, transforms, color modes, every filter and adjustment, .rpd / PNG / JPEG / BMP files |
 | `test_canvas2d` | the Canvas 2D API: paths, fills and strokes, transforms, gradients and patterns, text, pictures, clipping, compositing, against expected pixels |
 | `test_pdf`, `test_report` | the PDF writer (structure, fonts, pictures, cross-reference table), templates, HTML reports, page breaks, repeated headers, totals, previews |
-| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; `androiddex.nim` made from the Java there is now (`classesDexOf`); the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused |
+| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; `androiddex.nim` made from the Java there is now (`classesDexOf`); the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused; the permissions read from an app's C, Nim 2.4's function names and 2.2's |
 | `test_store` | DER, certificates and their subjects, JAR signatures, Authenticode (the digest, the checksum, signing again, a time stamp from an authority made with OpenSSL), MSIX (ZIP64 records, the block map's blocks one by one, the signed digests rebuilt by the test), macOS: the `.icns`, the code directory read back page by page (one architecture and universal), the sealed resources, the `.ipa`; `osslsigncode` and `rcodesign` when they are there |
 | `test_tilemap` | the street map: tiles of every kind of source, the cache, dragging, zooming, markers and shapes, the services' answers (places and routes of each), polylines, GCJ-02, GeoJSON, vector tiles decoded and drawn, PMTiles and MBTiles read and written |
 | `test_system` | `retroui/system` on Linux: what answers and what says false, the autostart entry made and taken away, the answers of a page and of phones read right, speech when a voice is installed; `retroui/admin`'s words for sh, Windows and AppleScript, and its answer with no polkit; GNOME's settings read, a folder watched (made, changed, removed), the clipboard's pictures and the desktop's shortcuts with no driver, the app installed for the user and taken away, the Linux packages |
@@ -3880,7 +3903,13 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_backdrop` | frosted glass and masks: what is under a blur smoothed and lighter, its rounded corners keeping what is outside them, a mask's circle and a mask inside it; a change near a blur, far from it, of its tint and over it the very pixels of a whole frame; the GPU's frames the CPU's (3 levels at most apart), and its partial frames, at every buffer age, a whole frame's |
 | `test_terminal` | the terminal: text, the 16, 256 and RGB colors (semicolons and colons), bold, underlined, inverse, struck; the cursor moved, lines and characters erased, inserted, deleted; a line wrapped and the lines scrolled off kept; a scroll region; the other screen and back; wide characters and the line-drawing set; the answers asked for (the cursor's place, what it is), the title; the keys as xterm sends them; a size changed; a shell in a pseudo-terminal -- its colors, its size, an exit code, what is typed answered; the view taking the keys, a word chosen with a double click and copied; found text (back and on, any case), its size bigger and smaller, a reset; kitty's keyboard protocol (its flags pushed and popped per screen, Esc, Ctrl, Alt and the keypad told apart, releases, every key as an escape with its text) and graphics protocol (RGB, RGBA and PNG, zlib'ed, in pieces, by number, placed again, quiet, deleted, scrolled with the text, its answers and errors; an app's own picture) |
 | `test_mobile` | the controls from phones: the navigation bar's Back (and Alt+Left) and its action; an alert (Enter its last button, Esc its cancel, a tap beside it waits); rows in groups (a row, its info button apart, a switch's row, a button's row, Enter); a search bar's Cancel; an action bar's action and Back; a wheel picker by the keys, a click on a row, the mouse wheel, a letter, a drag, a fling that stops on a row, the app's own value, a long wheel made as it shows; a day's wheels (31 January to February: the 28th) and a time's (12 hours, a step of minutes); a number with - and + (held, it goes on; the keys, + typed, the wheel); page dots; rows with actions behind them swiped, picked, closed by a tap, one at a time, by the keys and a right click's menu; the action sheet (the keys, Esc, a click beside it, from the bottom on a phone), the bottom sheet (its controls, dragged down, Esc), the popover (under its button, closed by a click outside) -- in every look, light and dark |
-| `test_phoneparts` | the phone's newer parts in every look: round buttons (a click, Space, disabled; Gloss's green inside a white ring), the index down a list (the letter under the finger, dragged past its foot, -1 let go), bubbles (the other's gray on the left, yours pale blue on the right), the clock (its red second hand, the hour hand at three), app icons (a click, Enter, the badge), the textures (their colors, the same grain each frame); Gloss's colors (iOS 6's own in Gloss Light, green in a green scheme) and the window plain by default, its pinstripes when asked for; a row in a row after one that took the line, side by side on the next |
+| `test_phoneparts` | the phone's newer parts in every look: round buttons (a click, Space, disabled; Gloss's green inside a white ring), the index down a list (the letter under the finger, dragged past its foot, -1 let go), bubbles (the other's gray on the left, yours pale blue on the right), the clock (its red second hand, the hour hand at three), app icons (a click, Enter, the badge), the textures (their colors, the same grain each frame); Gloss's colors (iOS 6's own in Gloss Light, green in a green scheme) and the window plain by default, its pinstripes when asked for; a row in a row after one that took the line, side by side on the next; `vslider` dragged past its top and its keys, `ratingStars` (a tap, the same again, the keys, a digit), `editRow` (the minus alone deletes nothing, then Delete; a grip dragged two rows down; Alt+Down), `coverFlow` (the middle one tapped, Right, a tap at a side, a drag, End) |
+| `test_glosstouch` | Gloss on a touch screen: a flick into a page's top goes on past it and springs back; pull to refresh's drop and fresh content asked once; a toast as the black banner at the top; `slideToConfirm` (part way: nothing, back; all the way: once); `bigButton`; a row's count capsule; the Glass focus ring only while the keys move the focus |
+| `test_reach` | how the controls take the mouse, the keys and a finger: a finger's press just beside a small button or a round button is its, not far off, not beside a list it is on, the nearer of two, the gesture with it; a mouse not moved so; a tap or a drag by 8 points at 100 % and 200 %; a finger held on a word chooses it (Copy gives the word); a right click on a list's row chooses it; a breadcrumb by the keys; a drop-down list's wheel only with the focus; Glass and Matte light a text box, a check box, a radio button under the mouse, 3.1 not; a chip's cross for a finger |
+| `test_audiotags` | music files' tags: MP3 (ID3v2.3 in UTF-16, ID3v2.4), FLAC, M4A, Ogg Vorbis, Opus and WAV -- title with its accents, artist, album, album artist, track and disc, year, genre, composer, the cover as it was (and not read when not asked for), the length, rate, channels and bit rate, ReplayGain --, the same from memory, cut short anywhere or damaged with no fault, music by its name |
+| `test_musiclibrary` | Retro Music's own music: a folder looked through (4 songs, a title from a file's name, ReplayGain read), albums and their order, artists, genres, the lists made by themselves; played through a fake Android player -- the song asked for as a sound, its volume, the equalizer's 10 bands, a play counted once, the next at the end, Repeat One --; Play Next, Add to Queue, Shuffle and back; the sleep timer; a playlist and stars kept and read back; every page in every look |
+| `test_musicsources` | Retro Music's free sources: what Piped, Invidious, Radio Browser, Audius, the Internet Archive and a Subsonic server say, read (made-up answers, `tests/musicanswers.nim`); YouTube links; the Subsonic token (the password's salted MD5, never the password); in the app: a search with each, Piped's servers not answering and Invidious' asked, a playlist's link pasted and kept, a station kept and played live, an artist's Audius, an Archive recording, a server's "no" then signed in; Search over them; the side menu on a phone (its button, a place, a tap beside it, Esc); the places down the left on a tablet; Now Playing; every place in every look on both |
+| `test_tasks` | Retro Tasks: tasks in lists, late or not, their days written, Today, Upcoming, Flagged, Completed, put in order; notes (their titles and previews, pinned first); the search; a reminder raised once; the file kept and read back; then by taps -- a row's check (done, not done), the row's page, Edit's minus and Delete, the phone's Back -- and every page in every look |
 | `test_touchpages` | a page under the finger on a touch screen: pulled down past its top and let go it asks for fresh content once, a short pull nothing; a dialog as a page of the app closed by its Close; a shelf of cards, the one tapped; Back by a swipe from a page's left edge, a short one staying |
 | `test_music` | Retro Music without a window: Spotify's answers read (a search, a playlist's items -- a missing track and a local file left out --, your playlists, the devices, what plays, nothing playing), the bodies of play and transfer, YouTube's search (its HTML entities), your YouTube playlists, a playlist's songs (a deleted one left out, an artist's Topic channel as the artist), the ones you like and their lengths, the player's page, a YouTube queue, LrcLib's timed lines (several times a line, the line at a time), and its screens drawn with no account in every look |
 | `test_signals` | signals and computed values worked out again only when what they read changed (through two, a branch not taken, an answer that stayed the same, a change in place), effects run and stopped; `keep`: nothing outside `--watch`, the values written, and a second program started with the file getting them back |
@@ -3921,8 +3950,9 @@ it is and how to run it.
 | `examples/sevenguis.nim` | 7GUIs: the seven tasks of the GUI benchmark -- a counter, a temperature converter, a flight booker, a timer, CRUD, a circle drawer with undo, a spreadsheet with formulas (also an APK: `RETRO_APP=sevenguis nimble appapk`; released with the apps) |
 | `examples/navigator.nim` | Retro Navigator: a web browser in the manner of 1995's -- the tool bar, the Location box, the directory buttons, a logo that moves while a page loads, the key, bookmarks, the Go menu, find, print, the source -- around the system's own engine (`webView`, `weSystem`), with tabs, ads and trackers blocked, secure connections, links loaded ahead, tabs that sleep, Clear Browsing Data |
 | `examples/retrodns.nim` | Retro DNS: a DNS changer with 47 public servers, what each is good for, speed tests and your own -- on Android a VPN of its own Java (`--java`), on Windows, Linux and macOS the computer's DNS as its administrator (`retroui/admin`), on macOS and iOS a profile of encrypted DNS |
-| `examples/music.nim` | Retro Music: Spotify and YouTube in one player through their own services -- Spotify's Web API and Spotify Connect (your devices play, Premium), the YouTube Data API (your playlists and likes signed in with Google) and YouTube's own player in the app, lyrics from LrcLib timed to the song (also an APK: `RETRO_APP=music nimble appapk`) |
+| `examples/music.nim` | Retro Music: your own music (songs, albums, artists, genres, playlists, Up Next, an equalizer, a sleep timer, on in the background); free music with nothing to set up -- YouTube Music (through Piped and Invidious, in YouTube's own player; a playlist's link pasted stays), radio stations (Radio Browser), Audius, the Internet Archive --; your own Subsonic server (Navidrome, Airsonic, Gonic); Spotify Connect (Premium); lyrics from LrcLib timed to the song, over the cover on Now Playing; a side menu on a phone, the places down the left on a tablet (also an APK: `RETRO_APP=music nimble appapk`) |
 | `examples/podcast.nim` | Retro Podcast: a podcast player for every system and the web -- shows found by name or by feed, OPML, any speed, where you left off, downloads, a queue, a sleep timer, the system's media controls, the sound playing on in the background, a tray icon (also an APK: `RETRO_APP=podcast nimble appapk`; released with the apps) |
+| `examples/tasks.nim` | Retro Tasks: tasks and notes for a phone -- lists ticked off and put in order, a day and time on wheels, reminders also with the app closed, Today, Upcoming, Flagged, Completed, notes, a search (also an APK: `RETRO_APP=tasks nimble appapk`; [lesson 17](tutorials/17-whole-app/) builds it) |
 | `examples/grow.nim` | Grow: a savings goal planner for phones -- the plan, then its result counted up, a ring, a 3D bar for each year rising one after another, a gold coin, Share (also an APK: `RETRO_APP=grow nimble appapk`) |
 | `examples/bmi.nim` | BMI Studio: a window with a look of its own made of the kit's controls -- a title bar with the app's icon, panels with title strips, options in boxes, large digits, an accent button, a dial in bands -- in its own colours or any of the kit's schemes; the worked example of docs/customizing.md (`nimble bmi`; also an APK: `RETRO_APP=bmi nimble appapk`) |
 | `examples/hrbook.nim` | HR Book: the staff records of a group of hotels, private on a tablet -- smart Excel import, letters and certificates, charts, expiry alerts, encrypted backups |

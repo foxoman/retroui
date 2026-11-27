@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.78.0"
+const RetroVersion* = "0.79.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -658,6 +658,12 @@ type Ctx* = object
   panAlong*: int8                ## its axis, from its first move: 1 sideways, 2 up and down
   panHanded: bool                # the owner reached its end this frame: the rest to one around it
   panOwnerSeen: int              # the frame the owner was last drawn in
+  rawMx, rawMy: int              # (the pointer where the system put it: before a finger's press
+                                 # was moved onto the small control beside it)
+  snapOn: bool                   # (this finger's gesture was moved so: by snapX, snapY)
+  snapX, snapY: int
+  targets, targetsNow: seq[tuple[r: Rect; small: bool]]
+                                 # (the controls drawn last frame, clipped: where a finger may press)
   key*: KeyCode                  ## the key pressed this frame (KeyNone: none)
   mods*: set[Modifier]           ## Ctrl, Alt, Shift held now
   keyUp*: KeyCode                ## the key let go this frame
@@ -857,6 +863,11 @@ const
     ## per em (a 15-pixel line).
   TouchTextEm* = 15.0
     ## The UI's text size at 100 % with finger-sized controls (phones).
+  TouchTarget* = 44
+    ## The least a finger hits, in design pixels (iOS's 44 points; Android asks 48 dp): a press
+    ## this near a smaller control is its.
+  TouchSlop* = 8
+    ## How far a finger moves, in design pixels, before its press is a drag (Android's touch slop).
 
 proc fitMetrics() =
   ## Every size from the text size: a bigger font makes bigger controls.
@@ -1450,6 +1461,17 @@ const
 var
   scrollAnims: Table[uint32, ScrollAnim]
   flingCaught: bool               ## the press now stopped a moving list
+  flingEnds: Table[uint32, (float, int)] ## a fling that ran into an end: its speed then (px/ms), the frame
+
+proc flingHitEnd*(id: Id): float =
+  ## How fast the scroller `id`'s flick was going (pixels a millisecond: less than 0 toward its
+  ## top) when it ran into an end this frame -- 0 otherwise; asked once. A page on a touch screen
+  ## goes on past the end by as much, and springs back.
+  let k = uint32(id)
+  if flingEnds.hasKey(k):
+    let (v, f) = flingEnds[k]
+    flingEnds.del(k)
+    if f == ui.frameNo: result = v
 
 proc scrollCaught*(): bool = flingCaught
   ## The finger that went down last stopped a list that was still moving
@@ -1660,6 +1682,8 @@ proc scrollTick*(id: Id; v: var int; hi: int): bool {.discardable.} =
     a.vel *= decay
     if a.pos <= 0 or a.pos >= top:
       a.pos = clamp(a.pos, 0, top)
+      flingEnds[k] = (a.vel, ui.frameNo)   # (for the bounce past the end: `flingHitEnd`)
+      if flingEnds.len > 64: flingEnds.clear()
       done = true
     elif abs(a.vel) < FlingMin * 0.4: done = true
   else: done = true
@@ -2184,6 +2208,10 @@ proc interact*(id: Id; r: Rect; focusable = true; enabled = true): Hit =
     result.focused = focusable
     result.clicked = true
     return
+  if ui.touch and canInput():
+    # (where a finger may press next frame: a press just beside a small one is its)
+    let seen = intersect(r, clipRect())
+    if seen.w > 0 and seen.h > 0: ui.targetsNow.add (seen, min(r.w, r.h) < dp(TouchTarget))
   if focusable and canInput():
     ui.tabOrder.add id
     ui.stopArea.add ui.areaNow
@@ -3622,6 +3650,8 @@ proc applyEvent(e: Event): bool =
     if e.hasMods: ui.mods = e.mods
     ui.mx = mirroredX(e.x div zoom)
     ui.my = e.y div zoom
+    ui.rawMx = ui.mx
+    ui.rawMy = ui.my
     penFrom(e)
     ui.mouseMoved = true
     # moving with no button down: a mouse or a pen, not a finger
@@ -3691,6 +3721,8 @@ proc applyEvent(e: Event): bool =
     if e.hasMods: ui.mods = e.mods
     ui.mx = mirroredX(e.x div zoom)
     ui.my = e.y div zoom
+    ui.rawMx = ui.mx
+    ui.rawMy = ui.my
     penFrom(e)
     ui.mouseMoved = true
     ui.active31 = true
@@ -3721,6 +3753,8 @@ proc applyEvent(e: Event): bool =
     if e.hasMods: ui.mods = e.mods
     ui.mx = mirroredX(e.x div zoom)
     ui.my = e.y div zoom
+    ui.rawMx = ui.mx
+    ui.rawMy = ui.my
     penFrom(e)
     if e.button == LeftButton:
       ui.mouseDown = false
@@ -4576,6 +4610,34 @@ proc frameReset() =
   globalHits.setLen(0)
   ui.closeCancelled = false
 
+var touchFeel*: proc (kind: int) {.nimcall, gcsafe.}
+  ## (a tap the user feels -- retroui/system's `haptic`, set there: 0 a tap, 1 a firm one -- a
+  ## long press --, 5 a selection)
+
+proc snapPress() =
+  ## (a finger's press on none of last frame's controls, but within reach of a small one -- grown
+  ## to `TouchTarget` across the side it is small in --: moved onto its nearest point)
+  ui.snapOn = false
+  let p = point(ui.rawMx, ui.rawMy)
+  var best = high(int)
+  var at = p
+  for t in ui.targets:
+    if t.r.contains(p): return            # (on one: its)
+    if not t.small: continue
+    let nx = clamp(p.x, t.r.x, t.r.x + t.r.w - 1)
+    let ny = clamp(p.y, t.r.y, t.r.y + t.r.h - 1)
+    let reach = dp(TouchTarget)
+    if abs(p.x - nx) > max(0, (reach - t.r.w) div 2) or abs(p.y - ny) > max(0, (reach - t.r.h) div 2):
+      continue
+    let d = (p.x - nx) * (p.x - nx) + (p.y - ny) * (p.y - ny)
+    if d < best:
+      best = d
+      at = point(nx, ny)
+  if best < high(int):
+    ui.snapOn = true
+    ui.snapX = at.x - p.x
+    ui.snapY = at.y - p.y
+
 proc frameSetup(main: bool) =
   ## (the frame started, its input in: what the input means, the layout
   ## begun; `main`: the program's own window, else one besides it)
@@ -4622,6 +4684,20 @@ proc frameSetup(main: bool) =
     ui.byBack = false
   else:
     ui.byBackNow = false
+  # Touch: a finger's press just beside a small control -- a button, a box's
+  # cross, a round button -- is that control's, as if it were 44 points
+  # across (phones make their targets so); the rest of the gesture with it
+  swap(ui.targets, ui.targetsNow)
+  ui.targetsNow.setLen(0)
+  if ui.pressed and ui.fingerDown: snapPress()
+  elif not ui.mouseDown and not ui.released: ui.snapOn = false
+  if ui.snapOn:
+    ui.mx = ui.rawMx + ui.snapX
+    ui.my = ui.rawMy + ui.snapY
+    if ui.pressed:
+      ui.pressX = ui.mx
+      ui.pressY = ui.my
+      ui.panFrom = point(ui.mx, ui.my)
   # Touch: a finger that moves drags content (lists, text, panels) unless
   # the widget it pressed drags by itself (slider, scroll thumb); a finger
   # that rests half a second is a right click.
@@ -4637,7 +4713,7 @@ proc frameSetup(main: bool) =
   ui.lift = false
   if ui.fingerDown and ui.mouseDown and not ui.pressed:
     if not ui.panning and not ui.longFired and not ui.dragsActive and
-       (abs(ui.my - ui.pressY) > 8 or abs(ui.mx - ui.pressX) > 8):
+       (abs(ui.my - ui.pressY) > dp(TouchSlop) or abs(ui.mx - ui.pressX) > dp(TouchSlop)):
       ui.panning = true
       ui.active = 0
       ui.pressY = ui.panFrom.y
@@ -4653,6 +4729,7 @@ proc frameSetup(main: bool) =
       if ui.now - ui.pressAt >= 500:
         ui.longFired = true
         ui.rpressed = true
+        if touchFeel != nil: touchFeel(1)     # (felt, as a phone's long press is)
         ui.active = 0
         ui.longX = ui.mx
         ui.longY = ui.my

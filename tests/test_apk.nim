@@ -360,3 +360,22 @@ block widget:
       doAssert c3 == 0 and "layout_weight(0x01010181)=1" in lay and "#ffc0c0c0" in lay and
                "textSize(0x01010095)=15.000000sp" in lay and "layout_width(0x010100f4)=-1" in lay, lay
     removeDir(dir)
+
+block permissionsFromCode:
+  # (the permissions an app's code needs, read from its C: Nim 2.4 names a proc `name_u12__...`,
+  # Nim 2.2 `name__...` -- both found; a longer name that starts the same is not it)
+  let dir = getTempDir() / "retroapk-perms"
+  removeDir(dir)
+  createDir(dir)
+  writeFile(dir / "@pretroui@smedia.nim.c",
+            "N_LIB_PRIVATE void audioPlayer_u12__OOZsrcZretrouiZmedia(void) {}\n" &
+            "void askMusicAccess_u3__OOZsrcZretrouiZmedia(void) {}\n")
+  writeFile(dir / "@pretroui@snotify.nim.c", "void notifyLater_u4__OOZsrcZretrouiZnotify(void) {}\n")
+  writeFile(dir / "@pretroui@scapture.nim.c", "void cameraView__retrouiZcapture(void) {}\n")
+  var names: seq[string]
+  for (p, why) in permissionsOfCode([dir]): names.add p.replace("android.permission.", "")
+  doAssert "FOREGROUND_SERVICE_MEDIA_PLAYBACK" in names and "READ_MEDIA_AUDIO" in names, $names
+  doAssert "CAMERA" in names, "Nim 2.2's names too: " & $names
+  doAssert "POST_NOTIFICATIONS" notin names, "notifyLater is not notify: " & $names
+  removeDir(dir)
+echo "apk: permissions from the code ok"

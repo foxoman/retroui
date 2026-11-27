@@ -49,7 +49,7 @@
 ##     if button("&Beep"): beep()
 ##     let v = videoView("intro.mp4", height = 200)
 
-import std/[os, strutils, tables, hashes, times, osproc, streams, locks]
+import std/[os, strutils, sequtils, tables, hashes, times, osproc, streams, locks]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 from std/math import round
 import gfx, core, widgets, platform, pixelicons, imaging, simdkit
@@ -402,6 +402,9 @@ type
     rate: float              # (the speed asked for: 1 as recorded)
     askSeek: int             # (`seekVideo`: where to go next frame, -1 nowhere)
     askPlay: int             # (`playVideo`: 1 play, 0 pause, -1 nothing)
+    headless: bool           # (`audioPlayer`: nothing drawn, never hidden)
+    volume, volSent: float   # (`setPlayerVolume`: asked, and what the player has)
+    eq, eqSent: seq[float]   # (`setPlayerEqualizer`: the bands asked for, what the player has)
 
 var videos: Table[string, VideoState]
 var videoHook = false
@@ -421,6 +424,7 @@ proc hideCovered() =
   ## a menu or a dialog over it, is hidden (it sits above the kit's
   ## drawing); a GStreamer video not drawn pauses.
   for key, v in videos:
+    if v.headless: continue
     let drawn = v.drawnFrame == ui.frameNo
     let dlg = if ui.dialogTopNow != 0: ui.dialogTopNow else: ui.dialogTop
     let covered = ui.popup != 0 or (dlg != 0 and v.drawnDialog != dlg)
@@ -434,6 +438,149 @@ proc hideCovered() =
 proc timeText(ms: int): string =
   let s = max(0, ms) div 1000
   $(s div 60) & ":" & align($(s mod 60), 2, '0')
+
+proc freshState(old: VideoState; path: string; audio: bool): VideoState =
+  ## (a player's state for `path`: what was asked of the one before -- a place, play, the
+  ## volume, the equalizer -- kept)
+  result = VideoState(path: path, audio: audio, sound: NoSound, rate: 1.0, askSeek: -1, askPlay: -1,
+                      volume: 1.0, volSent: 1.0)
+  if old != nil:
+    result.askSeek = old.askSeek
+    result.askPlay = old.askPlay
+    result.volume = old.volume
+    result.eq = old.eq
+    result.headless = old.headless
+
+proc playerMode(path: string; exists, audio: bool): int =
+  ## (who plays it: 0 nobody here, 1 the system's view or player -- Android --, 2 the player the
+  ## kit draws -- GStreamer, Media Foundation, AVFoundation --, 3 `playSound`, from the start)
+  if not exists: 0
+  elif mediaThroughSystem: 1
+  elif playerAvailable(): 2
+  elif audio: 3
+  else: 0
+
+proc fmtGain(g: float): string = formatFloat(g, ffDecimal, 2)
+
+proc stepPlayer(v: VideoState; k: string; mode: int; autoplay, toggle, toStart: bool;
+                seekTo0: int; speed: float; dr, area: Rect; covered: bool): bool =
+  ## (a frame of the player of `v`: what was asked for done -- play, pause, a place, the speed,
+  ## the volume, the equalizer --, where it is read back; true: it ended in this frame)
+  var seekTo = seekTo0
+  case mode
+  of 1:
+    # the platform's own view, over the area (a sound's: a dot in its corner)
+    if not covered and (not v.shown or dr != v.shownRect):
+      if systemCall("media.videoShow", k & "\t" & $dr.x & "\t" & $dr.y & "\t" & $dr.w & "\t" &
+                    $dr.h & "\t" & v.path & "\t" & (if autoplay and not v.tried: "1" else: "0") &
+                    (if v.audio: "\ta" else: "")) == "\0":
+        v.error = "The system cannot show this video."
+      else:
+        v.shown = true
+        v.shownRect = dr
+        if autoplay and not v.tried: v.playing = true
+      v.tried = true
+    if toggle:
+      discard systemCall(if v.playing: "media.videoPause" else: "media.videoPlay", k)
+      v.playing = not v.playing
+      if v.playing: v.error = ""        # (Play tries again after an error)
+    if toStart: seekTo = 0
+    if seekTo >= 0:
+      discard systemCall("media.videoSeek", k & "\t" & $seekTo)
+      v.pos = seekTo
+    if speed != v.rate or (toggle and speed != 1.0):
+      v.rate = speed
+      discard systemCall("media.videoRate", k & "\t" & formatFloat(speed, ffDecimal, 2))
+    if v.tried and v.audio:
+      if v.volume != v.volSent:
+        v.volSent = v.volume
+        discard systemCall("media.videoVolume", k & "\t" & fmtGain(v.volume))
+      if v.eq != v.eqSent:
+        v.eqSent = v.eq
+        discard systemCall("media.videoEq", k & "\t" & v.eq.mapIt(fmtGain(it)).join(","))
+    if ui.now - v.polledAt >= 250 or ui.now < v.polledAt:
+      v.polledAt = ui.now
+      let s = systemCall("media.videoState", k).split('\t')
+      if s.len >= 4:
+        v.playing = s[0] == "1"
+        v.pos = (try: parseInt(s[1]) except ValueError: v.pos)
+        v.dur = (try: parseInt(s[2]) except ValueError: v.dur)
+        if s[3] == "1" and not v.ended: result = true
+        v.ended = s[3] == "1"
+        # (why the system's player could not play it: Android's sounds)
+        if s.len >= 5 and s[4].len > 0 and v.error != s[4]:
+          v.error = s[4]
+          v.playing = false
+    if v.playing: wakeIn(250)
+  of 2:
+    if v.gst == nil and not v.tried:
+      v.tried = true
+      v.gst = openPlayer(v.path, video = not v.audio, audioSink = gstAudioSink,
+                         equalizer = v.audio and v.headless)
+      if v.gst == nil:
+        v.error = if v.audio: "This sound cannot be played here." else: "This video cannot be played here."
+      else:
+        v.volSent = 1.0
+        v.eqSent = @[]
+        if autoplay:
+          v.gst.play()
+          v.playing = true
+        else: v.gst.showFirstPicture()
+    let g = v.gst
+    if g != nil:
+      if v.volume != v.volSent:
+        v.volSent = v.volume
+        g.setVolume(v.volume)
+      if v.eq != v.eqSent:
+        v.eqSent = v.eq
+        g.setEqualizer(v.eq)
+      if toggle:
+        if v.playing: g.pause()
+        else:
+          if v.ended: g.seekMs(0)
+          g.play()
+        v.playing = not v.playing
+        v.ended = false
+      if toStart: seekTo = 0
+      if seekTo >= 0:
+        g.seekMs(seekTo)
+        v.pos = seekTo
+      if speed != v.rate:
+        v.rate = speed
+        g.setRate(speed)
+      discard g.poll()
+      if g.failed:
+        v.error = if v.audio: "This sound cannot be played here." else: "This video cannot be played here."
+        v.playing = false
+      if g.ended and not v.ended:
+        v.ended = true
+        v.playing = false
+        result = true
+      v.pos = g.positionMs
+      if v.dur == 0: v.dur = g.durationMs
+      if v.playing or (g.frame == nil and not v.audio):
+        if v.audio: wakeIn(250)            # (sound plays on when scrolled away)
+        else: wakeInShown(area, 15)
+  of 3:
+    # a sound where only `playSound` plays it (no position: from the start)
+    if toggle or toStart:
+      if v.sound != NoSound and soundPlaying(v.sound):
+        stopSound(v.sound)
+        v.sound = NoSound
+        v.playing = false
+      else:
+        v.sound = playSound(v.path, volume = min(1.0, v.volume))
+        v.volSent = v.volume
+        v.playing = v.sound != NoSound
+        if not v.playing: v.error = "This sound cannot be played here."
+    if v.sound != NoSound and v.volume != v.volSent:
+      v.volSent = v.volume
+      setSoundVolume(v.sound, min(1.0, v.volume))
+    if v.playing and not soundPlaying(v.sound):
+      v.playing = false
+      result = true
+    if v.playing: wakeIn(250)
+  else: discard
 
 proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = true;
                 key = ""; audio = false; speed = 1.0; title = ""): VideoEvent {.discardable.} =
@@ -458,9 +605,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
   if v == nil or v.path != path or v.audio != audio:
     if v != nil and v.gst != nil: v.gst.close()
     if v != nil and v.sound != NoSound: stopSound(v.sound)
-    let asked = if v != nil: (v.askSeek, v.askPlay) else: (-1, -1)
-    v = VideoState(path: path, audio: audio, sound: NoSound, rate: 1.0,
-                   askSeek: asked[0], askPlay: asked[1])
+    v = freshState(v, path, audio)
     videos[k] = v
   if not videoHook:
     videoHook = true
@@ -488,93 +633,18 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
     elif keyHit(KeyLeft): seekTo = max(0, v.pos - 5000)
     elif keyHit(KeyRight): seekTo = min(max(0, v.dur - 100), v.pos + 5000)
     elif keyHit(KeyHome): toStart = true
-  let mode = if not exists: 0
-             elif mediaThroughSystem: 1
-             elif playerAvailable(): 2
-             elif audio: 3
-             else: 0
+  let mode = playerMode(path, exists, audio)
+  let covered = ui.popup != 0 or
+                ((ui.dialogTopNow != 0 or ui.dialogTop != 0) and ui.curDialog == 0)
+  let dr = if audio: deviceRect(rect(area.x, area.y, 1, 1)) else: deviceRect(area)
+  if stepPlayer(v, k, mode, autoplay, toggle, toStart, seekTo, speed, dr, area, covered):
+    result.ended = true
   case mode
   of 1:
-    # the platform's own view, over the area (a sound's: a dot in its corner)
-    let dr = if audio: deviceRect(rect(area.x, area.y, 1, 1)) else: deviceRect(area)
-    let covered = ui.popup != 0 or
-                  ((ui.dialogTopNow != 0 or ui.dialogTop != 0) and ui.curDialog == 0)
-    if not covered and (not v.shown or dr != v.shownRect):
-      if systemCall("media.videoShow", k & "\t" & $dr.x & "\t" & $dr.y & "\t" & $dr.w & "\t" &
-                    $dr.h & "\t" & path & "\t" & (if autoplay and not v.tried: "1" else: "0") &
-                    (if audio: "\ta" else: "")) == "\0":
-        v.error = "The system cannot show this video."
-      else:
-        v.shown = true
-        v.shownRect = dr
-        if autoplay and not v.tried: v.playing = true
-      v.tried = true
-    if toggle:
-      discard systemCall(if v.playing: "media.videoPause" else: "media.videoPlay", k)
-      v.playing = not v.playing
-      if v.playing: v.error = ""        # (Play tries again after an error)
-    if toStart: seekTo = 0
-    if seekTo >= 0:
-      discard systemCall("media.videoSeek", k & "\t" & $seekTo)
-      v.pos = seekTo
-    if speed != v.rate or (toggle and speed != 1.0):
-      v.rate = speed
-      discard systemCall("media.videoRate", k & "\t" & formatFloat(speed, ffDecimal, 2))
-    if ui.now - v.polledAt >= 250 or ui.now < v.polledAt:
-      v.polledAt = ui.now
-      let s = systemCall("media.videoState", k).split('\t')
-      if s.len >= 4:
-        v.playing = s[0] == "1"
-        v.pos = (try: parseInt(s[1]) except ValueError: v.pos)
-        v.dur = (try: parseInt(s[2]) except ValueError: v.dur)
-        if s[3] == "1" and not v.ended: result.ended = true
-        v.ended = s[3] == "1"
-        # (why the system's player could not play it: Android's sounds)
-        if s.len >= 5 and s[4].len > 0 and v.error != s[4]:
-          v.error = s[4]
-          v.playing = false
-    if v.playing: wakeIn(250)
     fill(area, color(0, 0, 0))
   of 2:
-    if v.gst == nil and not v.tried:
-      v.tried = true
-      v.gst = openPlayer(path, video = not audio, audioSink = gstAudioSink)
-      if v.gst == nil:
-        v.error = if audio: "This sound cannot be played here." else: "This video cannot be played here."
-      elif autoplay:
-        v.gst.play()
-        v.playing = true
-      else: v.gst.showFirstPicture()
-    let g = v.gst
-    if g != nil:
-      if toggle:
-        if v.playing: g.pause()
-        else:
-          if v.ended: g.seekMs(0)
-          g.play()
-        v.playing = not v.playing
-        v.ended = false
-      if toStart: seekTo = 0
-      if seekTo >= 0:
-        g.seekMs(seekTo)
-        v.pos = seekTo
-      if speed != v.rate:
-        v.rate = speed
-        g.setRate(speed)
-      discard g.poll()
-      if g.failed:
-        v.error = if audio: "This sound cannot be played here." else: "This video cannot be played here."
-        v.playing = false
-      if g.ended and not v.ended:
-        v.ended = true
-        v.playing = false
-        result.ended = true
-      v.pos = g.positionMs
-      if v.dur == 0: v.dur = g.durationMs
-      if v.playing or (g.frame == nil and not audio):
-        if audio: wakeIn(250)            # (sound plays on when scrolled away)
-        else: wakeInShown(area, 15)
     fill(area, color(0, 0, 0))
+    let g = v.gst
     if g != nil and g.frame != nil and not audio:
       # the picture, as large as fits, in proportion
       let f = g.frame
@@ -582,21 +652,7 @@ proc videoView*(path: string; height = -1; w = 0; autoplay = false; controls = t
       let pw = int(f.w.float * s)
       let ph = int(f.h.float * s)
       drawBitmap(rect(area.x + (area.w - pw) div 2, area.y + (area.h - ph) div 2, pw, ph), f)
-  of 3:
-    # a sound where only `playSound` plays it (no position: from the start)
-    if toggle or toStart:
-      if v.sound != NoSound and soundPlaying(v.sound):
-        stopSound(v.sound)
-        v.sound = NoSound
-        v.playing = false
-      else:
-        v.sound = playSound(path)
-        v.playing = v.sound != NoSound
-        if not v.playing: v.error = "This sound cannot be played here."
-    if v.playing and not soundPlaying(v.sound):
-      v.playing = false
-      result.ended = true
-    if v.playing: wakeIn(250)
+  of 3: discard
   else:
     # no player in the window here: the system's player, on request
     fill(area, color(0, 0, 0))
@@ -724,7 +780,7 @@ proc seekVideo*(key: string; ms: int) =
   ## keys' seek.
   var v = videos.getOrDefault(key)
   if v == nil:
-    v = VideoState(path: "\0", rate: 1.0, askSeek: -1, askPlay: -1)
+    v = freshState(nil, "\0", false)
     videos[key] = v
   v.askSeek = max(0, ms)
   ui.redraw = true
@@ -735,7 +791,7 @@ proc playVideo*(key: string; play = true) =
   ## app's own.
   var v = videos.getOrDefault(key)
   if v == nil:
-    v = VideoState(path: "\0", rate: 1.0, askSeek: -1, askPlay: -1)
+    v = freshState(nil, "\0", false)
     videos[key] = v
   v.askPlay = ord(play)
   ui.redraw = true
@@ -749,6 +805,115 @@ proc closeVideo*(key: string) =
   if v.gst != nil: v.gst.close()
   if v.shown or mediaThroughSystem: discard systemCall("media.videoClose", key)
   videos.del key
+
+# ---- a player with no view: a music app's own --------------------------------------------------------
+
+proc audioPlayer*(path: string; key: string; autoplay = false; speed = 1.0): VideoEvent {.discardable.} =
+  ## A sound file or a web address played with nothing drawn: an app that draws its own player
+  ## (a music app's Now Playing, its bar) calls it every frame for what plays, and gets where it
+  ## is (`VideoEvent`: playing, ended -- in the frame it ended --, the position, the length, why
+  ## it cannot play). `key` names it: `playVideo`, `seekVideo`, `closeVideo`, `setPlayerVolume`,
+  ## `setPlayerEqualizer` take it. A new `path` for the same `key` plays the next sound (what
+  ## was asked of the player -- its volume, its equalizer -- kept). It plays where `audioView`
+  ## does, as it does: on in the background (in an Android app with the system's notification
+  ## that it plays; on iOS with UIBackgroundModes audio), its speed with the pitch kept.
+  ## Calling it is not needed to keep it playing: it plays on while the app draws other things
+  ## -- but its state is read back, and its end seen, when it is called.
+  var v = videos.getOrDefault(key)
+  if v == nil or v.path != path or not v.audio:
+    if v != nil and v.gst != nil: v.gst.close()
+    if v != nil and v.sound != NoSound: stopSound(v.sound)
+    if v != nil and v.path != "\0" and mediaThroughSystem and v.tried:
+      discard systemCall("media.videoClose", key)
+    v = freshState(v, path, true)
+    v.headless = true
+    videos[key] = v
+  if not videoHook:
+    videoHook = true
+    endFrameHooks.add hideCovered
+  v.drawnFrame = ui.frameNo
+  let exists = isStream(path) or fileExists(path)
+  if not exists: v.error = "There is no file " & path.extractFilename & "."
+  var toggle = false
+  let seekTo = v.askSeek
+  v.askSeek = -1
+  if v.askPlay >= 0 and (v.askPlay == 1) != v.playing: toggle = true
+  v.askPlay = -1
+  let mode = playerMode(path, exists, true)
+  if stepPlayer(v, key, mode, autoplay, toggle, false, seekTo, speed, rect(0, 0, 1, 1),
+                rect(0, 0, 1, 1), false):
+    result.ended = true
+  if mode == 0 and exists and v.error.len == 0: v.error = "Sounds cannot be played here."
+  result.playing = v.playing
+  result.positionMs = v.pos
+  result.durationMs = v.dur
+  result.error = v.error
+
+proc setPlayerVolume*(key: string; volume: float) =
+  ## The volume of the `audioPlayer` (or `audioView`) with this `key`: 1 as recorded, 0 silent
+  ## (up to 4 louder where the system's player can: GStreamer; elsewhere at most 1) -- a fade, a
+  ## song's ReplayGain. Kept for the next sound of the same `key`.
+  var v = videos.getOrDefault(key)
+  if v == nil:
+    v = freshState(nil, "\0", false)
+    videos[key] = v
+  v.volume = clamp(volume, 0.0, 4.0)
+  ui.redraw = true
+
+const EqualizerBands* = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+  ## The middle of each of `setPlayerEqualizer`'s 10 bands, in Hz.
+
+proc playerEqualizer*(): bool =
+  ## `setPlayerEqualizer` changes the sound here: Android (its own equalizer, the device's
+  ## bands taken from the 10 asked for), Linux and the like with GStreamer's equalizer-10bands.
+  when androidApp: true
+  else: mediaplayer.playerEqualizer()
+
+proc setPlayerEqualizer*(key: string; gains: openArray[float]) =
+  ## The equalizer of the `audioPlayer` with this `key`: a gain for each of `EqualizerBands` (dB,
+  ## -12 .. 12; 0 as recorded; none, or all 0: off). Kept for the next sound of the same `key`.
+  ## Where there is none (`playerEqualizer` false) it changes nothing.
+  var v = videos.getOrDefault(key)
+  if v == nil:
+    v = freshState(nil, "\0", false)
+    v.headless = true
+    videos[key] = v
+  var g: seq[float]
+  var any = false
+  for i in 0 ..< EqualizerBands.len:
+    let x = if i < gains.len: clamp(gains[i], -12.0, 12.0) else: 0.0
+    if x != 0: any = true
+    g.add x
+  v.eq = if any: g else: @[]
+  ui.redraw = true
+
+proc musicAccess*(): bool =
+  ## The app may read the music on the device: always but in an Android app not let yet
+  ## (Android 13 on: "Music and audio"; before: the storage) -- `askMusicAccess`.
+  when androidApp: systemCall("media.musicAccess", "") == "1"
+  else: true
+
+proc askMusicAccess*() =
+  ## Asks Android to let the app read the music on the device (its question, once; in an
+  ## Android app only -- elsewhere it may). `musicAccess` says when it was let.
+  when androidApp: discard systemCall("media.askMusicAccess", "")
+
+proc musicFolders*(): seq[string] =
+  ## Where music is kept that exists here: the phone's Music, Download and Recordings (an Android
+  ## app with `musicAccess`), the user's Music on a desktop (else the home folder).
+  when androidApp:
+    for d in ["/storage/emulated/0/Music", "/storage/emulated/0/Download", "/storage/emulated/0/Recordings",
+              "/storage/emulated/0/Podcasts", "/storage/emulated/0/Audiobooks"]:
+      if dirExists(d): result.add d
+  elif defined(ios):
+    result.add getHomeDir() / "Documents"
+  else:
+    for name in ["Music", "music", "Musik", "Musique"]:
+      let d = getHomeDir() / name
+      if dirExists(d):
+        result.add d
+        break
+    if result.len == 0: result.add getHomeDir()
 
 # ---- reading videos -------------------------------------------------------------------------------
 #

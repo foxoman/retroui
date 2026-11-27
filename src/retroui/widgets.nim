@@ -894,10 +894,12 @@ proc fieldFrame*(r: Rect; enabled = true) =
     hline(r.x + 1, r.y + 1, r.w - 2, th.shadow)
     vline(r.x + 1, r.y + 1, r.h - 2, th.shadow)
 
-proc fieldFace*(r: Rect; back: Color; enabled = true; focused = false) =
+proc fieldFace*(r: Rect; back: Color; enabled = true; focused = false; hot = false) =
   ## The face of a text box, a list or another field: `back` in its frame -- the 3.1 look's
   ## black border with its gray shadow inside; Glass: rounded, a hairline round it, a soft
-  ## shadow inside its top, a ring in the highlight while it has the keyboard.
+  ## shadow inside its top, a ring in the highlight while it has the keyboard. `hot`: under
+  ## the mouse -- Glass and Matte draw its line darker, as the systems of now do (3.1 and
+  ## Gloss did not).
   if not glassLook():
     fill(r, back)
     fieldFrame(r, enabled)
@@ -911,7 +913,8 @@ proc fieldFace*(r: Rect; back: Color; enabled = true; focused = false) =
       roundRect(r, rad, accentColor())
       roundRect(inset(r, 2), max(0.0, rad - 2), back)
     else:
-      roundRect(r, rad, if enabled: mixColor(th.field, th.fieldText, if dark: 0.34 else: 0.3)
+      roundRect(r, rad, if enabled: mixColor(th.field, th.fieldText, if hot: (if dark: 0.55 else: 0.5)
+                                                                     elif dark: 0.34 else: 0.3)
                         else: mixColor(th.field, th.gray, 0.4))
       roundRect(inset(r, 1), max(0.0, rad - 1), back)
     return
@@ -938,6 +941,7 @@ proc fieldFace*(r: Rect; back: Color; enabled = true; focused = false) =
     roundFrame(inset(r, -2), rad + 2, 1, Color(r: a.r, g: a.g, b: a.b, a: 70))
     roundFrame(inset(r, -1), rad + 1, 1, Color(r: a.r, g: a.g, b: a.b, a: 186))
   roundRect(r, rad, if focused and enabled: mixColor(accentColor(), th.field, 0.2)
+                    elif enabled and hot: mixColor(th.field, th.fieldText, if dark: 0.5 else: 0.42)
                     elif enabled: mixColor(th.field, th.fieldText, if dark: 0.3 else: 0.22)
                     else: mixColor(th.field, th.gray, 0.4))
   let f = inset(r, 1)
@@ -1205,9 +1209,11 @@ const
                ".kkk...", "..k...."]
 
 proc focusDots*(r: Rect) =
-  ## The dotted rectangle around the widget with the keyboard focus. (Glass: a soft ring in the
-  ## highlight.)
+  ## The dotted rectangle around the widget with the keyboard focus. (Glass, Matte, Gloss: a
+  ## soft ring in the highlight, shown only while the keyboard moves the focus -- Tab, the
+  ## arrows --, as browsers do: a tap or a click takes the focus without it.)
   if glassLook():
+    if not ui.focusCues: return
     let f = inset(r, -1)
     roundFrame(f, min(float(f.h) / 2, float(dp(8))), 2, Color(r: accentColor().r, g: accentColor().g,
                                                                 b: accentColor().b, a: 120))
@@ -1222,13 +1228,15 @@ template boxH*: int =
   ## finger-sized row around the same 13-pixel box.
   (if fingers(): CtrlH else: max(dp(13), FontH))
 
-proc checkBox*(b: Rect; checked, down, enabled: bool) =
+proc checkBox*(b: Rect; checked, down, enabled: bool; hot = false) =
   ## The square of a check box (pixel exact at 100%, drawn smooth when
-  ## scaled). (Glass: rounded; ticked, the highlight with a white check mark.)
+  ## scaled). (Glass: rounded; ticked, the highlight with a white check mark.) `hot`: under
+  ## the mouse -- the newer looks light it (3.1 did not).
   if glassLook():
     let rad = if matteLook(): float(max(1, dp(2))) else: max(2.0, float(b.w) / 4)
     if checked and enabled:
       glassAccent(b, rad)
+      if hot and not down and not glossLook(): roundRect(b, rad, withAlpha(white, 46))
       let ink = accentInk()
       let (x0, y0) = (float(b.x), float(b.y))
       let w = float(b.w)
@@ -1236,7 +1244,9 @@ proc checkBox*(b: Rect; checked, down, enabled: bool) =
       thickLine(x0 + w * 0.24, y0 + w * 0.52, x0 + w * 0.43, y0 + w * 0.72, t, ink)
       thickLine(x0 + w * 0.41, y0 + w * 0.72, x0 + w * 0.78, y0 + w * 0.3, t, ink)
     else:
-      glassWell(b, rad, if down: mixColor(th.field, th.select, 0.15) else: th.field)
+      glassWell(b, rad, if down: mixColor(th.field, th.select, 0.15)
+                        elif hot and enabled and not glossLook(): mixColor(th.field, th.select, 0.08)
+                        else: th.field)
       if checked:
         let (x0, y0) = (float(b.x), float(b.y))
         let w = float(b.w)
@@ -1262,25 +1272,31 @@ proc checkBox*(b: Rect; checked, down, enabled: bool) =
     thickLine(x1, y0, x0, y1, t, c)
     popClip()
 
-proc radioDisc*(x, y, d: int; selected, down, enabled: bool) =
+proc radioDisc*(x, y, d: int; selected, down, enabled: bool; hot = false) =
   ## The circle of a radio button, `d` pixels across, top-left at `x`, `y`. (Glass: chosen, the
-  ## highlight with a white dot.)
+  ## highlight with a white dot.) `hot`: under the mouse -- the newer looks light it.
   if matteLook():
     # (a ring; chosen, the highlight's dot in it)
     let r = d / 2
     let (cx, cy) = (float(x) + r, float(y) + r)
     disc(cx, cy, r, if selected and enabled: accentColor()
+                    elif hot and enabled: mixColor(th.field, th.fieldText, if onDark(): 0.6 else: 0.55)
                     else: mixColor(th.field, th.fieldText, if onDark(): 0.4 else: 0.32))
-    disc(cx, cy, r - max(1.0, d / 10), if down: mixColor(th.field, th.select, 0.15) else: th.field)
+    disc(cx, cy, r - max(1.0, d / 10), if down: mixColor(th.field, th.select, 0.15)
+                                       elif hot and enabled: mixColor(th.field, th.select, 0.06)
+                                       else: th.field)
     if selected: disc(cx, cy, d / 4, if enabled: accentColor() else: th.gray)
     return
   if glassLook():
     let r = rect(x, y, d, d)
     if selected and enabled:
       glassAccent(r, float(d) / 2)
+      if hot and not down and not glossLook(): roundRect(r, float(d) / 2, withAlpha(white, 46))
       disc(float(x) + d / 2, float(y) + d / 2, max(1.5, d / 6), accentInk())
     else:
-      glassWell(r, float(d) / 2, if down: mixColor(th.field, th.select, 0.15) else: th.field)
+      glassWell(r, float(d) / 2, if down: mixColor(th.field, th.select, 0.15)
+                                 elif hot and enabled and not glossLook(): mixColor(th.field, th.select, 0.08)
+                                 else: th.field)
       if selected: disc(float(x) + d / 2, float(y) + d / 2, max(1.5, d / 6), th.gray)
     return
   let k = if enabled: th.edge else: th.gray
@@ -1719,7 +1735,7 @@ proc checkbox*(label: string; v: var bool; enabled = true): bool {.discardable.}
     result = true
   let bs = dp(13)
   let b = rect(r.x, r.y + (r.h - bs) div 2, bs, bs)
-  checkBox(b, v, hit.down, enabled)
+  checkBox(b, v, hit.down, enabled, hot = enabled and hit.showsHover)
   let y0 = r.y + (r.h - FontH) div 2
   drawLabel(r.x + bs + dp(6), y0, label, if enabled: th.text else: th.gray)
   if hit.focused: focusDots(rect(r.x + bs + dp(4), y0 - 1, tw + 4, FontH + 2))
@@ -1810,7 +1826,7 @@ proc radio*(label: string; v: var int; value: int;
              else: base
     roundRect(whole, float(dp(4)), mixColor(bg, th.shadow, if on: 0.7 else: 0.5))
     roundRect(inset(whole, 1), float(dp(3)), bg)
-  radioDisc(r.x, r.y + (r.h - d) div 2, d, v == value, hit.down, enabled)
+  radioDisc(r.x, r.y + (r.h - d) div 2, d, v == value, hit.down, enabled, hot = enabled and hit.showsHover)
   let y0 = r.y + (r.h - FontH) div 2
   drawLabel(r.x + dp(19), y0, label, if enabled: th.text else: th.gray)
   if hit.focused: focusDots(rect(r.x + dp(17), y0 - 1, tw + 4, FontH + 2))
@@ -2577,7 +2593,7 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
     if tx > inner.x + 2: st.scrollX = 0
   let back = if invalid and enabled: mixColor(th.field, InvalidRed, 0.3) else: th.field
   if frameless: fill(area, back)
-  else: fieldFace(area, back, enabled, hit.focused)
+  else: fieldFace(area, back, enabled, hit.focused, hot = enabled and hovered(area))
   if invalid and enabled:
     if glassLook(): roundFrame(area, float(min(dp(6), area.h div 2)), 1, InvalidRed)
     else: box(area, InvalidRed)
@@ -2657,12 +2673,20 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
     let kx = cx + 1 + textWidth(ui.composing[0 ..< clamp(ui.composeCaret, 0, ui.composing.len)])
     vline(kx, cy, FontH - 1, th.fieldText)
     popClip()
+  # (a finger held on a word, nothing chosen: the word chosen, as phones do -- its menu then
+  # has Cut and Copy for it)
+  if enabled and canInput() and ui.rpressed and finger() and longPressed() and not pass and
+     st.caret == st.anchor and s.len > 0 and mouseIn(inner):
+    let i = hitIndex(st)
+    st.anchor = wordLeft(s, i)
+    st.caret = wordRight(s, i)
   endKeepSides()
   # its menu: a right click, a long press, the menu key
   # (its name made only when a menu is open: a frame takes no memory)
   template menuKey: string = "edit-menu:" & $uint32(id)
   if enabled and canInput() and ui.rpressed and mouseIn(area):
     ui.focus = id
+    st.aux = 1                            # (focused by the menu: what was chosen stays so)
     openPopupMenu(menuKey, ui.mx, ui.my)
   if ui.popup != 0 and beginPopupMenuFor(menuKey):
     let a0 = min(st.caret, st.anchor)
@@ -2707,16 +2731,22 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
 
 proc edit*(s: var string; w = 0; password = false;
            enabled = true; readOnly = false; invalid = false;
-           h = 0; style = TextStyle()): bool {.discardable.} =
+           h = 0; style = TextStyle(); hint = ""): bool {.discardable.} =
   ## A one-line text box bound to `s`; true when the text changed.
   ## `readOnly`: selected and copied, not changed. `invalid`: red, what is
   ## typed is not right yet (a form says so as it is typed). `style`: its
   ## text's (large, bold, serif): the box grows with it; `h`: its height.
+  ## `hint`: gray words in it while it is empty ("New task"), its name for screen readers.
   let uiFontH = FontH
   withTextStyle(style):
     let r = place(if w > 0: w else: 0, styledH(h, EditH, uiFontH), fill = w <= 0)
+    if hint.len > 0 and accessOn: accessNameOr(tr(hint))
     result = editAt(idOf(s, "edit"), s, r, false, password, enabled, readOnly = readOnly,
                     invalid = invalid)
+    if hint.len > 0 and s.len == 0:
+      pushClip(inset(r, 2))
+      text(r.x + dp(4), r.y + (r.h - FontH) div 2, tr(hint), th.gray)
+      popClip()
 
 proc editArea*(s: var string; lines = 6; w = 0;
                enabled = true; wrap = true; readOnly = false): bool {.discardable.} =
@@ -2790,6 +2820,11 @@ proc listbox*(items: openArray[string]; sel: var int; rows = 6; w = 0;
   if enabled and canInput():
     scrollWheel(id, off, maxOff, r, 3 * ItemH)
     scrollPan(id, off, maxOff, r)
+    # (a right click, or a finger held on a row: that row chosen first -- the menu the app opens
+    # then is for it, as in the tree and the grids)
+    if ui.rpressed and n > 0 and mouseIn(r) and ui.my - (r.y + 1) in 0 ..< viewH:
+      nsel = clamp((ui.my - (r.y + 1) + off) div ItemH, 0, n - 1)
+      ui.focus = id
     if finger():
       # A tap selects (on release); a drag scrolls instead.
       if tapped(id, hit) and n > 0:
@@ -3161,6 +3196,15 @@ proc combo*(items: openArray[string]; sel: var int; w = 0;
     let pressedBtn = open
     buttonFace(btn, pressedBtn, rounded = false, bevel = 1,
                hot = enabled and hovered(r))
+  # (the wheel over it while it has the focus: the one before or after, as Windows' drop-down
+  # lists do -- not when it hasn't, so a page scrolled past it never changes it)
+  if enabled and hit.focused and canInput() and not open and items.len > 0 and mouseIn(r) and
+     ui.wheel != 0 and not ui.wheelUsed:
+    ui.wheelUsed = true
+    let to = clamp(sel - ui.wheel, 0, items.high)
+    if to != sel:
+      sel = to
+      result = true
   # (Home / End pick the first / last when it is closed)
   if enabled and hit.focused and canInput() and not open and items.len > 0 and
      ui.key in {KeyHome, KeyEnd} and not ui.keyUsed:
@@ -3280,7 +3324,7 @@ proc slider*(v: var int; lo, hi: int; w = 0; ticks = 10;
     let kcy = float(r.y + tht div 2)
     disc(kcx, kcy, float(kd) / 2, mixColor(th.face, th.text, if dark: 0.4 else: 0.3))
     disc(kcx, kcy, float(kd) / 2 - float(max(2, dp(2))), if dark: mixColor(th.face, white, 0.2) else: th.light)
-    disc(kcx, kcy, float(kd) / 5, if hit.down or hit.focused: accentColor()
+    disc(kcx, kcy, float(kd) / 5, if hit.down or hit.focused or (enabled and hovered(thumb)): accentColor()
                                  else: mixColor(th.face, th.text, 0.2))
   elif glassLook():
     # (a slim track, filled in the highlight up to a round knob of glass)
@@ -4443,6 +4487,7 @@ type PanelPull = object
   tracking, moved: bool     # the finger down in it; past the slop
   startY, lastY: int
   off: float                # > 0: pulled down at the top; < 0: up at the end (pixels)
+  vel: float                # how fast `off` moves as it springs (pixels a millisecond)
   t: int                    # when it last sprang back a step
   wants: bool               # `pullRefresh` this frame: let go far enough asks for fresh content
   refreshing: bool          # ... and it is being fetched: held open, a spinner in it
@@ -4450,9 +4495,6 @@ type PanelPull = object
   frame: int                # the frame it was last drawn in
 
 var panelPulls: Table[Id, PanelPull]
-
-var touchFeel*: proc (kind: int) {.nimcall, gcsafe.}
-  ## (a tap the user feels -- retroui/system's `haptic`, set there: 0 a tap, 5 a selection)
 
 template PullAt: int = dp(64)          # (how far a pull asks for fresh content)
 
@@ -4480,6 +4522,35 @@ proc pullRefresh*(refreshing: bool): bool =
   let cx = inner.x + inner.w div 2
   let cy = inner.y + max(d div 2 + dp(4), room div 2)
   pushClip(rect(inner.x, inner.y, inner.w, max(room, 0)))
+  if glossLook() and not refreshing and room < PullAt:
+    # (Gloss: iOS 6's drop -- a gray bead with the turning arrow on it, its foot drawn out
+    # thinner the further it is pulled, until it lets go at the threshold)
+    let t = clamp(float(room) / float(PullAt), 0, 1)
+    let r0 = float(dp(15)) * (1 - 0.3 * t)
+    let r1 = float(dp(15)) * (1 - 0.78 * t)
+    let x = float(cx)
+    let y0 = float(inner.y + dp(6)) + r0
+    let y1 = max(y0, float(inner.y + room - dp(6)) - r1)
+    proc drop(g: float): seq[(float, float)] =
+      for i in 0 .. 20:
+        let a = PI + PI * float(i) / 20          # (the top half of the head)
+        result.add (x + cos(a) * (r0 + g), y0 + sin(a) * (r0 + g))
+      for i in 0 .. 20:
+        # (the lower half: from the head's width at its middle down to the foot, narrowing)
+        let a = PI * float(i) / 20
+        let w = (r1 + g) + (r0 - r1) * (1 - sin(a))
+        result.add (x + cos(a) * w, y0 + sin(a) * (y1 - y0 + r1 + g))
+    let slate = if onDark(): color(120, 126, 138) else: glossTint(color(146, 154, 167))
+    polygon(drop(1.0), mixColor(slate, black, 0.35))
+    polygonShaded(drop(0.0), mixColor(slate, white, 0.3), slate)
+    let gs = style(size = r0 / float(FontH) * 1.25)
+    let gx = int(x) - textWidth(nfRefresh, gs) div 2
+    let gy = int(y0) - lineHeight(gs) div 2
+    text(gx, gy - 1, nfRefresh, withAlpha(black, 70), gs)
+    text(gx, gy, nfRefresh, white, gs)
+    popClip()
+    wakeIn(16)
+    return
   let ink = if onDark(): withAlpha(white, 200) else: withAlpha(black, 150)
   let spokes = 12
   let turn = if refreshing: (ui.now div 80) mod spokes else: 0
@@ -4516,23 +4587,41 @@ proc pullStep(id: Id; inner: Rect; y: var int; maxY: int) =
   elif ps.tracking and not ui.mouseDown:
     # let go: past the threshold with `pullRefresh`, fresh content asked for
     ps.tracking = false
+    ps.vel = 0
     if ps.wants and ps.off >= float(PullAt):
       ps.fired = true
       ps.refreshing = true
       if touchFeel != nil: touchFeel(5)
     ps.t = ui.now
+  if not mine:
+    # a flick that ran into an end goes on past it as far as its speed takes it, and comes
+    # back (as phones' pages bounce): the speed handed to the spring
+    let hit = flingHitEnd(id)
+    if hit != 0 and maxY > 0:
+      ps.vel = clamp(-hit, -2.5, 2.5)
+      ps.t = ui.now - 16
   let goal = if ps.wants and (ps.refreshing or ps.fired): float(PullAt) * 0.75 else: 0.0
-  if not ps.tracking and ps.off != goal:
-    # (springing back -- to the spinner's room while it refreshes -- quickly, then slowing)
+  if not ps.tracking and (ps.off != goal or ps.vel != 0):
+    # (springing back -- to the spinner's room while it refreshes --: a spring damped just
+    # enough not to swing past, in steps of a few milliseconds)
     if ps.t == 0: ps.t = ui.now - 16
-    let dt = float(max(1, min(50, ui.now - ps.t)))
+    var dt = float(max(1, min(50, ui.now - ps.t)))
     ps.t = ui.now
-    ps.off = goal + (ps.off - goal) * exp(-dt / 70)
-    if abs(ps.off - goal) < 0.5: ps.off = goal
-    if ps.off != goal: wakeIn(16)
+    const w = 1 / 75.0                      # (its stiffness: back in about 0.4 s)
+    while dt > 0:
+      let h = min(dt, 4.0)
+      let acc = -w * w * (ps.off - goal) - 2 * w * ps.vel
+      ps.vel += acc * h
+      ps.off += ps.vel * h
+      dt -= h
+    if abs(ps.off - goal) < 0.5 and abs(ps.vel) < 0.01:
+      ps.off = goal
+      ps.vel = 0
+    if ps.off != goal or ps.vel != 0: wakeIn(16)
   elif ps.tracking: wakeIn(16)
   ps.wants = false
-  if ps.off == 0 and not ps.tracking and not ps.fired and not ps.refreshing: panelPulls.del(id)
+  if ps.off == 0 and ps.vel == 0 and not ps.tracking and not ps.fired and not ps.refreshing:
+    panelPulls.del(id)
   else: panelPulls[id] = ps
 
 type FastThumb = object

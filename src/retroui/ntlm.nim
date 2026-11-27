@@ -91,7 +91,8 @@ const
     k
 
 proc md5*(data: string): string =
-  ## The MD5 digest of `data` (16 bytes). Broken as a hash: only for NTLM.
+  ## The MD5 digest of `data` (16 bytes). Broken as a hash: only for what asks for it (NTLM,
+  ## a Subsonic server's token).
   var h = [0x67452301'u32, 0xefcdab89'u32, 0x98badcfe'u32, 0x10325476'u32]
   let p = padded(data)
   var at = 0

@@ -140,11 +140,23 @@ proc permissionsOfCode*(caches: openArray[string]): seq[tuple[name, why: string]
         try: result = readFile(f) except IOError: discard
         break
     texts[module] = result
+  proc defines(c, p: string): bool =
+    ## (the C has the proc `p`: Nim 2.4 names it `p_u12__...`, Nim 2.2 `p__...`)
+    if (p & "__") in c: return true
+    var at = c.find(p & "_u")
+    while at >= 0:
+      var k = at + p.len + 2
+      while k < c.len and c[k] in {'0'..'9'}: inc k
+      if k > at + p.len + 2 and k + 1 < c.len and c[k] == '_' and c[k + 1] == '_' and
+         (at == 0 or c[at - 1] notin {'A'..'Z', 'a'..'z', '0'..'9'}):
+        return true
+      at = c.find(p & "_u", at + 1)
+    false
   proc uses(module: string; procs: openArray[string]): bool =
     let c = code(module)
     if c.len == 0: return false
     for p in procs:
-      if (p & "__") in c: return true
+      if defines(c, p): return true
     false
   template need(p, why: string) =
     if result.allIt(it.name != p): result.add ("android.permission." & p, why)
@@ -157,10 +169,15 @@ proc permissionsOfCode*(caches: openArray[string]): seq[tuple[name, why: string]
   if uses("system", ["location"]):
     need("ACCESS_COARSE_LOCATION", "the place (retroui/system's location)")
     need("ACCESS_FINE_LOCATION", "the place, precise (retroui/system's location)")
-  if uses("media", ["audioView"]):
+  if uses("media", ["audioView", "audioPlayer"]):
     # (a sound plays on with the app in the background: RetroPlayback)
-    need("FOREGROUND_SERVICE", "sounds playing on in the background (audioView)")
-    need("FOREGROUND_SERVICE_MEDIA_PLAYBACK", "sounds playing on in the background (audioView)")
+    need("FOREGROUND_SERVICE", "sounds playing on in the background (audioView, audioPlayer)")
+    need("FOREGROUND_SERVICE_MEDIA_PLAYBACK", "sounds playing on in the background (audioView, audioPlayer)")
+  if uses("media", ["setPlayerEqualizer"]):
+    need("MODIFY_AUDIO_SETTINGS", "the equalizer (setPlayerEqualizer)")
+  if uses("media", ["askMusicAccess"]):
+    need("READ_MEDIA_AUDIO", "the music on the device, Android 13 on (askMusicAccess)")
+    need("READ_EXTERNAL_STORAGE", "the music on the device, before Android 13 (askMusicAccess)")
   if uses("native", ["vibrate"]) or uses("system", ["haptic"]):
     need("VIBRATE", "a buzz (vibrate, haptic)")
   # (the network: every request of the kit goes through http's, a download,
@@ -1717,8 +1734,11 @@ proc main() =
     permissions.add "android.permission.MANAGE_EXTERNAL_STORAGE"
     if "com.termux" notin queries: queries.add "com.termux"   # its files, through SAF
   for p in permissions:
-    manifest.kids.add XNode(name: "uses-permission",
-                            attrs: @[sAttr("name", 0x01010003, p)])
+    if storage and p == "android.permission.READ_EXTERNAL_STORAGE": continue   # (above)
+    var attrs = @[sAttr("name", 0x01010003, p)]
+    if p == "android.permission.READ_EXTERNAL_STORAGE":
+      attrs.add iAttr("maxSdkVersion", 0x01010271, 32)    # (Android 13 on: READ_MEDIA_*)
+    manifest.kids.add XNode(name: "uses-permission", attrs: attrs)
   # (a permission implies the hardware: not required, so the app installs
   # on a device without a camera, a microphone, GPS -- it asks and goes on)
   var features: seq[string]

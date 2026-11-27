@@ -8,8 +8,10 @@ in more states too), and they are drawn from the very example beside them,
 so they always match the toolkit.
 
 Every control works with the mouse, the keyboard (Tab, F6, the arrows, Space,
-Enter, Esc, `&` letters with Alt, the menu key), fingers (a tap, a drag to
-scroll, a long press for the menu) and screen readers (see
+Enter, Esc, `&` letters with Alt, the menu key, the wheel), fingers (a tap --
+a press just beside a small control is its, as if it were 44 points across --,
+a drag to scroll, a long press for the menu, on a word in a text box choosing
+it) and screen readers (see
 [Screen readers and input methods](#screen-readers-and-input-methods)).
 The [README](../README.md) tells the rest:
 files, mail, the image editor, the system's own APIs, Android and iOS. The
@@ -32,14 +34,14 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 - **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
 - **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
 - **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
-- **[Phone controls](#phone-controls)**: [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [cardShelf](#cardshelf) · [pullRefresh](#pullrefresh) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [searchBar](#searchbar) · [actionBar](#actionbar) · [roundButton](#roundbutton) · [indexBar](#indexbar) · [messageBubble](#messagebubble) · [clockFace](#clockface) · [appIcon](#appicon) · [texture](#texture)
+- **[Phone controls](#phone-controls)**: [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [cardShelf](#cardshelf) · [pullRefresh](#pullrefresh) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [searchBar](#searchbar) · [actionBar](#actionbar) · [roundButton](#roundbutton) · [indexBar](#indexbar) · [messageBubble](#messagebubble) · [clockFace](#clockface) · [appIcon](#appicon) · [slideToConfirm](#slidetoconfirm) · [bigButton](#bigbutton) · [texture](#texture) · [vslider](#vslider) · [ratingStars](#ratingstars) · [checkRow](#checkrow) · [editRow](#editrow) · [coverFlow](#coverflow) · [sideMenu](#sidemenu)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
 - **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview) · [assistantPanel](#assistantpanel) · [aiServiceForm](#aiserviceform)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
 - **[Maps and 3D](#maps-and-3d)**: [mapView](#mapview) · [tileMap](#tilemap) · [view3d](#view3d) · [Models: parts and clips](#models-parts-and-clips) · [bars3d](#bars3d)
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
 - **[Canvas and reports](#canvas-and-reports)**: [canvas: your own drawing](#canvas-your-own-drawing) · [canvas2d (the HTML5 Canvas 2D API)](#canvas2d-the-html5-canvas-2d-api) · [reportView (an HTML template: PDF, printing)](#reportview-an-html-template-pdf-printing) · [pdfView](#pdfview) · [QR codes](#qr-codes)
-- **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview)
+- **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview) · [audioPlayer](#audioplayer)
 - **[The system's features](#the-systems-features)**: [notify, share, haptic](#notify-share-haptic) · [location, speak](#location-speak) · [deviceInfo, setOpenAtLogin](#deviceinfo-setopenatlogin) · [saveSecret, loadSecret](#savesecret-loadsecret) · [checkForUpdate, downloadUpdate, installUpdate](#checkforupdate-downloadupdate-installupdate) · [job, fetch: work off the screen's thread](#job-fetch-work-off-the-screens-thread) · [trayIcon](#trayicon)
 - **[Looks](#looks)**: [Themes](#themes) · [A look of your own](#a-look-of-your-own) · [Dark mode](#dark-mode) · [Size and text size](#size-and-text-size) · [Fonts](#fonts) · [The window's frame](#the-windows-frame) · [The accent button; a button's own text and height](#the-accent-button-a-buttons-own-text-and-height) · [The state colours](#the-state-colours) · [A group with a title strip; options in boxes; large digits](#a-group-with-a-title-strip-options-in-boxes-large-digits)
 - **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself) · [The keyboard alone: Tab's order and F6](#the-keyboard-alone-tabs-order-and-f6) · [The focus ring](#the-focus-ring) · [The inspector and the driver: controls found by their names](#the-inspector-and-the-driver-controls-found-by-their-names)
@@ -1476,13 +1478,14 @@ form 0:
 ```nim
 proc edit*(s: var string; w = 0; password = false;
            enabled = true; readOnly = false; invalid = false;
-           h = 0; style = TextStyle()): bool {.discardable.}
+           h = 0; style = TextStyle(); hint = ""): bool {.discardable.}
 ```
 
 A one-line text box bound to `s`; true when the text changed.
 `readOnly`: selected and copied, not changed. `invalid`: red, what is
 typed is not right yet (a form says so as it is typed). `style`: its
 text's (large, bold, serif): the box grows with it; `h`: its height.
+`hint`: gray words in it while it is empty ("New task"), its name for screen readers.
 
 ```nim
 proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
@@ -3969,7 +3972,8 @@ proc breadcrumb*(parts: openArray[string]; w = 0;
 
 The parts of a path as buttons in a row ("C: > Users > me"); returns
 the index of the part clicked, -1 if none. Parts that do not fit are
-folded into a "<<" button at the start.
+folded into a "<<" button at the start. One stop of Tab: Left and Right
+go along its parts, Home and End to its ends, Enter or Space opens one.
 
 ### pager, stepper
 
@@ -5482,7 +5486,8 @@ of npNone:
 **API**
 
 ```nim
-proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false): NavPick
+proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false;
+             menu = false): NavPick
 ```
 
 A phone's navigation bar, the width of the row: the page's `title` in the middle, bold;
@@ -5491,7 +5496,8 @@ button after it (`action`). Returns what was pressed. Alt+Left is Back too. Clas
 raised bar; Glass and Matte: the title bar's, its buttons' labels in the highlight; Gloss:
 the glossy blue-gray bar, white title, bordered buttons, Back with a point. `done`: the
 action is the one that finishes the page (Done, Save): blue in Gloss, filled in Matte.
-(With a `PageStack`, `pageHeader` says Back by itself.)
+`menu` (with no `back`): the button at its start is three lines -- the app's `sideMenu` --
+and returns `npBack`. (With a `PageStack`, `pageHeader` says Back by itself.)
 
 ### wheelPicker
 
@@ -5919,7 +5925,7 @@ flat buttons; Classic: a 3.1 message box.
 
 ### tableGroup, tableRow, tableSwitch, tableButton
 
-Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups, the values in the scheme's hue, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.
+Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end, a count in a capsule (`count`) and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups, the values in the scheme's hue, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.
 
 | Gloss | Glass |
 |---|---|
@@ -5935,6 +5941,7 @@ var airplane = false
 tableGroup "":
   tableSwitch("Airplane Mode", airplane, glyph = nfBolt)
   discard tableRow("Wi-Fi", "Home", taChevron, glyph = nfWifi)
+  discard tableRow("Messages", "", taChevron, glyph = nfEnvelope, count = "3")
 tableGroup("DNS", "Lookups go to the server chosen."):
   discard tableRow("Cloudflare", "12 ms", taCheck)
   discard tableRow("AdGuard", "", taInfo, subtitle = "Blocks ads")
@@ -5961,7 +5968,7 @@ A group of rows with a header and no footer (see the other `tableGroup`).
 ```nim
 proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subtitle = "";
                enabled = true; key = ""; picture: Bitmap = nil; tint = Color();
-               selected = false): TableHit
+               selected = false; count = ""): TableHit
 ```
 
 A row of a `tableGroup`: an icon (`glyph`, an icon font's -- Gloss and Glass draw it white
@@ -5971,7 +5978,8 @@ rounded), its `title`, a gray
 written), and an `accessory` -- a chevron (it leads to another page), a check mark (the
 one chosen) or an info button. A click, a tap, Enter or Space: `clicked`; the info
 button: `info`. `key`: its own id (rows of the same title). `selected`: the row whose
-page is shown beside the list (a tablet's): drawn chosen -- Gloss's blue.
+page is shown beside the list (a tablet's): drawn chosen -- Gloss's blue. `count`: a
+number in a capsule before the end ("3" unread; Gloss: iOS 6's slate gray, white on it).
 
 ```nim
 proc tableSwitch*(title: string; v: var bool; glyph = ""; subtitle = ""; enabled = true;
@@ -6283,6 +6291,98 @@ Gloss: iOS 6's -- `tint` (else the highlight) lit as glass, a shine across its t
 shadow under it; Glass: flat `tint`, white glyph; Matte: nearly square; Classic: Program
 Manager's -- the glyph alone, its label chosen while it has the focus.
 
+### slideToConfirm
+
+A track with a knob to slide to its end before something happens that should not happen by a stray tap: dragged all the way, true once; let go before, it slides back. Enter or Space confirms with the focus. Gloss: a dark track, a light knob with an arrow, the words lit by a shine crossing them.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![slideToConfirm, normal](controls/slidetoconfirm-normal.png) | ![slideToConfirm, touch screen](controls/slidetoconfirm-touch-screen.png) | ![slideToConfirm, dark scheme](controls/slidetoconfirm-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Disabled |
+|---|---|
+| ![slideToConfirm, keyboard focus](controls/slidetoconfirm-keyboard-focus.png) | ![slideToConfirm, disabled](controls/slidetoconfirm-disabled.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![slideToConfirm: Gloss](controls/slidetoconfirm-gloss.png) | ![slideToConfirm: Glass](controls/slidetoconfirm-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![slideToConfirm: Matte](controls/slidetoconfirm-matte.png) | ![slideToConfirm: Gloss, dark](controls/slidetoconfirm-gloss-dark.png) |
+
+```nim
+discard
+
+if slideToConfirm("slide to pay 12.500 OMR"):
+  discard
+```
+
+**API**
+
+```nim
+proc slideToConfirm*(label: string; key = ""; enabled = true): bool
+```
+
+A track with a knob to slide to its end before something happens that should not happen by
+a stray tap -- "slide to answer", "slide to power off", "slide to pay": dragged all the way
+(or nearly), true once; let go before, it slides back. With the focus, Enter or Space
+confirms (a keyboard's press is meant); a screen reader's press too. Gloss: iOS 6's -- a
+dark track sunk into the window, a light gray knob with an arrow on it, the words lit by
+a shine that crosses them; Glass and Matte: a capsule, the knob in the highlight; Classic:
+a groove with a 3.1 button in it.
+
+### bigButton
+
+A button as wide as the row and tall for a thumb, for the one thing a screen is for -- Start and Stop, Call, End, Pay -- gray, green, red or blue (`BigTone`). Gloss: its color lit as glass in a dark frame.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![bigButton, normal](controls/bigbutton-normal.png) | ![bigButton, touch screen](controls/bigbutton-touch-screen.png) | ![bigButton, dark scheme](controls/bigbutton-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Pressed | Disabled |
+|---|---|---|
+| ![bigButton, keyboard focus](controls/bigbutton-keyboard-focus.png) | ![bigButton, pressed](controls/bigbutton-pressed.png) | ![bigButton, disabled](controls/bigbutton-disabled.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![bigButton: Gloss](controls/bigbutton-gloss.png) | ![bigButton: Glass](controls/bigbutton-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![bigButton: Matte](controls/bigbutton-matte.png) | ![bigButton: Gloss, dark](controls/bigbutton-gloss-dark.png) |
+
+```nim
+discard
+
+row([-1, -1]):
+  if bigButton("Start", btGreen):
+    discard
+  if bigButton("Stop", btRed):
+    discard
+if bigButton("Lap"):
+  discard
+```
+
+**API**
+
+```nim
+proc bigButton*(label: string; tone = btGray; enabled = true; key = ""): bool
+```
+
+A button as wide as the row and tall for a thumb, for the one thing a screen is for --
+Start and Stop, Call, End, Pay. True when clicked (Space and Enter with the focus). Gloss:
+iOS 6's -- its color lit as glass in a dark frame, the label large and white; Glass: a
+flat capsule-cornered slab; Matte: flat, square; Classic: a 3.1 push button, bold.
+
 ### texture
 
 A surface drawn in code, in every look: linen, lined paper, felt, stitched leather, pinstripes -- a page's background, a notes page, a card table, a cover. `tint` changes its color.
@@ -6315,6 +6415,331 @@ leather, pinstripes -- a page's background, a notes page, a card table, a cover.
 its color (alpha 0: its own -- linen gray, paper pale yellow, felt green, leather brown,
 pinstripes the window's). `lineH`: paper's line spacing (0: a line of text's, `FontH`
 and a little).
+
+### vslider
+
+A slider standing up, its highest value at its top: an equalizer's bands, a mixer's channels -- a label under each. Drag the knob or click along it; Up, Down, Page Up, Page Down, Home and End with the focus. Gloss: blue from its foot up to a round knob, as the sliders of then.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![vslider, normal](controls/vslider-normal.png) | ![vslider, touch screen](controls/vslider-touch-screen.png) | ![vslider, dark scheme](controls/vslider-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Disabled |
+|---|---|
+| ![vslider, keyboard focus](controls/vslider-keyboard-focus.png) | ![vslider, disabled](controls/vslider-disabled.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![vslider: Gloss](controls/vslider-gloss.png) | ![vslider: Glass](controls/vslider-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![vslider: Matte](controls/vslider-matte.png) | ![vslider: Gloss, dark](controls/vslider-gloss-dark.png) |
+
+```nim
+discard
+
+row:
+  for i, name in ["31", "125", "500", "2k", "8k", "16k"]:
+    if vslider(eqDemo[i], -12, 12, h = dp(150), label = name,
+               ):
+      discard
+    if i == 2:
+```
+
+**API**
+
+```nim
+proc vslider*(v: var int; lo, hi: int; h = 0; label = ""; enabled = true): bool {.discardable.}
+```
+
+A slider standing up, bound to `v` in `lo..hi` -- `hi` at its top: an equalizer's band, a
+mixer's channel; `label` under it (a band's "125"). Drag its knob, or click along it; Up,
+Down, Page Up, Page Down, Home, End with the focus; the wheel while it has it. `h`: its
+height (0: 8 lines). Gloss: iOS 6's -- a track cut in, blue from its foot up to a round
+knob, gray to white above it; Glass, Matte and Classic their sliders' faces, standing.
+True when `v` changed.
+
+### ratingStars
+
+A rating of 0 to 5 stars (or as many as asked): a tap on a star gives that many, on the one it has again none, a drag follows the finger; Left and Right, the digits, Home and End with the focus. Gloss: stars in the bars' slate blue, the missing ones dots, as the music player of then rated songs.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![ratingStars, normal](controls/ratingstars-normal.png) | ![ratingStars, touch screen](controls/ratingstars-touch-screen.png) | ![ratingStars, dark scheme](controls/ratingstars-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Disabled |
+|---|---|
+| ![ratingStars, keyboard focus](controls/ratingstars-keyboard-focus.png) | ![ratingStars, disabled](controls/ratingstars-disabled.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![ratingStars: Gloss](controls/ratingstars-gloss.png) | ![ratingStars: Glass](controls/ratingstars-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![ratingStars: Matte](controls/ratingstars-matte.png) | ![ratingStars: Gloss, dark](controls/ratingstars-gloss-dark.png) |
+
+```nim
+discard
+
+if ratingStars(starsDemo):
+  discard
+```
+
+**API**
+
+```nim
+proc ratingStars*(v: var int; stars = 5; size = 0; enabled = true): bool {.discardable.}
+```
+
+A rating of 0 to `stars`: a tap or a click on a star gives that many (on the one it has
+again: none), a drag along them follows the finger; Left and Right, 0 to 9, Home and End
+with the focus. `size`: a star's height (0: a line's and a half; a finger's on a phone).
+Gloss: iOS 6's -- stars of the bars' slate blue, the empty ones dots; Glass and Matte the
+highlight's; Classic the text's. True when `v` changed.
+
+### checkRow
+
+A to-do's row: a round check at its start -- a tap on it ticks the task or not (`toggled`; Space with the focus) --, the rest of the row its page (`clicked`; Enter). Ticked, its title is gray. A due date at its end (`detailColor` red when it is late), a flag, a chevron.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![checkRow, normal](controls/checkrow-normal.png) | ![checkRow, touch screen](controls/checkrow-touch-screen.png) | ![checkRow, dark scheme](controls/checkrow-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus |
+|---|
+| ![checkRow, keyboard focus](controls/checkrow-keyboard-focus.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![checkRow: Gloss](controls/checkrow-gloss.png) | ![checkRow: Glass](controls/checkrow-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![checkRow: Matte](controls/checkrow-matte.png) | ![checkRow: Gloss, dark](controls/checkrow-gloss-dark.png) |
+
+```nim
+discard
+
+tableGroup "Reminders":
+  for i in 0 ..< todoDemo.len:
+    discard checkRow(todoDemo[i][0], todoDemo[i][1], detail = todoDemo[i][2],
+                     accessory = taChevron, flagged = i == 1, detailColor = (
+      if i == 2:
+        color(220, 40, 40)
+      else:
+        Color()
+    ), key = "todo" & $i)
+    if i == 1:
+```
+
+**API**
+
+```nim
+proc checkRow*(title: string; v: var bool; detail = ""; subtitle = ""; accessory = taNone;
+               flagged = false; detailColor = Color(); enabled = true; key = ""): TableHit
+```
+
+A row of a `tableGroup` with a round check at its start -- a to-do, a reminder: a tap on the
+check ticks it or not (`toggled`; Space with the focus), a tap on the rest of the row is
+`clicked` (Enter) -- its page. Ticked, its title is gray. `detail` at its end (a due date;
+`detailColor`: red when it is late), `subtitle` under the title, `flagged`: an orange flag
+before the end, `accessory` as `tableRow`'s. Gloss: the check a shining blue disc with a
+white tick, an empty ring before; Glass and Matte in the highlight; Classic 3.1's round
+check.
+
+### editRow
+
+A list being edited, as a phone's: a red minus at each row's start -- tapped, it turns up and a Delete button comes at the row's end -- and a grip at its end to drag the row up or down (the others make way). It returns what was done (`RowEdit`: `reDelete`, `reMove` with `index` and `to`); the app changes its list. With the focus, Delete deletes and Alt+Up, Alt+Down move.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![editRow, normal](controls/editrow-normal.png) | ![editRow, touch screen](controls/editrow-touch-screen.png) | ![editRow, dark scheme](controls/editrow-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus |
+|---|
+| ![editRow, keyboard focus](controls/editrow-keyboard-focus.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![editRow: Gloss](controls/editrow-gloss.png) | ![editRow: Glass](controls/editrow-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![editRow: Matte](controls/editrow-matte.png) | ![editRow: Gloss, dark](controls/editrow-gloss-dark.png) |
+
+```nim
+discard
+
+tableGroup "Up Next":
+  for i, t in editDemo:
+    let e = editRow(t[0], i, detail = t[1])
+    if i == 1:
+    case e.kind
+    of reDelete:
+      editDemo.delete(e.index)
+    of reMove:
+      let x = editDemo[e.index]
+      editDemo.delete(e.index)
+      editDemo.insert(x, e.to)
+    of reNone:
+      discard
+```
+
+**API**
+
+```nim
+proc editRow*(title: string; index: int; detail = ""; subtitle = ""; glyph = ""; tint = Color();
+              picture: Bitmap = nil; deletable = true; movable = true; key = ""): RowEdit
+```
+
+A row of a `tableGroup` while its list is edited, as a phone's: a red minus at its start
+-- tapped, it turns up and a Delete button comes at the row's end; tapped, the row is to be
+deleted --, a grip at its end to drag it up or down the list (the rows round it make way;
+let go, it is to be moved there). `index`: its place in the list, 0 at the top -- the rows
+in the order they are, one `editRow` each. It returns what was done (`RowEdit`): the app
+deletes or moves the row in its list. With the focus: Delete deletes, Alt+Up and Alt+Down
+move it. `deletable`, `movable`: its minus, its grip. Gloss: iOS 6's -- the shining red
+minus, the red Delete, the gray grip lines; the other looks their own.
+
+### coverFlow
+
+Covers in a row, the chosen one in the middle facing you, the others turned away to its sides and shining on the floor under them -- the music player's Cover Flow. Drag or flick them along, tap one at a side to bring it to the middle; Left, Right, Home, End with the focus; a tap on the middle one, or Enter, returns it (to open the album). Its title and subtitle under it.
+
+| Normal | Touch screen |
+|---|---|
+| ![coverFlow, normal](controls/coverflow-normal.png) | ![coverFlow, touch screen](controls/coverflow-touch-screen.png) |
+
+```nim
+discard
+
+let tl = ["Morning Tide", "Desert Roads", "Old Harbour", "Night Market",
+          "Mountain Air", "Blue Hours", "Salt Wind"]
+let sub = ["Al Bahr Quartet", "The Wadi Band", "Sohar Strings", "Lantern",
+           "Hajar", "Late Trio", "Coastline"]
+if flowCovers.len == 0:
+  for i in 0 ..< tl.len:
+    flowCovers.add demoCover(i)
+discard coverFlow(flowCovers, flowAt, tl, sub, h = dp(260))
+```
+
+**API**
+
+```nim
+proc coverFlow*(covers: openArray[Bitmap]; sel: var int; titles: openArray[string] = [];
+                subtitles: openArray[string] = []; h = 0; key = ""): int
+```
+
+Covers in a row, the chosen one (`sel`) in the middle facing you, the others turned away to
+its sides and shining on the floor under them -- the music player's Cover Flow: drag or
+flick them along, tap one at a side to bring it to the middle, Left and Right, Home and End
+with the focus; the middle one's title and subtitle under it. `covers`: the pictures (nil:
+a plain square). It returns the cover tapped, or Enter pressed on, in the middle (-1 none).
+`h`: its height (0: as the room and the width allow).
+
+### sideMenu
+
+The app's places in a menu that slides out from the left over the page -- the page dimmed beside it --, as the music apps of 2012 had it: `sideMenuItem`s (an icon, a title, a count, the place shown drawn chosen) under `sideMenuHeader`s. `navBar(title, menu = true)` puts its three lines at the bar's start; Esc, the phone's Back or a tap beside the menu close it. On a tablet the same items sit down the left of the window, always there: `sideMenuItem` outside a `sideMenu`, `sideMenuBack` under them. Gloss: the charcoal menu, its headers in lighter bars.
+
+| Gloss | Glass |
+|---|---|
+| ![sideMenu: Gloss](controls/sidemenu-gloss.png) | ![sideMenu: Glass](controls/sidemenu-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![sideMenu: Matte](controls/sidemenu-matte.png) | ![sideMenu: Gloss, dark](controls/sidemenu-gloss-dark.png) |
+
+```nim
+var menuShown = true
+var menuPlace = 1
+
+let places = [("Home", nfHome), ("Radio", nfWifi), ("Library", nfList),
+              ("Settings", nfCog)]
+if navBar(places[menuPlace][0], menu = true) == npBack:
+  menuShown = true
+label("Your stations, the top ones, a genre\'s...")
+sideMenu(menuShown, 240):
+  sideMenuHeader("Listen")
+  for i in 0 .. 2:
+    if sideMenuItem(places[i][0], places[i][1], if i == 1:
+      "4"
+    else:
+      "", selected = menuPlace == i):
+      menuPlace = i
+      menuShown = false
+  sideMenuHeader("Options")
+  if sideMenuItem("Settings", nfCog, selected = menuPlace == 3):
+    menuPlace = 3
+    menuShown = false
+```
+
+**API**
+
+```nim
+template sideMenu*(open: var bool; width: int; body: untyped)
+```
+
+The app's places in a menu that slides out from the left edge while `open` (the right one
+in a right-to-left interface), over the page -- dimmed beside it --, as tall as the window,
+`width` pixels wide at most: its `sideMenuItem`s and `sideMenuHeader`s, a search box, a
+panel when they are many. Esc, the phone's Back, a tap beside it close it. On a tablet the
+same items sit down the left of the window, always there (`sideMenuItem` outside a
+`sideMenu`). Gloss: the charcoal menu that slid out from under a page, its headers in
+lighter bars.
+
+```nim
+proc beginSideMenu*(open: var bool; width = 280): bool
+```
+
+Starts a side menu (see `sideMenu`): true while it is `open`.
+
+```nim
+proc endSideMenu*()
+```
+
+Ends a `beginSideMenu`.
+
+```nim
+proc sideMenuItem*(title: string; glyph = ""; detail = ""; selected = false; enabled = true;
+                   key = ""): bool
+```
+
+An item of a side menu (or of a tablet's column of them): its icon, its title, a gray
+`detail` at its end (a count); `selected`: the place shown now, drawn chosen. True when
+clicked or tapped (Enter, Space with the focus). Gloss: white on the charcoal, a light line
+along its top and a dark one under it, the chosen one darker with the highlight's bar at
+its edge.
+
+```nim
+proc sideMenuHeader*(title: string)
+```
+
+A section's header in a side menu (or a column of its items): Gloss a lighter bar, its
+title gray; the other looks the title small, gray.
+
+```nim
+proc sideMenuBack*(r: Rect)
+```
+
+The face of a side menu's items drawn outside a `sideMenu` -- a tablet's column of them
+down the left: Gloss's charcoal, the window in the other looks.
 
 ## Files
 
@@ -9601,6 +10026,85 @@ proc closeVideo*(key: string)
 
 Lets the player of the `videoView` (or `audioView`) with this `key`
 (or path) go.
+
+### audioPlayer
+
+A sound played with nothing drawn, for an app that draws its own player (a music app's Now Playing): called every frame for what plays, it returns where it is -- playing, `ended` in the frame it ended, the position, the length, why it cannot play. `playVideo`, `seekVideo` and `closeVideo` take its `key`; a new path for the same key plays the next song. `setPlayerVolume` sets its volume (a fade, a song's ReplayGain); `setPlayerEqualizer` its 10 bands (`EqualizerBands`, dB), where `playerEqualizer()` says there is one (Android, GStreamer). It plays on in the background as `audioView` does; with `setNowPlaying` and `mediaKeys` the lock screen shows it and works it. `musicAccess` and `askMusicAccess`: an Android app asks the user for the music on the phone; `musicFolders`: where music is kept. Each file's title, artist, album, cover and length: `retroui/audiotags`.
+
+*It draws nothing: the app draws its player -- Retro Music's Now Playing (`examples/music/local.nim`).*
+
+```nim
+discard
+
+let ev = audioPlayer(getHomeDir() / "Music" / "Morning bell.ogg", "music")
+setPlayerVolume("music", 0.8)
+setPlayerEqualizer("music", [4.0, 3, 0, 0, 0, 0, 0, 2, 3, 4])
+label(if ev.playing:
+  "playing"
+else:
+  "paused")
+```
+
+**API**
+
+```nim
+proc audioPlayer*(path: string; key: string; autoplay = false; speed = 1.0): VideoEvent {.discardable.}
+```
+
+A sound file or a web address played with nothing drawn: an app that draws its own player
+(a music app's Now Playing, its bar) calls it every frame for what plays, and gets where it
+is (`VideoEvent`: playing, ended -- in the frame it ended --, the position, the length, why
+it cannot play). `key` names it: `playVideo`, `seekVideo`, `closeVideo`, `setPlayerVolume`,
+`setPlayerEqualizer` take it. A new `path` for the same `key` plays the next sound (what
+was asked of the player -- its volume, its equalizer -- kept). It plays where `audioView`
+does, as it does: on in the background (in an Android app with the system's notification
+that it plays; on iOS with UIBackgroundModes audio), its speed with the pitch kept.
+Calling it is not needed to keep it playing: it plays on while the app draws other things
+-- but its state is read back, and its end seen, when it is called.
+
+```nim
+proc setPlayerVolume*(key: string; volume: float)
+```
+
+The volume of the `audioPlayer` (or `audioView`) with this `key`: 1 as recorded, 0 silent
+(up to 4 louder where the system's player can: GStreamer; elsewhere at most 1) -- a fade, a
+song's ReplayGain. Kept for the next sound of the same `key`.
+
+```nim
+proc setPlayerEqualizer*(key: string; gains: openArray[float])
+```
+
+The equalizer of the `audioPlayer` with this `key`: a gain for each of `EqualizerBands` (dB,
+-12 .. 12; 0 as recorded; none, or all 0: off). Kept for the next sound of the same `key`.
+Where there is none (`playerEqualizer` false) it changes nothing.
+
+```nim
+proc playerEqualizer*(): bool
+```
+
+`setPlayerEqualizer` changes the sound here: Android (its own equalizer, the device's
+bands taken from the 10 asked for), Linux and the like with GStreamer's equalizer-10bands.
+
+```nim
+proc musicAccess*(): bool
+```
+
+The app may read the music on the device: always but in an Android app not let yet
+(Android 13 on: "Music and audio"; before: the storage) -- `askMusicAccess`.
+
+```nim
+proc askMusicAccess*()
+```
+
+Asks Android to let the app read the music on the device (its question, once; in an
+Android app only -- elsewhere it may). `musicAccess` says when it was let.
+
+```nim
+proc musicFolders*(): seq[string]
+```
+
+Where music is kept that exists here: the phone's Music, Download and Recordings (an Android
+app with `musicAccess`), the user's Music on a desktop (else the home folder).
 
 ## The system's features
 

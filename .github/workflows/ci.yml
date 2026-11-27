@@ -100,6 +100,33 @@ jobs:
       - name: The tests as WebAssembly under Node
         run: sh tests/web/node.sh
 
+  examples:
+    # every example read by the compiler for each system it ships on (`nim
+    # check`: no C compiled, a few minutes) -- an example that breaks shows
+    # up on the push that broke it; the full builds are the job below's
+    strategy:
+      fail-fast: false
+      matrix:
+        for: [linux, windows, macosx, android]
+    name: examples (${{ matrix.for }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jiro4989/setup-nim-action@v2
+        id: setupnim
+        continue-on-error: true   # (a download cut off: tried once more below)
+        with:
+          nim-version: "2.4.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: jiro4989/setup-nim-action@v2
+        if: steps.setupnim.outcome == 'failure'
+        with:
+          nim-version: "2.4.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Every example, checked
+        run: EXAMPLES_FOR=${{ matrix.for == 'linux' && '' || matrix.for }} sh tools/examplescheck.sh
+
   build:
     # the tools compile on the three desktops; the examples too, but only
     # when asked (Actions > CI > Run workflow): they are not part of the

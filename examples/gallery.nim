@@ -1322,6 +1322,15 @@ var
   phCups = 2
   phPage = 0
   phSheet, phBottom, phPop, phPaid, phAlert, phWifi, phAir = false
+  phTodo = @["Call the bank", "Book the hall", "Send the plan"]
+  phDone = @[false, false, true]
+  phEditing = false
+  phEq = [4, 2, 0, 3, 5]
+  phStars = 4
+  phCovers: seq[Bitmap]
+  phFlow = 2
+  phMenu = false
+  phPlace = 0
   phFind = ""
   phServer = 0
   phAt: Rect
@@ -1343,7 +1352,7 @@ proc phonePage() =
       tableGroup "":
         tableSwitch("Airplane Mode", phAir, glyph = nfBolt, tint = color(255, 140, 0))
         tableSwitch("Wi-Fi", phWifi, glyph = nfWifi, tint = color(40, 120, 230))
-        if tableRow("Bluetooth", "On", taChevron, glyph = nfBluetooth, tint = color(40, 120, 230)).clicked:
+        if tableRow("Bluetooth", "On", taChevron, glyph = nfBluetooth, tint = color(40, 120, 230), count = "2").clicked:
           status = "Bluetooth"
       tableGroup("DNS", "A tap picks one; its info button tells more."):
         for i, n in ["Cloudflare", "Quad9", "AdGuard"]:
@@ -1402,6 +1411,11 @@ proc phonePage() =
       row:
         clockFace(9, 41, 30, label = "Sohar")
         clockFace(21, 41, 30, night = true, label = "Tokyo")
+    group "slideToConfirm, bigButton":
+      if slideToConfirm("slide to send the report"): status = "Sent"
+      row([-1, -1]):
+        if bigButton("Start", btGreen): status = "Start"
+        if bigButton("Stop", btRed): status = "Stop"
     group "appIcon, texture":
       row:
         if appIcon(nfEnvelope, "Mail", tint = color(36, 112, 216), badge = "3"): status = "Mail"
@@ -1411,6 +1425,66 @@ proc phonePage() =
       let tw = (tr.w - 3 * dp(6)) div 4
       for i, k in [txLinen, txPaper, txFelt, txLeather]:
         texture(rect(tr.x + i * (tw + dp(6)), tr.y, tw, tr.h), k)
+    group "checkRow, editRow":
+      tableGroup "":
+        for i in 0 ..< phTodo.len:
+          let h = checkRow(phTodo[i], phDone[i], detail = (if i == 0: "Today" else: ""), flagged = i == 1,
+                           key = "todo" & $i)
+          if h.toggled: status = phTodo[i] & (if phDone[i]: ": done" else: ": not done")
+      if button(if phEditing: "Done" else: "Edit"): phEditing = not phEditing
+      if phEditing:
+        tableGroup "":
+          var e: RowEdit
+          for i, t in phTodo:
+            let x = editRow(t, i)
+            if x.kind != reNone: e = x
+          case e.kind
+          of reDelete:
+            status = "Deleted " & phTodo[e.index]
+            phTodo.delete(e.index)
+            phDone.delete(e.index)
+          of reMove:
+            let (t, d) = (phTodo[e.index], phDone[e.index])
+            phTodo.delete(e.index)
+            phDone.delete(e.index)
+            phTodo.insert(t, e.to)
+            phDone.insert(d, e.to)
+          of reNone: discard
+    group "vslider, ratingStars":
+      row:
+        for i, name in ["62", "250", "1k", "4k", "16k"]:
+          if vslider(phEq[i], -12, 12, h = dp(110), label = name): status = name & " Hz: " & $phEq[i] & " dB"
+      if ratingStars(phStars): status = $phStars & " stars"
+    group "coverFlow":
+      if phCovers.len == 0:
+        for i in 0 ..< 6:
+          let b = newBitmap(64, 64)
+          let c0 = [color(236, 128, 44), color(40, 120, 200), color(250, 210, 90), color(60, 170, 140),
+                    color(170, 120, 220), color(230, 70, 70)][i]
+          for y in 0 ..< 64:
+            let c = mixColor(c0, color(20, 20, 30), y / 90)
+            for x in 0 ..< 64:
+              b.px[y * 64 + x] = 0xFF000000'u32 or (uint32(c.r) shl 16) or (uint32(c.g) shl 8) or uint32(c.b)
+          b.changed()
+          phCovers.add b
+      let o = coverFlow(phCovers, phFlow, ["Morning Tide", "Desert Roads", "Old Harbour", "Night Market",
+                                           "Mountain Air", "Blue Hours"], h = dp(220))
+      if o >= 0: status = "Opened album " & $(o + 1)
+    group "sideMenu":
+      label "The app's places, sliding out from the left (a tap beside it, Esc or Back close it)."
+      if button("Open the Side Menu"): phMenu = true
+  sideMenu(phMenu, 260):
+    sideMenuHeader("Listen")
+    for i, (name, g) in [("Home", nfHome), ("Radio", nfWifi), ("Library", nfList)]:
+      if sideMenuItem(name, g, if i == 1: "4" else: "", selected = phPlace == i):
+        phPlace = i
+        phMenu = false
+        status = name
+    sideMenuHeader("Options")
+    if sideMenuItem("Settings", nfCog, selected = phPlace == 3):
+      phPlace = 3
+      phMenu = false
+      status = "Settings"
   case actionSheet(phSheet, "Inbox", ["Mark all as read", "Move to Archive", "Delete all"], destructive = 2)
   of 0: status = "All read"
   of 1: status = "All moved"

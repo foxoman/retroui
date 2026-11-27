@@ -9,7 +9,7 @@
 ## ```
 
 import std/[tables, math, os, strutils, unicode, algorithm]
-import core, gfx, widgets, textengine
+import core, gfx, widgets, textengine, memwatch
 from ttf import Face, bounds, render
 from otshape import featureName
 
@@ -186,3 +186,11 @@ proc glyphPicker*(family, style: string; picked: var FontGlyph; h = 0; cell = 0)
         picked = g
         result = true
   endScroll()
+
+# (the device short of memory -- or a soak's count: the fonts read for the lists' samples and for
+# texts, the samples and the glyphs' pictures let go of, made again when they are shown)
+onMemoryPressure(proc (level: MemoryPressure) =
+  if level == mpCritical:
+    letGoOfFonts()
+    samples.clear()
+    glyphPics.clear())

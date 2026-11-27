@@ -28,7 +28,8 @@
 ## `canvas2d`        the HTML5 Canvas 2D API: paths, gradients, text, pictures
 ## `htmlview`        HTML (a safe subset) and the system's web view
 ## `markdown`        Markdown views
-## `media`           sound, video, animated GIFs
+## `media`           sound, video, animated GIFs; a player of the app's own (`audioPlayer`:
+##                   volume, an equalizer), the device's music folders
 ## `native`          any API of the system: C libraries, Java, Objective-C, Win32
 ## `files`, `docfs`  folders, file jobs, the trash, other apps' documents
 ## `filewidgets`     file lists, previews, path and drive bars, the folder tree
@@ -69,6 +70,8 @@
 ## `gltf`            models from Blender and other tools (glTF, .blend)
 ## `capture`         the camera and the microphone
 ## `mediasession`    the system's media controls (lock screen, taskbar)
+## `audiotags`       what a music file says: title, artist, album, cover, length, ReplayGain
+##                   (MP3, FLAC, M4A, Ogg, Opus, WAV), read in Nim
 ## `sign`, `msix`    signatures (JAR, Authenticode, time stamps), MSIX packages
 ## `macapp`          macOS bundles signed ad hoc, .icns, iOS archives
 ## `buildjobs`       how hard a build pushes the computer: C compilers as the memory

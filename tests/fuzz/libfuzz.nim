@@ -11,14 +11,15 @@
 ##
 ## Targets: png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt, lzma
 ## (the packed fonts), feed (RSS and Atom from any server), chapters,
-## transcript (a podcast's), board (a board file: what any program wrote). A
+## transcript (a podcast's), board (a board file: what any program wrote), audiotags (a music
+## file's tags: MP3, FLAC, M4A, Ogg, WAV). A
 ## Defect (an index, a range, an overflow: it aborts) or a sanitizer's
 ## report is a bug: libFuzzer stops and saves the input (crash-...; a
 ## Defect's also as crash-defect-...). -d:noSignalHandler: Nim's own
 ## handlers, set as the harness starts, would take libFuzzer's abort.
 
 import std/[json, hashes]
-import retroui/[imaging, jpeg, codec, markdown, webp, htmldom, pdfread, gltf, mvt, lzma, feeds, board]
+import retroui/[imaging, jpeg, codec, markdown, webp, htmldom, pdfread, gltf, mvt, lzma, feeds, board, audiotags]
 
 const fuzzTarget {.strdefine.} = "png"
 
@@ -63,7 +64,8 @@ proc LLVMFuzzerTestOneInput(data: ptr UncheckedArray[byte]; len: csize_t): cint 
           discard b.drawingOf(sh)
           discard b.drawingOf(sh, brief = true)
           discard b.boundsOf(sh)
-    else: {.error: "fuzzTarget: png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt, lzma, feed, chapters, transcript or board".}
+    elif fuzzTarget == "audiotags": discard readAudioTagsFrom(s)
+    else: {.error: "fuzzTarget: png, bmp, jpg, webp, inflate, md, html, pdf, gltf, mvt, lzma, feed, chapters, transcript, board or audiotags".}
   except CatchableError:
     discard                          # (bad input refused: as it should be)
   except Defect as e:

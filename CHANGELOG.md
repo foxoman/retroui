@@ -1,5 +1,165 @@
 # Changes
 
+## 0.79.0
+
+- **New phone parts**, drawn in every look (Gloss as iOS 6 had them), worked
+  by the finger, the mouse, the keys and screen readers:
+  - `checkRow`: a to-do's row -- a round check at its start (a tap ticks it,
+    `toggled`; Space), the rest of the row its page (`clicked`; Enter), a due
+    date at its end (red when it is late), a flag, a chevron;
+  - `editRow`: a list being edited -- a red minus that turns up and brings a
+    Delete to the row's end, a grip to drag the row up or down while the
+    others make way; it returns what was done (`RowEdit`: `reDelete`,
+    `reMove`), the app changes its list; Delete, Alt+Up and Alt+Down with
+    the focus;
+  - `vslider`: a slider standing up -- an equalizer's bands, a mixer's
+    channels -- a label under it;
+  - `ratingStars`: 0 to 5 stars, a tap, a drag along them, the digits;
+  - `coverFlow`: covers in a row, the chosen one facing you, the others turned
+    to its sides and shining on the floor -- dragged, flicked, a side one
+    tapped to the middle, the middle one tapped to open it;
+  - `slideToConfirm`: a knob slid to the end before something happens;
+  - `bigButton`: a button as wide as the row, for a thumb, gray, green, red
+    or blue (`BigTone`);
+  - `tableRow(count = "3")`: a number in a capsule before a row's end;
+  - `edit(hint = "New task")`: gray words in an empty field;
+  - `sideMenu`: the app's places in a menu that slides out from the left (the
+    right in a right-to-left interface), over the page dimmed beside it --
+    `sideMenuItem`s under `sideMenuHeader`s; Esc, the phone's Back or a tap
+    beside it close it; Gloss draws it charcoal, as the music apps of 2012
+    had it. On a tablet the same items sit down the left of the window
+    (`sideMenuBack`); `navBar(menu = true)` puts its three-line button at the
+    bar's start.
+- **The mouse, the keys and a finger, in every control**:
+  - a finger's press just beside a small control -- a button, a round
+    button, a chip's cross, a dialog's close box -- is that control's, as if
+    it were 44 points across (`TouchTarget`, iOS's 44 points), the rest of
+    the gesture with it; a press on a bigger control stays its own, and of
+    two small ones the nearer wins;
+  - how far a finger moves before a tap is a drag is 8 points at any
+    density (`TouchSlop`), not 8 of the screen's pixels;
+  - a long press is felt on a phone, as the system's own are (with
+    `retroui/system`: Android, iOS);
+  - a finger held on a word in a text box chooses the word, its menu with
+    Cut and Copy for it; a right click or a held finger on a list's row
+    chooses that row before the app's menu opens;
+  - a chip's cross is wider for a finger;
+  - the breadcrumb is one stop of Tab: Left and Right along its parts, Home,
+    End, Enter or Space to open one;
+  - the wheel changes a drop-down list's choice while it has the focus, as
+    a slider's and a number box's already did;
+  - Glass and Matte light a text box's line, a check box and a radio button
+    under the mouse (3.1 and Gloss stay as they were); Matte's slider knob
+    shows the highlight under it;
+  - `SHOTS_PROBE=file nim c -r tools/shots.nim`: every example of the guide
+    tried with the mouse, the keys, the wheel and a finger -- its stops,
+    its ring, what each key did, its targets too small for a finger, a tap
+    that did not do what a click did -- a line each, for whoever works on
+    the controls.
+- **Touch, as phones do it**: a page flicked into its top or its foot goes
+  on past it by as much as the flick had and springs back (`flingHitEnd`);
+  pull to refresh in Gloss is iOS 6's stretching drop; a `toast` on a phone
+  in Gloss is a black banner sliding in at the top; in Glass and Matte the
+  focus ring shows only while the keys move the focus, not after a tap.
+- **Music in the kit**:
+  - `retroui/audiotags` reads what a music file says about itself, in Nim,
+    nothing to install: title, artist, album, album artist, track and disc,
+    year, genre, composer, lyrics, its cover, its length, rate and channels,
+    ReplayGain -- MP3 (ID3v2.2, 2.3, 2.4, ID3v1; the length from the Xing,
+    Info or VBRI header), FLAC, M4A, Ogg Vorbis, Opus and WAV, reading only
+    the parts it needs (`readAudioTags`, `readAudioTagsFrom`, `isAudioFile`);
+  - `audioPlayer`: a sound played with nothing drawn, for an app that draws
+    its own player, on in the background as `audioView`'s; `setPlayerVolume`
+    (a fade, ReplayGain) and `setPlayerEqualizer` -- 10 bands
+    (`EqualizerBands`), Android's equalizer and GStreamer's
+    equalizer-10bands (`playerEqualizer`);
+  - `musicAccess`, `askMusicAccess`: an Android app lets the user give it
+    the music on the phone (Android 13's "Music and audio", the storage
+    before it); `musicFolders`: where music is kept;
+  - `retroapk` asks for what these need by itself: playing on in the
+    background, the equalizer, the music; `retroios` gives an app with
+    `audioPlayer` iOS's background audio, as with `audioView`.
+  - `retroapk` finds what an app's code uses again: Nim 2.4 names its
+    functions otherwise (`name_u12__...`), and since then no permission had
+    been added by itself -- the camera's, notifications', the place's, a
+    sound playing on in the background (its service too: Retro Podcast's
+    APKs built with Nim 2.4 had none).
+- **Retro Music 2.0.0: your own music too.** The songs on the phone or the
+  computer -- Songs, Albums (in Cover Flow on its side), Artists, Genres --,
+  looked through on a worker thread with their tags and covers; your
+  playlists, put in order and kept, and lists made by themselves (Favorites,
+  Most Played, Recently Added, Recently Played); Up Next (Play Next, Add to
+  Queue, put in order, taken out), shuffle, repeat, stars; the equalizer
+  (eighteen presets or your own 10 bands), songs played at one loudness
+  (ReplayGain), a sleep timer; it plays on in the background with the lock
+  screen's and the notification's controls and a headset's keys.
+  - **Free music, nothing to set up**: YouTube Music -- songs, albums and
+    playlists searched through Piped's public servers (Invidious' when they
+    don't answer; your own Piped server in Settings), played in YouTube's own
+    player; a playlist's or an album's link pasted stays in Library, no
+    Google account and no Cloud project --; radio stations of the world
+    (Radio Browser: the top ones, by genre, by name; yours kept); Audius
+    (what trends, a search, an artist's tracks and playlists by their
+    handle); the Internet Archive (live concerts, netlabels, 78s, old radio).
+  - **Your own server**: Navidrome, Airsonic, Gonic, any Subsonic server --
+    its address, your name and password (kept with `retroui/secrets`; the
+    password never sent, its salted hash instead): its newest albums, your
+    playlists, random songs, a search.
+  - Search looks through any of them, your own songs and Spotify too.
+  - **Now Playing, as the players of 2012 had it**: a dark bar with the
+    artist, the title and the album; the place in the queue, where the song
+    is, Repeat and Shuffle over the cover; the cover as wide as the screen,
+    the lyrics over its foot with the line sung lit; a tap and its back has
+    the queue, numbered, the song playing marked; the controls and the volume
+    at the foot.
+  - **A side menu** on a phone, the places in it under Music, Free to Listen,
+    Your Accounts and Options; on a tablet the same list down the left.
+  - Signing in with Google is under Settings > YouTube Music > Advanced, for
+    your own YouTube playlists and likes; Spotify goes on as before. One
+    plays at a time.
+- **Retro Tasks 1.0.0**, a new example: a whole phone app -- tasks in lists,
+  ticked off and put in order, each with its day and time on wheels, a
+  reminder (the phone's notification, also while the app is closed), a flag
+  and a priority; Today, Upcoming, Flagged and Completed; notes beside them;
+  a search; kept on the device. On a tablet, a phone on its side or a
+  computer, its lists sit down the left and the page chosen beside them. Its
+  APK is in the table of apps.
+- **A new lesson: [17 A whole phone app](tutorials/17-whole-app/)** --
+  tasks and notes built step by step: a tab bar, pages with Back, a list
+  edited in place, notes, then its APK.
+- **Retro Gallery's APK 0.79.0**: its Phone page has every one of the new
+  parts.
+- **The nightly checks, fixed**:
+  - a soak now judges what the app holds: every 20 seconds its caches let go
+    of what can be made again, then its memory allocator says what is held
+    (`heapHeld`), less what the app holds on purpose (`heldAccounted`: Retro
+    Atelier's open images and their undo steps) -- not what the system shows
+    as used, which grows with memory let go of and not taken back
+    (`RETRO_HELD_LOG`);
+  - Retro Atelier's soak stopped answering once: the Spot Healing Brush
+    dragged corner to corner of a big picture made a long thin hole, and
+    Content-Aware Fill started patch by patch on the whole picture, for
+    minutes. It starts on a picture of 128 by 128 at most now, and the same
+    stroke takes under a second. The drawing's buffers for a shape (as big
+    as the biggest shape drawn: a gradient filling a big picture) are let
+    go of with its other caches when memory runs short, and so are the
+    fonts read for a font list's samples and for texts (`letGoOfFonts`:
+    up to 96 MB of them, read again when wanted) -- what Copy keeps is
+    counted as Retro Atelier's on purpose;
+  - the 32-bit run makes the carousel test's slides at a quarter of their
+    size: at half, now and then, their layers' addresses did not fit;
+  - the examples are checked on every push for Linux, Windows, macOS and
+    Android (`sh tools/examplescheck.sh`).
+- **Safety**: the tag reader is fuzzed (a target of the mutation fuzzer and
+  of libFuzzer, with seeds): a length or a time from a damaged file can no
+  longer overflow, on 32-bit systems either; the new parts and apps run
+  under ASan and UBSan.
+- **Speed**: the benchmarks have a phone scene -- a settings page in Gloss,
+  its bars, glossy tiles, a switch, a slider and two groups of rows drawn
+  again each frame: 0.58 ms of the processor a frame (docs/benchmarks.md).
+  Head to head with 0.78.0 on one machine, every scene costs the same
+  within the noise, and so do the start and the memory at rest.
+
 ## 0.78.0
 
 - **Gloss is iOS 6 again, measured.** Its parts now take their sizes,

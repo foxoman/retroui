@@ -689,7 +689,8 @@ proc chips*(items: openArray[string]; selected: openArray[bool] = [];
   for i, s in items:
     let on = i < selected.len and selected[i]
     let tw = textWidth(s)
-    let xw = if closable: textWidth(nfTimes) + dp(6) else: 0
+    # (its cross: wider for a finger, as wide as a fingertip with the room round it)
+    let xw = if not closable: 0 elif fingers(): textWidth(nfTimes) + dp(14) else: textWidth(nfTimes) + dp(6)
     let r = place(tw + dp(20) + xw, h)
     area = if area.w == 0: r else: union(area, r)
     let id = idOf("chip:" & s & $i)
@@ -858,6 +859,7 @@ var
   toastMsg: string
   toastTitle: string
   toastUntil: int
+  toastFrom: int                 # (when it came: Gloss's banner slides down)
   toastIcon: string
   toastRect: Rect
 
@@ -869,6 +871,7 @@ proc toast*(msg: string; ms = 3500; glyph = ""; title = "") =
   toastTitle = tr(title)
   toastIcon = glyph
   toastUntil = ui.now + ms
+  toastFrom = ui.now
   ui.redraw = true
 
 proc dismissToast*() =
@@ -896,6 +899,39 @@ proc drawToast() {.nimcall.} =
     ui.redraw = true
     return
   pushLayer(LayerTip)
+  if glossLook() and fingers():
+    # (Gloss on a phone: iOS 6's banner -- black glass across the top, an icon on a tile, the
+    # title bold and the message after it, sliding down as it comes and up as it goes)
+    let h = max(dp(40), FontH + dp(16))
+    let slide = dp(6) + h
+    let age = ui.now - toastFrom
+    let left = toastUntil - ui.now
+    let k = clamp(min(float(age), float(left)) / 250.0, 0, 1)
+    let y = ui.safe.top - int(float(slide) * (1 - (1 - pow(1 - k, 3))))
+    let r = rect(0, y, ui.w, h)
+    toastRect = r
+    fill(r, color(0, 0, 0))
+    roundRectShaded(rect(r.x, r.y, r.w, h div 2), 0, color(58, 58, 60), color(30, 30, 32))
+    hline(r.x, r.y + r.h - 1, r.w, color(70, 70, 74))
+    var x = r.x + dp(10) + ui.safe.left
+    let tile = dp(22)
+    if toastIcon.len > 0:
+      let tr = rect(x, r.y + (h - tile) div 2, tile, tile)
+      roundRectShaded(tr, float(dp(5)), mixColor(accentColor(), color(255, 255, 255), 0.25), mixColor(accentColor(), color(0, 0, 0), 0.2))
+      let gs = style(size = 0.9)
+      text(tr.x + (tile - textWidth(toastIcon, gs)) div 2, tr.y + (tile - lineHeight(gs)) div 2, toastIcon, color(255, 255, 255), gs)
+      x += tile + dp(8)
+    let room = ui.w - ui.safe.right - dp(10) - x
+    let ty = r.y + (h - FontH) div 2
+    if toastTitle.len > 0:
+      let t = ellipsize(toastTitle, room, style(bold = true))
+      text(x, ty, t, color(255, 255, 255), true)
+      x += textWidth(t, true) + dp(6)
+    let msg = ellipsize(toastMsg.replace('\n', ' '), max(0, ui.w - ui.safe.right - dp(10) - x))
+    text(x, ty, msg, color(220, 220, 224))
+    popLayer()
+    wakeIn(if k < 1: 16 else: max(16, left - 250))
+    return
   let pad = dp(8)
   let gw = if toastIcon.len > 0: textWidth(toastIcon, style(size = 1.3)) + dp(8) else: 0
   let xw = dp(14)                                   # the close box

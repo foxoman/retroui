@@ -1132,6 +1132,30 @@ block smartTools:
       inc errN
       errMax = max(errMax, e)
   doAssert errSum div errN <= 10 and errMax <= 48, "gradient fill: mean " & $(errSum div errN) & ", worst " & $errMax
+  # a long thin stroke across a big picture (the Spot Healing Brush dragged corner to corner): done
+  # in a moment -- it once looked through the whole picture for each patch, for many minutes
+  var big = newImg(1400, 1000)
+  for y in 0 ..< 1000:
+    for x in 0 ..< 1400:
+      let v3 = if ((x div 9) + (y div 9)) mod 2 == 0: 190 else: 70
+      big.px[y * 1400 + x] = argb(255, v3, (x * 255) div 1400, (y * 255) div 1000)
+  var h3 = newSeq[uint8](1400 * 1000)
+  for k in 0 ..< 1300:
+    let cx = 50 + k
+    let cy = 50 + k * 900 div 1300
+    for dy in -3 .. 3:
+      for dx in -3 .. 3: h3[(cy + dy) * 1400 + cx + dx] = 255
+  var b3 = big
+  for i in 0 ..< h3.len:
+    if h3[i] != 0: b3.px[i] = argb(255, 255, 0, 255)
+  let t3 = epochTime()
+  let bf = contentAwareFill(b3, h3)
+  let took = epochTime() - t3
+  var magenta = 0
+  for i in 0 ..< h3.len:
+    if h3[i] != 0 and bf.px[i] == argb(255, 255, 0, 255): inc magenta
+  doAssert magenta == 0, "a thin stroke's fill: " & $magenta & " pixels left as they were"
+  doAssert took < 20, "a thin stroke across a big picture filled in " & $took & " s"
   # healing: the texture brought in, the light of where it goes
   var dst = newImg(60, 60)
   var src = newImg(60, 60)

@@ -19,6 +19,8 @@
 ##   type       24 lines of a type specimen, each in another of 48 sizes and
 ##              four faces every frame (the glyphs' caches full: the GPU's
 ##              atlas grown or emptied)
+##   phone      a phone's settings page in the Gloss look -- bars, glossy tiles,
+##              a switch, a slider, two groups of rows -- a pixel lower each frame
 ##
 ## RETRO_BENCH_PROFILE=1: the frame profiler (`retroui/frameprof`) on for the scene, its spans
 ## and counters over the last frames added to the numbers ("profile": each span's average and
@@ -56,6 +58,9 @@ var
   cols = @[Column(title: "Time", width: 110), Column(title: "Level", width: 70),
            Column(title: "Message", width: 400)]
   words: seq[string]
+
+var phoneTab, phoneLevel = 0
+var phoneOn = false
 
 const SceneFrames = 600
 
@@ -145,6 +150,24 @@ app "Bench", 800, 600:
   of "document":
     let w = 300 + (n * 7) mod 400
     for p in words: paragraph(p, w = w)
+  of "phone":
+    # (a phone's settings page in the Gloss look, its rows a pixel lower each frame: every
+    # banded bar, glossy tile, switch and slider drawn again)
+    if count == 1:
+      uiLook = lookGloss
+      ui.theme = GlossLight
+    discard bottomNav([(nfHome, "Home"), (nfSearch, "Search"), (nfCog, "Settings")], phoneTab)
+    discard navBar("Settings", back = "Home", action = "Edit")
+    space(n mod 40)
+    tableGroup "Network":
+      if tableSwitch("Airplane Mode", phoneOn, glyph = nfWifi): discard
+      for i in 0 ..< 6:
+        discard tableRow("Row " & $i, "Detail", taChevron, glyph = nfCog, count = (if i == 2: "3" else: ""))
+    discard slider(phoneLevel, 0, 100)
+    tableGroup "More":
+      for i in 0 ..< 8:
+        discard tableRow("Item " & $i, "", taChevron, subtitle = "A line under it")
+    phoneLevel = n mod 100
   of "type":
     let area = place(0, remainingH(), fill = true)
     for i in 0 ..< 24:

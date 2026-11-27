@@ -1,6 +1,6 @@
 ## Mutation fuzzer for the decoders and parsers of retro: damaged copies of
 ## the files in a folder of seeds go through the PNG, BMP and JPEG decoders,
-## inflate, the zip reader, the Markdown parser and the big-file reader.
+## inflate, the zip reader, the Markdown parser, the big-file reader and the music files' tags.
 ## A Defect (index, range, overflow...) or a crash is a bug; a
 ## CatchableError is the decoder rejecting bad input, which is fine.
 ##
@@ -11,7 +11,7 @@
 ## Inputs that crash are saved as crash-*.bin in the current folder.
 
 import std/[os, random, strutils, tables, sets, times]
-import retroui/[imaging, jpeg, codec, zip, markdown, gfx, textfile]
+import retroui/[imaging, jpeg, codec, zip, markdown, gfx, textfile, audiotags]
 
 let here = paramStr(1)
 let iters = if paramCount() >= 2: parseInt(paramStr(2)) else: 20000
@@ -96,6 +96,8 @@ for kind, p in walkDir(here):
   let e = p.splitFile.ext.toLowerAscii
   if e in [".png", ".jpg", ".bmp", ".zip", ".md"]:
     seeds.mgetOrPut(e, @[]).add readFile(p)
+  elif e in [".mp3", ".flac", ".m4a", ".opus", ".ogg", ".wav"]:
+    seeds.mgetOrPut(".audio", @[]).add readFile(p)
 
 let tmpFile = getTempDir() / "retro-fuzz-input.bin"   # (the file-based targets read it)
 
@@ -115,6 +117,9 @@ proc run(target, input: string) =
       for e in zipEntries(tmpFile):
         try: discard readEntry(tmpFile, e) except CatchableError: discard
     of "md": discard parseMarkdown(input)
+    of "tags":
+      discard readAudioTagsFrom(input)
+      discard readAudioTags(tmpFile, picture = false)
     of "text":
       let t = openTextFile(tmpFile)
       while not t.done: t.index(5)
@@ -139,7 +144,7 @@ for s in seeds.getOrDefault(".jpg"): doAssert decodeJpeg(s).w > 0
 let plan = [("png", ".png"), ("bmp", ".bmp"), ("jpg", ".jpg"), ("jpg8", ".jpg"),
             ("jpgsize", ".jpg"), ("size", ".png"), ("size", ".jpg"), ("size", ".bmp"),
             ("load", ".png"), ("load", ".jpg"), ("inflate", ".zip"), ("zip", ".zip"),
-            ("md", ".md"), ("text", ".md")]
+            ("md", ".md"), ("text", ".md"), ("tags", ".audio")]
 let t0 = epochTime()
 for (target, ext) in plan:
   if only.len > 0 and target != only: continue

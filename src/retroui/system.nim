@@ -349,11 +349,15 @@ when not defined(wasm) and not androidApp and not defined(ios) and not defined(m
   var termuxPlace: tuple[p: Process; started: float; answer: string]
 
 
-from widgets import touchFeel
+from core import touchFeel
 touchFeel = proc (kind: int) {.nimcall, gcsafe.} =
-  ## (the kit's own taps felt -- a pull to refresh let go, a fast-scroll thumb taken)
+  ## (the kit's own taps felt -- a pull to refresh let go, a fast-scroll thumb taken, a long
+  ## press)
   {.cast(gcsafe).}:
-    discard haptic(if kind == 5: hSelection else: hTap)
+    discard haptic(case kind
+                   of 5: hSelection
+                   of 1: hHeavy
+                   else: hTap)
 
 proc location*(precise = false): Place =
   ## Where the device is: asked the first time (the user is asked to allow

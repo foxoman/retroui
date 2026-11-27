@@ -2076,10 +2076,28 @@ proc breadcrumb*(parts: openArray[string]; w = 0;
                  enabled = true): int {.discardable.} =
   ## The parts of a path as buttons in a row ("C: > Users > me"); returns
   ## the index of the part clicked, -1 if none. Parts that do not fit are
-  ## folded into a "<<" button at the start.
+  ## folded into a "<<" button at the start. One stop of Tab: Left and Right
+  ## go along its parts, Home and End to its ends, Enter or Space opens one.
   result = -1
   let r = place(if w > 0: w else: 0, EditH, fill = w <= 0)
   let id = idOf("breadcrumb" & $parts.len)
+  let gid = id + 300
+  var st = state(gid)
+  let focused = enabled and parts.len > 0 and ui.focus == gid and canInput()
+  if focused and st.aux == 0: st.caret = parts.high        # (the keys come to its last part)
+  st.aux = ord(focused)
+  st.caret = clamp(st.caret, 0, max(0, parts.high))
+  if focused and not ui.keyUsed:
+    case ui.key
+    of KeyLeft: st.caret = max(0, st.caret - 1); ui.keyUsed = true
+    of KeyRight: st.caret = min(parts.high, st.caret + 1); ui.keyUsed = true
+    of KeyHome: st.caret = 0; ui.keyUsed = true
+    of KeyEnd: st.caret = parts.high; ui.keyUsed = true
+    of KeySpace, KeyEnter:
+      result = st.caret
+      ui.keyUsed = true
+    else: discard
+  if focused: ui.takesEnter = true
   fill(r, th.field)
   fieldFrame(r, enabled)
   const sep = " > "
@@ -2105,6 +2123,7 @@ proc breadcrumb*(parts: openArray[string]; w = 0;
       fill(br, th.face)
       if hit.down: sunken(br) else: raised(br, 1)
     text(br.x + pad, r.y + (r.h - FontH) div 2, "<<", th.fieldText, true)
+    if focused and st.caret < first: focusDots(inset(br, 1))
     if accessOn: accessNode(arButton, "Back", id = id + 99, r = br)
     if hit.clicked: result = first - 1
     x += br.w
@@ -2119,6 +2138,7 @@ proc breadcrumb*(parts: openArray[string]; w = 0;
       if hit.down: sunken(br) else: raised(br, 1)
     text(br.x + pad, r.y + (r.h - FontH) div 2, parts[i],
          if enabled: th.fieldText else: th.gray, lastOne)
+    if focused and st.caret == i: focusDots(inset(br, 1))
     if accessOn:
       accessNode(arButton, parts[i], id = id + uint32(i), r = br,
                  states = (if enabled: {} else: {asDisabled}))
@@ -2129,6 +2149,8 @@ proc breadcrumb*(parts: openArray[string]; w = 0;
       x += sepW
   popClip()
   if accessOn: accessEnd()
+  state(gid) = st
+  if enabled and parts.len > 0: discard tabStop(gid, r)
   ui.lastId = id
   ui.lastRect = r
 

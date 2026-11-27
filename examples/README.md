@@ -35,6 +35,8 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [navigator](#retro-navigator) | Retro Navigator, a web browser in the manner of 1995's |
 | [retrodns](#retro-dns) | Retro DNS, a DNS changer for phones and computers |
 | [podcast](#retro-podcast) | Retro Podcast, a podcast player for every system and the web |
+| [music](#retro-music) | Retro Music: your own music, YouTube Music, radio, Audius, the Internet Archive, your server and Spotify in one player |
+| [tasks](#retro-tasks) | Retro Tasks, a whole phone app: tasks and notes ([lesson 17](../tutorials/17-whole-app/) builds it) |
 | [grow](#grow) | Grow, a savings goal planner for phones, its years as 3D bars |
 | [bmi](#bmi-studio) | BMI Studio, a window with a look of its own: the example of changing controls and making new ones |
 
@@ -959,9 +961,48 @@ settings, the scripts and the profile.
 
 ## Retro Music
 
-`music.nim` (with `music/api.nim`, `music/screens.nim`) plays Spotify and
-YouTube through their own services, and nothing else:
+`music.nim` (with `music/api.nim`, `music/local.nim`, `music/sources.nim`,
+`music/online.nim`, `music/screens.nim`) plays your own music, the free music
+of the world with nothing to set up, your own music server, and Spotify;
+one plays at a time:
 
+- **Your own music:** the songs on the phone (Android asks once: Allow
+  Access to Music, `askMusicAccess`) or in the computer's Music folder --
+  Settings > Music Folders adds others -- looked through on a worker thread,
+  each file's tags and cover read by `retroui/audiotags` (MP3, FLAC, M4A,
+  Ogg, Opus, WAV) and kept with how often it was played, when, and its
+  stars. Library > On This Device: Songs (a search, Shuffle All), Albums (in
+  Cover Flow when the phone is on its side, or on a big screen), Artists,
+  Genres, Playlists -- yours, put in order with their grips, and lists made
+  by themselves: Favorites (four stars and five), Most Played, Recently
+  Added, Recently Played. A song's info button: Play Next, Add to Queue, Add
+  to Playlist. Now Playing: the cover, the stars, where it is, the
+  controls, Shuffle, Repeat (all, one), Up Next (put in order, taken out),
+  the sleep timer (15 minutes to an hour, or the end of the song), the
+  lyrics. It plays with `audioPlayer`, on in the background -- the lock
+  screen's and the notification's controls and a headset's keys through
+  `setNowPlaying` and `mediaKeys`. Settings > Sound: the equalizer (eighteen
+  presets, or your own 10 bands on `vslider`s: Android's and GStreamer's),
+  Level Songs (each song's ReplayGain: one loudness), the sleep timer.
+- **YouTube Music, nothing to set up:** search its songs, albums and
+  playlists -- through Piped's public servers, each tried in turn, then
+  Invidious' (Settings > YouTube Music takes your own Piped server) -- and
+  they play in YouTube's own player. Paste a playlist's or an album's link
+  (Share > Copy link in YouTube Music) in Library and it stays there: no
+  account, no Google Cloud project.
+- **Radio:** the stations of Radio Browser's directory -- the top ones, by
+  genre, by name; the info button keeps one in Your Stations (Home has them
+  on a shelf). A station plays live in the app's own player.
+- **Audius:** what trends, a search, and an artist's tracks and playlists
+  by their handle (yours, if you have one). Free music its artists put
+  there whole.
+- **The Internet Archive:** live concerts (the Live Music Archive),
+  netlabels, 78 RPM records, old-time radio; a recording's songs in order.
+- **Your own server:** Navidrome, Airsonic, Gonic, Ampache or any server
+  that speaks Subsonic -- its address, your name and password (kept with
+  `retroui/secrets`; the password is never sent, a salted hash of it is):
+  its newest albums, your playlists, random songs, a search. They play in
+  the app's own player, as your own songs do.
 - **Spotify:** make an app of your own at developer.spotify.com, with the
   Redirect URI `http://127.0.0.1/`, and give Retro Music its Client ID;
   Sign In opens Spotify's page in your browser (`retroui/oauth`, PKCE, the
@@ -970,19 +1011,30 @@ YouTube through their own services, and nothing else:
   apps and speakers -- Spotify Connect, which needs Premium -- and Retro
   Music is their remote: play a song or a playlist from one of its songs,
   pause, next, seek, and the device it plays on.
-- **YouTube Music:** Sign In with Google -- a Desktop app client of your
-  own Google Cloud project, the YouTube Data API v3 on, yourself a test
-  user -- and Library has your playlists (YouTube Music's are YouTube's)
-  and Liked Music, Home a shelf of your playlists. They play in the app, in
-  YouTube's own player: on a phone on Now Playing, on a tablet under the
-  sections, the next song when one ends, with previous, play, pause, next
-  and how far, and the lyrics timed. YouTube asks that its player be on the
-  screen while it plays: away from it, it pauses, and goes on when it is
-  shown again. A key alone (no sign-in) searches. Save the ones you like.
+- **Your own YouTube playlists (Advanced):** Sign In with Google -- a
+  Desktop app client of your own Google Cloud project, the YouTube Data API
+  v3 on, yourself a test user -- and Library has your playlists (YouTube
+  Music's are YouTube's) and Liked Music, Home a shelf of them. YouTube's
+  songs play in the app, in YouTube's own player: on a phone on Now
+  Playing, on a tablet under the places, the next song when one ends, with
+  previous, play, pause, next and how far, and the lyrics timed. YouTube
+  asks that its player be on the screen while it plays: away from it, it
+  pauses, and goes on when it is shown again. A key alone (no sign-in)
+  searches when Piped's and Invidious' servers don't answer. Save the ones
+  you like.
 - **Lyrics:** from LrcLib, timed: the line sung is in the highlight.
+- **Search** looks through any of them -- YouTube Music, your own songs, the
+  radio, Audius, the Archive, your server, Spotify -- a chip for each.
+- **Now Playing**, for the app's own player, is the music players' of
+  2012: a dark bar with the artist, the title and the album; the place in
+  the queue, where the song is, Repeat and Shuffle over the cover; the cover
+  as wide as the screen with the lyrics over its foot, the line sung lit; a
+  tap on it, or the button at the bar's end, turns it to the queue's songs,
+  numbered, the one playing marked, with the stars, the sleep timer, Add to
+  Playlist and Up Next; the controls and the volume at the foot.
 
-Settings > Spotify and Settings > YouTube walk you through it step by
-step, a button to each page (Spotify for Developers; Google Cloud's
+Settings > Spotify and Settings > YouTube Music > Advanced walk you through
+it step by step, a button to each page (Spotify for Developers; Google Cloud's
 project, its YouTube Data API v3, its audience, a new client, its
 credentials): the Redirect URI copied with a tap, the Client IDs, the
 secret and the key pasted, the key tried with a search and what a refusal
@@ -990,10 +1042,12 @@ means said in a sentence (the API not on, the key's restrictions, the
 day's searches used up). YouTube Music has no API of its own for apps: its
 music is read with YouTube's. Home and Library pulled down are asked again.
 
-A tab bar (Home, Search, Library, Settings), a mini player over it and
-pages on a phone; on a tablet or a computer the sections in a list down
-the left, with what plays and its controls, the page beside it under its
-own navigation bar. It starts in the Gloss look (1.1); Settings >
+On a phone, pages one over another with Back, a mini player at the foot, and
+the places in a menu that slides out from the left (`sideMenu`, the button
+at the navigation bar's start): Home, Search, Library; YouTube Music, Radio,
+Audius, Internet Archive; My Server, Spotify; Settings. On a tablet or a
+computer the same places down the left, with what plays and its controls,
+the page beside them under its own navigation bar. It starts in the Gloss look (1.1); Settings >
 Appearance changes it.
 
 ```sh
@@ -1038,6 +1092,41 @@ it (CORS), and most podcast hosts do not say yes: Settings has a proxy put
 before each feed's address. The sounds themselves play without it.
 `tests/test_podcast.nim` follows a feed file, plays, queues, undoes and
 saves the library without a window.
+
+## Retro Tasks
+
+`tasks.nim` (with `tasks/model.nim`, its data without a window, and
+`tasks/screens.nim`) is a whole phone app, and [lesson 17](../tutorials/17-whole-app/)
+builds it step by step:
+
+- **Tasks** in lists, each a `checkRow` -- its round check ticks it, the
+  rest of the row opens it --; a new one typed at the top of its list; Edit
+  puts them in order by their grips and deletes them (`editRow`). A task's
+  page: its title, Done, Flagged, its list, its day (`dateWheels`) and time
+  (`timeWheels`), Remind Me, its priority, its notes.
+- **Lists made by themselves:** Today (due today, and late -- in red),
+  Upcoming (a group a day), Flagged, Completed (Clear Completed).
+- **Reminders:** a task due with Remind Me raises the phone's notification
+  (`notify`), also while the app is closed (`onBackgroundCheck`,
+  `scheduleBackgroundCheck(15)`); the app's icon counts what is due today
+  (`setBadge`).
+- **Notes** beside them, pinned ones first, their first line their title;
+  **Search** through both; **Settings**: Show Completed, Reminders, Count on
+  the Icon, Appearance.
+- Kept in one JSON file in the app's folder, written two seconds after a
+  change through a file of its own moved over the old one.
+
+A tab bar and pages with a navigation bar on a phone (the phone's Back
+goes back a page); on a tablet, a phone on its side or a computer the tab's
+first page -- the lists, the notes -- down the left and the page chosen
+beside it, under its own bar. It starts in the Gloss look.
+
+```sh
+nimble tasks                                # or: nim c -r -d:release examples/tasks.nim
+RETRO_APP=tasks nimble appapk               # build/RetroTasks.apk
+```
+
+`tests/test_tasks.nim` checks its data and works it by taps.
 
 ## Grow
 

@@ -561,7 +561,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    three times over, ten apps soaked); a crash's input is in the run's
    artifacts. A security pass by AI agents: `sh tools/strix.sh` (Docker
    and an AI service's key; Actions > Strix by hand) -- what it reports
-   is fixed like a test's failure, after it is shown real. An app changed: `sh tools/soak.sh 10 APP` (ten minutes of
+   is fixed like a test's failure, after it is shown real. A soak judges what the app holds
+   (`heapHeld` after its caches let go, less `heldAccounted`: what it holds on purpose, its
+   open documents), never what the system shows as used: an app that keeps documents of its
+   own sets `heldAccounted` to their size. An app changed: `sh tools/soak.sh 10 APP` (ten minutes of
    random input, its memory watched; as a user of its own: the clicks
    delete what they reach) -- a fault it finds has its stack in a build
    with `--stackTrace:on --lineTrace:on` and the same `RETRO_SMOKE_SEED`. Built with `-d:retroSanitized` there, a
@@ -621,7 +624,11 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
    by Tab alone, no `&` letter used twice where one Alt reaches both --
    the window, a dialog (`TOUR_STRICT=1`: a finding fails it, as on the CI's Linux job);
    `build/drive/tour --touch APPS` as a finger finds them (too small, only
-   under a mouse, a long press's menu).
+   under a mouse, a long press's menu). For the controls themselves,
+   `SHOTS_PROBE=file` (`tools/shots.nim`, `SHOTS_ONLY=` some,
+   `SHOTS_PROBE_LOOK=glass`) tries every example of the guide with the
+   mouse, the keys, the wheel and a finger, a line each: a lead to look
+   at, not a verdict (an example's state carries from one try to the next).
 8. To see what an app does, use it as a person would, by its controls'
    names: start it with `RETRO_DRIVE=7000` and `retrokit drive 7000 tree`
    / `click NAME` / `type TEXT` / `key ctrl+s` / `wait NAME` (each answered
@@ -763,7 +770,17 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - **The controls from phones are `retroui/mobile`** (navBar, searchBar, the
   table rows, the wheels, quantity, pageDots, swipeRow, the sheets, the
   alert, actionBar, popover, roundButton, indexBar, messageBubble,
-  clockFace, appIcon, texture). Gloss draws them as phones did in 2012 (as
+  clockFace, appIcon, texture, checkRow, editRow, vslider, ratingStars,
+  coverFlow, slideToConfirm, bigButton). A control that changes a list
+  (`editRow`) returns what was done and lets the app change its list after
+  the loop that draws the rows -- it never takes the app's seq.
+- **Every phone app is right on a tablet too.** On a phone its pages lie one
+  over another (Back); from the medium size class up -- a tablet, a phone on
+  its side, a computer -- its list sits down the left and the page chosen
+  beside it, each under its own bar, the row of the page shown drawn chosen
+  (`tableRow(selected = true)`), Back only past the page beside the list, and
+  the phone's Back closing the app from there (Retro Music's `splitView`,
+  Retro Tasks'). Its tests draw it both ways. Gloss draws them as phones did in 2012 (as
   iOS 6 drew them: gray buttons, the default one blue,
   a thin progress bar, a one-piece stepper, a popover in a dark frame, a
   black status bar) and Glass as they do now; keep each look's own (its colors, its corners, its
@@ -796,6 +813,15 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `scrollHint`, the long page's thumb (`fastScroll`), Back by a swipe
   (`pageSwipe`) -- are the kit's, for every app: keep them to a touch
   screen (`ui.touch`), never in the way of a widget that drags by itself.
+  **Every clickable part of a control goes through `interact`** (a chip's
+  cross, a row's button): the screen reader's press comes there, and a
+  finger's press just beside a small one is moved onto it (`snapPress`:
+  last frame's `ui.targets`, grown to `TouchTarget` across the side they
+  are small in; a press on any of them stays). Sizes a finger moves by
+  are points (`dp(TouchSlop)`), never the screen's pixels. Hover is drawn
+  only for `showsHover`/`hovered` (a mouse, not a lifted finger) and in
+  Glass, Matte and Gloss alone where 3.1 had none; the wheel changes a
+  value only while the control has the focus.
   The keyboard a box wants goes down as input flags with `WantTextInput`
   (`keyboardFlags`: `WantNumbers`... `EnterNext`...): the surface driver
   tells the system (`uirelays_keyboard_kind`; Android's RetroInput and
@@ -807,9 +833,16 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   Desktop app client, `youtube.readonly`) and YouTube's embedded player
   (the IFrame Player API, its page from the app's address -- `webPageBase`,
   the package on Android -- and on the screen while it plays: paused away
-  from it), LrcLib. Never a re-implementation of a service's protocol, a
-  stream pulled from private endpoints, audio taken from YouTube's player,
-  or anything that gets around copy protection.
+  from it), LrcLib. The free sources are read through their public APIs:
+  Piped's and Invidious' search and playlist answers for YouTube Music --
+  what is found still plays in YouTube's own player, never a stream from
+  Piped or Invidious --, Radio Browser (the stations' own streams), Audius'
+  API (its own stream address, with the app's name), the Internet
+  Archive's search, metadata and downloads, and the Subsonic API of the
+  user's own server (the password's salted hash, never the password).
+  Never a re-implementation of a service's protocol, a stream pulled from
+  private endpoints, audio taken from YouTube's player, or anything that
+  gets around copy protection.
 - **A graph's layout without a window is `retroui/forcelayout`**; the
   control (`graphView`) is `retroui/forcegraph`, which imports the UI. A
   module that draws nothing on screen (`retroui/board`) imports the

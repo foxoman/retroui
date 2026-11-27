@@ -3294,6 +3294,12 @@ proc dropDrawingCaches*() =
   blurXs = @[]
   tileWant = @[]
   for l in 0 ..< MaxLayers: cmdDev[l] = @[]
+  # (this thread's buffers for a shape at a time, as big as the biggest drawn: a gradient
+  # filling a big picture left them its size)
+  pathRaster = default(Raster)
+  pathCover = default(Mask)
+  roundBuf = @[]
+  bitmapCols = @[]
 
 proc stampOf*(b: Bitmap): uint64 =
   ## A number that changes whenever `changed(b)` is called (0 for nil):

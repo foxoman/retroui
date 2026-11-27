@@ -218,11 +218,40 @@ var
   parts: seq[Part]
   shots: seq[Shot]
   shotEnabled = true          ## false while the Disabled picture is drawn
+  eqDemo = [6, 4, 0, -2, 3, 5]
+  starsDemo = 4
+  todoDemo = @[("Call the bank", true, "Today 10:00"), ("Book the hall", false, "Thu"),
+               ("Send the training plan", false, "Yesterday")]
+  editDemo = @[("Morning Tide", "4:12"), ("Desert Roads", "3:48"), ("Old Harbour", "5:02"), ("Night Market", "2:57")]
+  flowCovers: seq[Bitmap]
+  flowAt = 3
   target: Rect                ## where the mouse goes (`aim` after the widget)
   aimed = false
 
 proc part(title: string; intro = ""; outro = "") =
   parts.add Part(title: title, intro: intro, outro: outro)
+
+proc demoCover(i: int): Bitmap =
+  ## (an album's cover drawn in code: two colors, a sun, rings or stripes)
+  const pal = [(color(236, 128, 44), color(116, 28, 64)), (color(40, 120, 200), color(10, 30, 70)),
+               (color(250, 210, 90), color(200, 70, 40)), (color(60, 170, 140), color(20, 50, 60)),
+               (color(170, 120, 220), color(40, 20, 80)), (color(220, 220, 214), color(90, 96, 110)),
+               (color(230, 70, 70), color(40, 10, 20))]
+  let n = 160
+  result = newBitmap(n, n)
+  let (a, b) = pal[i mod pal.len]
+  for y in 0 ..< n:
+    for x in 0 ..< n:
+      var c = mixColor(a, b, y / n)
+      let dx = float(x) - float(n) * 0.5 - float((i * 37) mod 40 - 20)
+      let dy = float(y) - float(n) * 0.42
+      let d = sqrt(dx * dx + dy * dy)
+      case i mod 3
+      of 0: (if d < float(n) * 0.22: c = mixColor(c, color(255, 255, 255), 0.7))
+      of 1: (if (int(d) div 10) mod 2 == 0: c = mixColor(c, color(0, 0, 0), 0.25))
+      else: (if ((x + y) div 14) mod 2 == 0: c = mixColor(c, color(255, 255, 255), 0.18))
+      result.px[y * n + x] = 0xFF000000'u32 or (uint32(c.r) shl 16) or (uint32(c.g) shl 8) or uint32(c.b)
+  result.changed()
 
 template aim() =
   ## The widget drawn last is the one the mouse goes to.
@@ -1868,13 +1897,14 @@ do:
 opts(settle = 300, reset = proc () = askOpen = true, looks = phoneLooks)
 
 example("tablegroup", "tableGroup, tableRow, tableSwitch, tableButton",
-        "Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups, the values in the scheme's hue, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.",
-        360, 330, ["tableGroup", "tableRow", "TableAccessory", "TableHit", "tableSwitch", "tableButton"], std3):
+        "Rows in groups, as a phone's settings: a header over a group and a note under it; a row's icon, title, gray subtitle, a value at its end, a count in a capsule (`count`) and a chevron (it leads to a page), a check mark (the one chosen) or an info button of its own; a switch's row; a button's row (red: destructive). Gloss: white rounded groups, the values in the scheme's hue, the chosen row blue; Glass: rounded cards; Matte: full-width rows, the header in the highlight.",
+        360, 370, ["tableGroup", "tableRow", "TableAccessory", "TableHit", "tableSwitch", "tableButton"], std3):
   var airplane = false
 do:
   tableGroup "":
     tableSwitch("Airplane Mode", airplane, glyph = nfBolt)
     discard tableRow("Wi-Fi", "Home", taChevron, glyph = nfWifi)
+    discard tableRow("Messages", "", taChevron, glyph = nfEnvelope, count = "3")
   tableGroup("DNS", "Lookups go to the server chosen."):
     discard tableRow("Cloudflare", "12 ms", taCheck)
     discard tableRow("AdGuard", "", taInfo, subtitle = "Blocks ads")
@@ -1962,6 +1992,27 @@ do:
     if appIcon(nfCog, "Settings", tint = color(120, 124, 132)): discard
 opts(looks = phoneLooks, both = true)
 
+example("slidetoconfirm", "slideToConfirm",
+        "A track with a knob to slide to its end before something happens that should not happen by a stray tap: dragged all the way, true once; let go before, it slides back. Enter or Space confirms with the focus. Gloss: a dark track, a light knob with an arrow, the words lit by a shine crossing them.",
+        360, 70, ["slideToConfirm"], @[ssNormal, ssTouch, ssDark, ssFocused, ssDisabled]):
+  discard
+do:
+  if slideToConfirm("slide to pay 12.500 OMR", enabled = shotEnabled): discard
+  aim()
+opts(looks = phoneLooks, both = true)
+
+example("bigbutton", "bigButton",
+        "A button as wide as the row and tall for a thumb, for the one thing a screen is for -- Start and Stop, Call, End, Pay -- gray, green, red or blue (`BigTone`). Gloss: its color lit as glass in a dark frame.",
+        360, 130, ["bigButton", "BigTone"], @[ssNormal, ssTouch, ssDark, ssFocused, ssPressed, ssDisabled]):
+  discard
+do:
+  row([-1, -1]):
+    if bigButton("Start", btGreen, enabled = shotEnabled): discard
+    aim()
+    if bigButton("Stop", btRed, enabled = shotEnabled): discard
+  if bigButton("Lap", enabled = shotEnabled): discard
+opts(looks = phoneLooks, both = true)
+
 example("texture", "texture",
         "A surface drawn in code, in every look: linen, lined paper, felt, stitched leather, pinstripes -- a page's background, a notes page, a card table, a cover. `tint` changes its color.",
         420, 140, ["texture", "Texture", "glossPinstripes"], @[ssNormal]):
@@ -1972,6 +2023,91 @@ do:
   for i, k in [txLinen, txPaper, txFelt, txLeather, txPinstripe]:
     texture(rect(r.x + i * (w + dp(6)), r.y, w, r.h), k,
             tint = if k == txPinstripe: color(197, 204, 212) else: Color())
+
+example("vslider", "vslider",
+        "A slider standing up, its highest value at its top: an equalizer's bands, a mixer's channels -- a label under each. Drag the knob or click along it; Up, Down, Page Up, Page Down, Home and End with the focus. Gloss: blue from its foot up to a round knob, as the sliders of then.",
+        360, 230, ["vslider"], @[ssNormal, ssTouch, ssDark, ssFocused, ssDisabled]):
+  discard
+do:
+  row:
+    for i, name in ["31", "125", "500", "2k", "8k", "16k"]:
+      if vslider(eqDemo[i], -12, 12, h = dp(150), label = name, enabled = shotEnabled): discard
+      if i == 2: aim()
+opts(looks = phoneLooks, both = true)
+
+example("ratingstars", "ratingStars",
+        "A rating of 0 to 5 stars (or as many as asked): a tap on a star gives that many, on the one it has again none, a drag follows the finger; Left and Right, the digits, Home and End with the focus. Gloss: stars in the bars' slate blue, the missing ones dots, as the music player of then rated songs.",
+        300, 70, ["ratingStars"], @[ssNormal, ssTouch, ssDark, ssFocused, ssDisabled]):
+  discard
+do:
+  if ratingStars(starsDemo, enabled = shotEnabled): discard
+  aim()
+opts(looks = phoneLooks, both = true)
+
+example("checkrow", "checkRow",
+        "A to-do's row: a round check at its start -- a tap on it ticks the task or not (`toggled`; Space with the focus) --, the rest of the row its page (`clicked`; Enter). Ticked, its title is gray. A due date at its end (`detailColor` red when it is late), a flag, a chevron.",
+        360, 200, ["checkRow", "TableHit"], @[ssNormal, ssTouch, ssDark, ssFocused]):
+  discard
+do:
+  tableGroup "Reminders":
+    for i in 0 ..< todoDemo.len:
+      discard checkRow(todoDemo[i][0], todoDemo[i][1], detail = todoDemo[i][2], accessory = taChevron,
+                       flagged = i == 1, detailColor = (if i == 2: color(220, 40, 40) else: Color()),
+                       key = "todo" & $i)
+      if i == 1: aim()
+opts(looks = phoneLooks, both = true)
+
+example("editrow", "editRow",
+        "A list being edited, as a phone's: a red minus at each row's start -- tapped, it turns up and a Delete button comes at the row's end -- and a grip at its end to drag the row up or down (the others make way). It returns what was done (`RowEdit`: `reDelete`, `reMove` with `index` and `to`); the app changes its list. With the focus, Delete deletes and Alt+Up, Alt+Down move.",
+        360, 260, ["editRow", "RowEdit", "RowEditKind"], @[ssNormal, ssTouch, ssDark, ssFocused]):
+  discard
+do:
+  tableGroup "Up Next":
+    for i, t in editDemo:
+      let e = editRow(t[0], i, detail = t[1])
+      if i == 1: aim()
+      case e.kind
+      of reDelete: editDemo.delete(e.index)
+      of reMove:
+        let x = editDemo[e.index]
+        editDemo.delete(e.index)
+        editDemo.insert(x, e.to)
+      of reNone: discard
+opts(looks = phoneLooks, both = true)
+
+example("coverflow", "coverFlow",
+        "Covers in a row, the chosen one in the middle facing you, the others turned away to its sides and shining on the floor under them -- the music player's Cover Flow. Drag or flick them along, tap one at a side to bring it to the middle; Left, Right, Home, End with the focus; a tap on the middle one, or Enter, returns it (to open the album). Its title and subtitle under it.",
+        560, 300, ["coverFlow"], @[ssNormal, ssTouch]):
+  discard
+do:
+  let tl = ["Morning Tide", "Desert Roads", "Old Harbour", "Night Market", "Mountain Air", "Blue Hours", "Salt Wind"]
+  let sub = ["Al Bahr Quartet", "The Wadi Band", "Sohar Strings", "Lantern", "Hajar", "Late Trio", "Coastline"]
+  if flowCovers.len == 0:
+    for i in 0 ..< tl.len: flowCovers.add demoCover(i)
+  discard coverFlow(flowCovers, flowAt, tl, sub, h = dp(260))
+  aim()
+
+example("sidemenu", "sideMenu",
+        "The app's places in a menu that slides out from the left over the page -- the page dimmed beside it --, as the music apps of 2012 had it: `sideMenuItem`s (an icon, a title, a count, the place shown drawn chosen) under `sideMenuHeader`s. `navBar(title, menu = true)` puts its three lines at the bar's start; Esc, the phone's Back or a tap beside the menu close it. On a tablet the same items sit down the left of the window, always there: `sideMenuItem` outside a `sideMenu`, `sideMenuBack` under them. Gloss: the charcoal menu, its headers in lighter bars.",
+        320, 420, ["sideMenu", "beginSideMenu", "endSideMenu", "sideMenuItem", "sideMenuHeader", "sideMenuBack"],
+        std3):
+  var menuShown = true
+  var menuPlace = 1
+do:
+  let places = [("Home", nfHome), ("Radio", nfWifi), ("Library", nfList), ("Settings", nfCog)]
+  if navBar(places[menuPlace][0], menu = true) == npBack: menuShown = true
+  label("Your stations, the top ones, a genre's...")
+  sideMenu(menuShown, 240):
+    sideMenuHeader("Listen")
+    for i in 0 .. 2:
+      if sideMenuItem(places[i][0], places[i][1], if i == 1: "4" else: "", selected = menuPlace == i):
+        menuPlace = i
+        menuShown = false
+    sideMenuHeader("Options")
+    if sideMenuItem("Settings", nfCog, selected = menuPlace == 3):
+      menuPlace = 3
+      menuShown = false
+opts(looks = phoneLooks, settle = 300, reset = proc () = menuShown = true)
 
 # ======================================================================================================
 # Files
@@ -2596,6 +2732,18 @@ example("audioview", "audioView",
 do:
   audioView(song, height = 120, speed = 1.5, title = "Morning bell")
 opts(settle = 600)
+
+example("audioplayer", "audioPlayer",
+        "A sound played with nothing drawn, for an app that draws its own player (a music app's Now Playing): called every frame for what plays, it returns where it is -- playing, `ended` in the frame it ended, the position, the length, why it cannot play. `playVideo`, `seekVideo` and `closeVideo` take its `key`; a new path for the same key plays the next song. `setPlayerVolume` sets its volume (a fade, a song's ReplayGain); `setPlayerEqualizer` its 10 bands (`EqualizerBands`, dB), where `playerEqualizer()` says there is one (Android, GStreamer). It plays on in the background as `audioView` does; with `setNowPlaying` and `mediaKeys` the lock screen shows it and works it. `musicAccess` and `askMusicAccess`: an Android app asks the user for the music on the phone; `musicFolders`: where music is kept. Each file's title, artist, album, cover and length: `retroui/audiotags`.",
+        420, 60, ["audioPlayer", "setPlayerVolume", "setPlayerEqualizer", "playerEqualizer", "EqualizerBands",
+                  "musicAccess", "askMusicAccess", "musicFolders"], @[ssNormal]):
+  discard
+do:
+  let ev = audioPlayer(getHomeDir() / "Music" / "Morning bell.ogg", "music")
+  setPlayerVolume("music", 0.8)
+  setPlayerEqualizer("music", [4.0, 3, 0, 0, 0, 0, 0, 2, 3, 4])
+  label(if ev.playing: "playing" else: "paused")
+opts(noPicture = "It draws nothing: the app draws its player -- Retro Music's Now Playing (`examples/music/local.nim`).")
 
 # ======================================================================================================
 # The system's features
@@ -3378,6 +3526,185 @@ proc shoot(s: Shot; st: ShotState; outDir: string; lk: Look = Look()): string =
   if s.reset != nil: s.reset()
   file
 
+# ---- SHOTS_PROBE: every example tried with the mouse, the keys, the wheel and a finger ----------------
+
+proc differ(a, b: seq[uint32]; still: seq[bool]): int =
+  ## (how many pixels changed, those that change by themselves -- a caret's blink -- left out)
+  if a.len != b.len: return a.len
+  for i in 0 ..< a.len:
+    if a[i] != b[i] and not still[i]: inc result
+
+proc probeStart(s: Shot; touch: bool) =
+  ## (the example drawn as for its picture: no focus, the mouse away, a screen as big as it)
+  ui.popup = 0
+  ui.focus = 0
+  ui.focusCues = false
+  resize(s.w, if touch: s.h * 3 div 2 else: s.h, touch)
+  queue.add Event(kind: MouseMoveEvent, x: W + 50, y: H + 50)
+  view = proc () =
+    discard interact(Id(0x5ec0ffee'u32), rect(-40, -40, 1, 1))
+    if closeRequested(): cancelClose()
+    aimed = false
+    s.draw()
+    if not aimed: target = ui.lastRect
+  run(4)
+  if s.settle > 0: settle(min(s.settle, 300))
+  for _ in 0 ..< 4:
+    if not ui.pageOn and ui.pageMaxX == 0: break
+    resize(W + (if ui.pageMaxX > 0: ui.pageMaxX + SbW + 8 else: 0),
+           H + (if ui.pageOn: ui.pageMax + SbW + 8 else: 0), touchNow)
+    run(4)
+
+proc probeEnd(s: Shot) =
+  queue.add Event(kind: MouseMoveEvent, x: W + 50, y: H + 50)
+  queue.add Event(kind: MouseUpEvent, x: W + 50, y: H + 50, button: LeftButton)
+  queue.add Event(kind: KeyDownEvent, key: KeyEsc)
+  queue.add Event(kind: KeyUpEvent, key: KeyEsc)
+  run(2)
+  ui.popup = 0
+  dismissToast()
+  hideSnackbar()
+  if s.reset != nil: s.reset()
+
+proc steady(): tuple[px: seq[uint32]; still: seq[bool]] =
+  ## (the screen, and which of its pixels change with time alone)
+  run(2)
+  let a = pixels
+  ticks += 600
+  run(2)
+  result.px = pixels
+  result.still = newSeq[bool](a.len)
+  for i in 0 ..< a.len:
+    if a[i] != pixels[i]: result.still[i] = true
+
+const ActiveRoles = {arButton, arToggleButton, arCheckBox, arRadioButton, arSlider, arTextField,
+                     arPasswordField, arComboBox, arTab, arListItem, arMenuItem, arLink, arSpinButton,
+                     arTreeItem}
+
+proc probe(s: Shot): string =
+  ## One line: the example's tab stops, its focus ring, what the mouse over it, a click, the keys,
+  ## the wheel and a finger do -- and its targets a finger can't hit well.
+  var notes: seq[string]
+  # the mouse
+  probeStart(s, false)
+  var (base, still) = steady()
+  let cx = target.x + min(target.w div 2, dp(24))
+  let cy = target.y + target.h div 2
+  queue.add Event(kind: MouseMoveEvent, x: cx, y: cy)
+  run(3)
+  let hoverPx = differ(base, pixels, still)
+  let hotOne = ui.hot != 0
+  let cursorNow = ui.cursor
+  queue.add Event(kind: MouseWheelEvent, y: -1)
+  run(3)
+  let wheelPx = differ(base, pixels, still)
+  probeEnd(s)
+  # the keys: Tab to it, its stops, what each key does
+  probeStart(s, false)
+  (base, still) = steady()
+  var stops: seq[Id]
+  for _ in 0 ..< 24:
+    queue.add Event(kind: KeyDownEvent, key: KeyTab)
+    queue.add Event(kind: KeyUpEvent, key: KeyTab)
+    run(2)
+    if ui.focus == Id(0x5ec0ffee'u32) or ui.focus == 0 or ui.focus in stops: break
+    stops.add ui.focus
+  probeEnd(s)
+  var ringPx = 0
+  var keys: seq[string]
+  if stops.len > 0:
+    for k in [KeySpace, KeyEnter, KeyDown, KeyRight, KeyEnd, KeyPageDown]:
+      probeStart(s, false)
+      queue.add Event(kind: KeyDownEvent, key: KeyTab)
+      queue.add Event(kind: KeyUpEvent, key: KeyTab)
+      run(2)
+      var (before, still2) = steady()
+      if k == KeySpace: ringPx = differ(base, before, still)
+      queue.add Event(kind: KeyDownEvent, key: k)
+      queue.add Event(kind: KeyUpEvent, key: k)
+      run(3)
+      if differ(before, pixels, still2) > 0: keys.add(($k).replace("Key", ""))
+      probeEnd(s)
+  # each control alone: a click and a finger's tap, a right click and a long press -- the same?
+  accessKeep = true
+  probeStart(s, false)
+  discard steady()
+  var nodes: seq[(string, Rect)]
+  for n in accessLast:
+    if n.role in ActiveRoles and nodeRect(n).w > 0 and nodeRect(n).h > 0 and nodes.len < 14:
+      nodes.add (n.name, nodeRect(n))
+  probeEnd(s)
+  var tapDiffers, longDiffers: seq[string]
+  for (name, r0) in nodes:
+    var effect: array[2, array[2, int]]        # [mouse, finger][click, right click]
+    for finger in countdown(1, 0):          # (the finger first: the example as it was drawn)
+      for right in 0 .. 1:
+        probeStart(s, finger == 1)
+        let (b0, st0) = steady()
+        # (the same control on the touch screen: found again by its name, its place may differ)
+        var r = r0
+        if finger == 1:
+          r = Rect()
+          for n in accessLast:
+            if n.name == name and n.role in ActiveRoles: (r = nodeRect(n); break)
+          if r.w <= 0 or r.y + r.h > H or r.x + r.w > W:
+            effect[1] = [1, 1]                  # (not on the touch screen: nothing to compare)
+            probeEnd(s)
+            continue
+        let x = r.x + r.w div 2
+        let y = r.y + r.h div 2
+        if right == 0:
+          press(x, y)
+          release(x, y)
+        elif finger == 1:
+          press(x, y)
+          ticks += 800
+          run(3)
+          release(x, y)
+        else:
+          press(x, y, RightButton)
+          release(x, y, RightButton)
+        # (the mouse away: what stays is what the click did, not the hover)
+        if finger == 0: queue.add Event(kind: MouseMoveEvent, x: W + 50, y: H + 50)
+        run(3)
+        effect[finger][right] = differ(b0, pixels, st0)
+        if existsEnv("SHOTS_PROBE_DEBUG"):
+          echo "  ", name, " finger=", finger, " right=", right, " at ", x, ",", y, " in ", W, "x", H,
+               " changed ", effect[finger][right]
+        probeEnd(s)
+    let nm = if name.len > 0: name[0 ..< min(name.len, 16)] else: "?"
+    if effect[0][0] > 0 and effect[1][0] == 0: tapDiffers.add nm
+    if effect[0][1] > 0 and effect[1][1] == 0: longDiffers.add nm
+  # a finger: its targets, a tap
+  probeStart(s, true)
+  (base, still) = steady()
+  var small: seq[string]
+  for n in accessLast:
+    if n.role notin ActiveRoles: continue
+    let r = nodeRect(n)
+    if r.w <= 0 or r.h <= 0: continue
+    if min(r.w, r.h) < dp(36):
+      small.add $n.role & " \"" & n.name[0 ..< min(n.name.len, 18)] & "\" " & $r.w & "x" & $r.h
+  let tx = target.x + min(target.w div 2, dp(24))
+  let ty = target.y + target.h div 2
+  press(tx, ty)
+  release(tx, ty)
+  let tapPx = differ(base, pixels, still)
+  # a finger that moves a little while pressing: still a tap, not a drag
+  probeEnd(s)
+  accessKeep = false
+  if stops.len == 0: notes.add "no tab stop"
+  elif ringPx == 0: notes.add "no focus seen"
+  if hoverPx == 0: notes.add "no hover"
+  if tapDiffers.len > 0: notes.add "TAP does nothing where a click does: " & tapDiffers.join(", ")
+  if longDiffers.len > 0: notes.add "LONG PRESS does nothing where a right click does: " & longDiffers.join(", ")
+  if small.len > 0: notes.add "small for a finger: " & small[0 ..< min(4, small.len)].join("; ") &
+                              (if small.len > 4: " (+" & $(small.len - 4) & ")" else: "")
+  result = s.name & "\t" & $stops.len & "\t" & (if ringPx > 0: "ring" else: "-") & "\t" &
+           (if hoverPx > 0: "hover" elif hotOne: "hot" else: "-") & "\t" &
+           (if wheelPx > hoverPx: "wheel" else: "-") & "\t" & keys.join(",") & "\t" &
+           (if tapPx > 0: "tap" else: "-") & "\t" & ($cursorNow).replace("cur", "") & "\t" & notes.join(" | ")
+
 proc slug(s: string; used: var CountTable[string]): string =
   ## The anchor GitHub gives a heading.
   for c in s.toLowerAscii:
@@ -3454,6 +3781,25 @@ proc main() =
   pixels = newSeq[uint32](W * H)
   view = proc () = discard
   startApp("shots", W, H)
+  let probeOut = getEnv("SHOTS_PROBE")
+  if probeOut.len > 0:
+    # (SHOTS_PROBE=file: each example tried with the mouse, the keys, the wheel and a finger;
+    # a line each: name, stops, ring, hover, wheel, keys that changed it, tap, notes)
+    var lines = @["name\tstops\tring\thover\twheel\tkeys\ttap\tcursor\tnotes"]
+    case getEnv("SHOTS_PROBE_LOOK")
+    of "glass": uiLook = lookGlass
+    of "matte": uiLook = lookMatte
+    of "gloss": uiLook = lookGloss
+    else: discard
+    for s in shots:
+      if only.len > 0 and s.name notin only: continue
+      if s.noPicture.len > 0: continue
+      if existsEnv("SHOTS_VERBOSE"): echo "probe ", s.name
+      lines.add probe(s)
+    writeFile(probeOut, lines.join("\n") & "\n")
+    echo lines.len - 1, " examples probed into ", probeOut
+    removeDir(sampleRoot)
+    return
   if only.len > 0:
     # (SHOTS_MD=file: those examples' parts of the guide written there, to put in it by hand)
     let mdOut = getEnv("SHOTS_MD")
@@ -3521,8 +3867,10 @@ proc main() =
     "in more states too), and they are drawn from the very example beside them,\n" &
     "so they always match the toolkit.\n\n" &
     "Every control works with the mouse, the keyboard (Tab, F6, the arrows, Space,\n" &
-    "Enter, Esc, `&` letters with Alt, the menu key), fingers (a tap, a drag to\n" &
-    "scroll, a long press for the menu) and screen readers (see\n" &
+    "Enter, Esc, `&` letters with Alt, the menu key, the wheel), fingers (a tap --\n" &
+    "a press just beside a small control is its, as if it were 44 points across --,\n" &
+    "a drag to scroll, a long press for the menu, on a word in a text box choosing\n" &
+    "it) and screen readers (see\n" &
     "[Screen readers and input methods](#screen-readers-and-input-methods)).\n" &
     "The [README](../README.md) tells the rest:\n" &
     "files, mail, the image editor, the system's own APIs, Android and iOS. The\n" &

@@ -1101,6 +1101,16 @@ proc memLogTick() =
   try: stderr.writeLine s
   except IOError: discard
 
+heldAccounted = proc (): int64 =
+  ## (what the open images hold on purpose, for a soak's count: their layers, their undo steps in
+  ## memory, their picture put together and the view's)
+  for dw in docs:
+    let d = dw.doc
+    for L in d.layers: result += int64(layerBytes(L))
+    result += int64(d.historyBytes.ram)
+    result += int64(d.w) * int64(d.h) * 8
+  result += int64(clip.px.len) * 4          # (what Copy keeps, to paste)
+
 # (in photo/dialogs)
 proc startCameraRaw(raw: RawImage)
 

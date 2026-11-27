@@ -1,13 +1,13 @@
 # Benchmarks
 
 What an app made with Retro Nim UI costs, measured by `tools/bench.py`
-(its scenes are in `tools/bench.nim`). Medians of 5 runs, the scenes
+(its scenes are in `tools/bench.nim`). Medians of 3 runs, the scenes
 taking turns. Run it on your own machine for your own numbers.
 
 | | |
 |---|---|
 | Machine | Intel(R) Xeon(R) Processor @ 2.10GHz, 2 cores |
-| System | Linux 6.18.44-fc-v726 |
+| System | Linux 6.18.44-fc-v880 |
 | Compiler | Nim Compiler Version 2.4.2 [Linux: amd64], `-d:release -d:useMalloc -d:strip` |
 | Drawn on | Xvfb (no graphics card: drawn by the processor) |
 
@@ -17,9 +17,9 @@ A number and three buttons, 5 seconds after its first frame, nothing happening.
 
 | | |
 |---|---|
-| The program (stripped) | 3.5 MB |
-| Start to the first frame on screen | 53 ms |
-| Memory at rest (resident) | 11.6 MB |
+| The program (stripped) | 3.8 MB |
+| Start to the first frame on screen | 74 ms |
+| Memory at rest (resident) | 12.0 MB |
 | Processor at rest | 0.01% of a core |
 
 ## Busy
@@ -28,10 +28,11 @@ A number and three buttons, 5 seconds after its first frame, nothing happening.
 
 | Scene | Processor a frame | Frames a second | Slowest frames (99th percentile) | Most memory |
 |---|---|---|---|---|
-| A list: 100,000 rows of three texts, scrolled 8 pixels a frame | 0.59 ms | 61.9 | 17.1 ms | 11.9 MB |
-| A dashboard: 600 cells, each its own color and a number changing every frame | 0.82 ms | 61.9 | 17.1 ms | 11.8 MB |
-| A document: 40 paragraphs (20,000 letters) wrapped to a new width every frame | 0.96 ms | 61.8 | 17.2 ms | 13.8 MB |
-| Type: 24 lines, each in another of 48 sizes and four faces every frame | 1.14 ms | 61.8 | 17.0 ms | 17.7 MB |
+| A list: 100,000 rows of three texts, scrolled 8 pixels a frame | 0.51 ms | 61.7 | 17.1 ms | 12.3 MB |
+| A dashboard: 600 cells, each its own color and a number changing every frame | 0.81 ms | 62.1 | 17.0 ms | 12.0 MB |
+| A document: 40 paragraphs (20,000 letters) wrapped to a new width every frame | 0.94 ms | 61.9 | 17.1 ms | 14.1 MB |
+| Type: 24 lines, each in another of 48 sizes and four faces every frame | 1.15 ms | 61.8 | 17.0 ms | 18.0 MB |
+| A phone: a settings page in the Gloss look, a pixel lower every frame | 0.58 ms | 61.9 | 17.0 ms | 12.5 MB |
 
 The processor's time is the whole process's (every thread). The frame rate
 stops at the 62 frames a second the scenes ask for (one each 16 ms); the

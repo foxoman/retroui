@@ -122,10 +122,11 @@ block title:
 block carousel:
   var spec = defaultCarousel()
   when sizeof(int) == 4:
-    # (a 32-bit program's address space holds the eight slides' layers at half the size: each
-    # layer is as big as the document, its memory only taken where it is drawn on)
-    spec.w = spec.w div 2
-    spec.h = spec.h div 2
+    # (a 32-bit program's address space holds the eight slides' layers at a quarter of the size:
+    # each layer is as big as the document, its memory only taken where it is drawn on, but its
+    # addresses taken whole -- at half the size, now and then, they did not fit)
+    spec.w = spec.w div 4
+    spec.h = spec.h div 4
   let d = newCarousel(spec)
   check d.boards.len == 8 and d.boards[0].color == diagramTheme("Parchment").paper, "eight slides, in the paper"
   var deep = 0

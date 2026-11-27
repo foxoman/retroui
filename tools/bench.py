@@ -18,7 +18,7 @@ import json, os, platform, statistics, subprocess, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "build", "bench")
-SCENES = ["rest", "list", "dashboard", "document", "type"]
+SCENES = ["rest", "list", "dashboard", "document", "type", "phone"]
 
 
 def main():
@@ -103,8 +103,9 @@ def main():
     names = {"list": "A list: 100,000 rows of three texts, scrolled 8 pixels a frame",
              "dashboard": "A dashboard: 600 cells, each its own color and a number changing every frame",
              "document": "A document: 40 paragraphs (20,000 letters) wrapped to a new width every frame",
-             "type": "Type: 24 lines, each in another of 48 sizes and four faces every frame"}
-    for s in ["list", "dashboard", "document", "type"]:
+             "type": "Type: 24 lines, each in another of 48 sizes and four faces every frame",
+             "phone": "A phone: a settings page in the Gloss look, a pixel lower every frame"}
+    for s in ["list", "dashboard", "document", "type", "phone"]:
         lines.append("| %s | %.2f ms | %.1f | %.1f ms | %.1f MB |" % (
             names[s], med(s, "cpuMsPerFrame"), med(s, "fps"), med(s, "p99Ms"),
             med(s, "peakKb", 1 / 1024)))
@@ -139,7 +140,7 @@ def profile_lines(results, names):
         v = [r["profile"]["spans"][name]["avgMs"] for r in results[scene]
              if "profile" in r and name in r["profile"]["spans"]]
         return statistics.median(v) if v else None
-    scenes = ["list", "dashboard", "document", "type"]
+    scenes = ["list", "dashboard", "document", "type", "phone"]
     cols = [(k, t) for k, t in SPANS if any(span(s, k) is not None for s in scenes)]
     out = ["## Where a frame's time goes",
            "",

@@ -160,6 +160,10 @@ proc heal*(dst, src: Img; mask: openArray[uint8]): Img =
 
 const
   PR = 3                           # patches 7 x 7
+  CafStartMax = 128 * 128
+    ## (the most pixels of the level the fill starts at, patch by patch from the hole's edge: each
+    ## patch looks through the level's every pixel -- a long thin stroke across a big picture made
+    ## no smaller level and kept that up for minutes; the finer levels after are PatchMatch's)
 
 type CafLevel = object
   w, h: int
@@ -650,7 +654,8 @@ proc contentAwareFill*(src: Img; hole: openArray[uint8]; seed = 1): Img =
   # (as many levels as make the hole a few pixels thick: a long thin hole
   # keeps its detail)
   var hm = holeRadius(hole, w, h)
-  while hm > 5 and min(levels[^1].w, levels[^1].h) div 2 >= 3 * (2 * PR + 1):
+  while (hm > 5 or levels[^1].w * levels[^1].h > CafStartMax) and
+        min(levels[^1].w, levels[^1].h) div 2 >= 3 * (2 * PR + 1):
     let a = levels[^1]
     let cw = (a.w + 1) div 2
     let ch = (a.h + 1) div 2
@@ -675,7 +680,8 @@ proc contentAwareFill*(src: Img; hole: openArray[uint8]; seed = 1): Img =
   for L in levels.mitems: L.setup()
   # coarsest: a guess from the edge, then matches at random made better
   var top = levels.len - 1
-  while top > 0 and levels[top].sources.len < 8: dec top
+  while top > 0 and levels[top].sources.len < 8 and levels[top - 1].w * levels[top - 1].h <= CafStartMax:
+    dec top
   if levels[top].sources.len == 0:
     levels[top].diffuse()
   else:

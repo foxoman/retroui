@@ -719,10 +719,12 @@ Device Platform, on Google Cloud); the job moves there before then.
   starts again in the next one with the first run's cycles collected.
 - **Permissions:** `retroapk` reads what the app's compiled code uses --
   the camera, the microphone, notifications, the place, a buzz, the
-  network, a sound playing on in the background (`audioView`: the playback
-  service and its permissions) -- and lists those permissions in the
-  manifest by itself (it says which; `--no-auto-permissions` leaves them
-  out). The app asks the user
+  network, a sound playing on in the background (`audioView`,
+  `audioPlayer`: the playback service and its permissions), the equalizer,
+  the device's music (`askMusicAccess`) -- and lists those permissions in
+  the manifest by itself (it says which; `--no-auto-permissions` leaves
+  them out). It finds a function by its name in the C Nim wrote, as Nim
+  2.4 names it (`name_u12__...`) and as 2.2 did (`name__...`). The app asks the user
   the first time the feature is used (Android 6 and later), and goes on
   without it when the answer is no.
 - **Built for Android's emulator:** `nimble emuapks` (x86_64, debuggable);

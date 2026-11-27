@@ -424,7 +424,15 @@ app "Staff", 520, 420:
   " of "). README's "Translating an app" has the whole of it.
 - Sound: `audioView(url, speed = 1.5, title = "...", key = "player")`,
   `seekVideo("player", ms)`, `playVideo("player")`; it plays on in the
-  background on Android (retroapk adds the service) and iOS. Its event's
+  background on Android (retroapk adds the service) and iOS. A player the app
+  draws itself (a music app): `audioPlayer(path, "music", autoplay = true)` every
+  frame (its `VideoEvent`: playing, `ended` in the frame it ended, position,
+  length), `setPlayerVolume("music", 0.7)`, `setPlayerEqualizer("music", gains)`
+  (10 bands, `EqualizerBands`; `playerEqualizer()` says if there is one); with
+  `setNowPlaying` and `mediaKeys()` for the lock screen. The phone's music:
+  `musicAccess()` / `askMusicAccess()` (Android asks the user), `musicFolders()`;
+  each file's tags and cover with `retroui/audiotags` (`readAudioTags(path)`), on
+  a `job` for a library. Its event's
   `error` says why the system could not play it (show it). Plain
   `http://` addresses need `retroapk --cleartext` / `retroios --cleartext`
   (else the kit asks for https).
@@ -720,6 +728,12 @@ costs what its visible rows cost.
   `glossTint(iOS6color)`, `glossDetail()` -- gray buttons and
   the default one blue -- `button(label, isDefault = true)`; `GlossLight`, `GlossDark`), at the same sizes; `glassLook()` is true in them too, `matteLook()` and
   `glossLook()` tell them apart; `lookSchemes(look)`, `titleBar`, `barFace`, `tintedFace`.
+- A phone app is made for tablets too: `isCompact()` (a phone in portrait) gives pages one
+  over another with Back; otherwise (a tablet, a phone on its side, a computer) put the list
+  down the left -- about a third, at most 340 dp -- and the page chosen beside it, each
+  under its own `navBar` (Back only past the first page beside it), the row shown drawn
+  chosen with `tableRow(selected = true)`; the phone's Back then closes the app. Draw both
+  in its tests. `listDetail(open, listW)` does it for a simple list and its details.
 - Controls from phones, on desktops too (`retroui/mobile`): `navBar(title, back, action)`
   (returns `npBack`, `npAction`), `wheelPicker(items, sel)` (and `wheelPicker(count, item,
   sel)`), `dateWheels(d)`, `timeWheels(h, m, minuteStep, hours12)`, `quantity(v, lo, hi)`,
@@ -738,7 +752,16 @@ costs what its visible rows cost.
   `messageBubble(text, bkMine, time)` (`bkTheirs`, `bkMine`, `bkMineText`), `clockFace(h,
   m, s, night = true, label = "Tokyo")`, `appIcon(glyph, label, tint, badge)` (a home
   screen's icon: true when tapped), `texture(r, txLinen)` (`txPaper`, `txFelt`, `txLeather`,
-  `txPinstripe`: drawn in code), and rows in groups as a phone's settings:
+  `txPinstripe`: drawn in code), `checkRow(title, done, detail, flagged = true)` (a to-do's
+  row: its round check `toggled`, the rest `clicked`), `editRow(title, i)` in a list being
+  edited (a `RowEdit`: `reDelete`, `reMove` from `index` to `to` -- change the list after
+  the loop), `vslider(v, lo, hi, h, label)` (an equalizer's band), `ratingStars(v)`,
+  `coverFlow(covers, sel, titles, subtitles)` (the one opened, else -1),
+  `slideToConfirm(label)`, `bigButton(label, btGreen)`, `edit(s, hint = "New task")`, a
+  side menu (`sideMenu(menuOpen, 280): sideMenuHeader("Music"); if sideMenuItem("Radio",
+  nfWifi, selected = place == 5): ...` -- opened by `navBar(title, menu = true) == npBack`
+  at a place's first page; on a tablet the same items down the left, `sideMenuBack(r)`
+  under them), and rows in groups as a phone's settings:
   `tableGroup(header, footer): tableRow(title, detail, taChevron, glyph, subtitle,
   picture = cover, tint = color, selected = shownBeside)` (a `TableHit`: `clicked`, `info`), `tableSwitch`,
   `tableButton`. A phone app with its own bars: `appNavBars = true` (no 3.1 caption in
@@ -913,6 +936,11 @@ with much less memory. Details per OS in BUILDING.md.
   `RETRO_TOUCH=1` alone gives finger-sized controls on a tablet or a desktop
   (`RETRO_CONTROLS=touch|desktop|auto` for the sizes only). Put
   `appearanceSettings()` in the app's settings so users choose their sizes.
+- A finger's press just beside a small control is its, as if 44 points across
+  (`TouchTarget`); a tap moved 8 points (`TouchSlop`) is a drag; a long press is
+  the right click (on a word in a text box: the word chosen; on a list's row:
+  that row). A control of the app's own: every clickable part through
+  `interact`, its hover only for `hit.showsHover`.
 
 ## 11. Common mistakes
 

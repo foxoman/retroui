@@ -1,6 +1,6 @@
 # Tutorials
 
-Step-by-step lessons, from a first window to your own controls and the stores. Each step is a whole program you can run, with a picture of what it draws; the pictures are made from the very programs (`sh tools/tutorialshots/make.sh`), so code and pictures never drift apart. Start with [Start here](00-start-here/), then go in order, or jump to what you need.
+Step-by-step lessons, from a first window to your own controls, the stores and a whole phone app. Each step is a whole program you can run, with a picture of what it draws; the pictures are made from the very programs (`sh tools/tutorialshots/make.sh`), so code and pictures never drift apart. Start with [Start here](00-start-here/), then go in order, or jump to what you need.
 
 | | Lesson | You make | Time |
 |---|---|---|---|
@@ -21,6 +21,7 @@ Step-by-step lessons, from a first window to your own controls and the stores. E
 | | [14 The system's own APIs](14-system-apis/) | Win32, Objective-C, Java and D-Bus from Nim | 30 min |
 | | [15 Testing](15-testing/) | tests without a window; an app driven by its controls' names | 30 min |
 | | [16 Shipping](16-shipping/) | packages for every store, signed updates inside the app | 30 min |
+| **A whole app** | [17 A whole phone app](17-whole-app/) | tasks and notes: a tab bar, pages with Back, a list edited in place, its APK | 45 min |
 
 | | | |
 |---|---|---|

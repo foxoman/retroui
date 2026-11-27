@@ -43,9 +43,28 @@ else:
     ## nil when the system cannot play it. `audioSink` "fakesink": no sound.
     gstOpen(path, video, audioSink)
 
+  proc openPlayer*(path: string; video: bool; audioSink: string; equalizer: bool): MediaPlayer =
+    ## `openPlayer`, a sound with an equalizer (`setEqualizer`) where the system has one.
+    gstOpen(path, video, audioSink, equalizer)
+
+  proc playerEqualizer*(): bool = gstEqualizerAvailable()
+    ## The system's player has an equalizer (`setEqualizer`): GStreamer's equalizer-10bands here.
+
   export mediagst.close, mediagst.play, mediagst.pause, mediagst.playing,
          mediagst.positionMs, mediagst.durationMs, mediagst.seekMs, mediagst.setVolume, mediagst.setRate,
-         mediagst.showFirstPicture, mediagst.poll
+         mediagst.showFirstPicture, mediagst.poll, mediagst.setEqualizer
+
+template noEqualizer() =
+  proc openPlayer*(path: string; video: bool; audioSink: string; equalizer: bool): MediaPlayer =
+    ## `openPlayer` (no equalizer here).
+    openPlayer(path, video, audioSink)
+  proc setEqualizer*(p: MediaPlayer; gains: openArray[float]) = discard
+    ## (no equalizer here)
+  proc playerEqualizer*(): bool = false
+    ## (no equalizer here)
+
+when defined(wasm) or defined(windows): noEqualizer()
+elif (defined(macosx) or defined(ios)) and not androidApp: noEqualizer()
 
 proc isStream*(path: string): bool =
   ## `path` is a web address a player opens itself (http, https, rtsp).

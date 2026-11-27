@@ -11,9 +11,11 @@ type
   Source* = enum
     srcSpotify = "Spotify"
     srcYouTube = "YouTube"
+    srcLocal = "On This Device"
   Track* = object
     source*: Source
-    id*, uri*: string          ## Spotify's id and spotify:track:... uri; YouTube's video id
+    id*, uri*: string          ## Spotify's id and spotify:track:... uri; YouTube's video id; a
+                               ## song's path on the device
     title*, artist*, album*: string
     cover*: string             ## the address of its cover (a small one)
     durationMs*: int

@@ -37,6 +37,7 @@ type
     posterPending: bool
     volume: float
     rate: float              # (the speed: 1 as recorded)
+    eq: pointer              # (a sound's equalizer: equalizer-10bands, when asked for)
 
 var
   loaded = 0                 # 0 not tried, 1 there, -1 not there
@@ -60,6 +61,9 @@ var
   structInt: proc (s: pointer; field: cstring; v: ptr cint): cint {.cdecl, gcsafe.}
   pullSample, pullPreroll: proc (sink: pointer; timeout: uint64): pointer {.cdecl, gcsafe.}
   objSet: proc (o: pointer; name: cstring) {.cdecl, varargs, gcsafe.}
+  parseBin: proc (desc: cstring; ghost: cint; err: ptr pointer): pointer {.cdecl, gcsafe.}
+  binByName: proc (bin: pointer; name: cstring): pointer {.cdecl, gcsafe.}
+  factoryFind: proc (name: cstring): pointer {.cdecl, gcsafe.}
 
 const
   FormatTime = 3
@@ -112,6 +116,10 @@ proc loadGst(): bool =
     get(app, pullPreroll, "gst_app_sink_try_pull_preroll")
     get(gobj, objSet, "g_object_set")
     get(glib, gFree, "g_free")
+    # (the equalizer's: not needed to play)
+    parseBin = cast[typeof(parseBin)](core.symAddr("gst_parse_bin_from_description"))
+    binByName = cast[typeof(binByName)](core.symAddr("gst_bin_get_by_name"))
+    factoryFind = cast[typeof(factoryFind)](core.symAddr("gst_element_factory_find"))
     gstInit(nil, nil)
     true
 
@@ -131,6 +139,8 @@ proc close*(p: GstPlayer) =
   ## Stops it and lets it go.
   if p == nil or p.pipe == nil: return
   discard setState(p.pipe, StateNull)
+  if p.eq != nil: objUnref(p.eq)
+  p.eq = nil
   if p.bus != nil: objUnref(p.bus)
   objUnref(p.pipe)
   p.pipe = nil
@@ -149,10 +159,19 @@ proc systemAudioSink(): string =
   elif dirExists("/dev/snd"): "alsasink"
   else: "fakesink"
 
-proc gstOpen*(path: string; video: bool; audioSink = ""): GstPlayer =
+proc gstEqualizerAvailable*(): bool =
+  ## GStreamer is here with its 10-band equalizer (gst-plugins-good's equalizer-10bands).
+  if not gstAvailable() or parseBin == nil or binByName == nil or factoryFind == nil: return false
+  let f = factoryFind("equalizer-10bands")
+  if f == nil: return false
+  objUnref(f)
+  true
+
+proc gstOpen*(path: string; video: bool; audioSink = ""; equalizer = false): GstPlayer =
   ## `path` ready to play (paused on its first picture); nil when
   ## GStreamer is not there or cannot make the player. `audioSink`: an
-  ## element for the sound ("fakesink": none; "" the system's).
+  ## element for the sound ("fakesink": none; "" the system's). `equalizer`: a sound with an
+  ## equalizer of 10 bands (`setEqualizer`), where GStreamer has one.
   let l = path.toLowerAscii
   let stream = l.startsWith("http://") or l.startsWith("https://") or l.startsWith("rtsp://")
   if not gstAvailable() or not (stream or fileExists(path)): return nil
@@ -184,9 +203,16 @@ proc gstOpen*(path: string; video: bool; audioSink = ""): GstPlayer =
   else:
     let fake = makeElement("fakesink", nil)
     if fake != nil: objSet(pipe, "video-sink", fake, nil)
-    # (a voice faster or slower keeps its pitch: `setRate`)
-    let tempo = makeElement("scaletempo", nil)
-    if tempo != nil: objSet(pipe, "audio-filter", tempo, nil)
+    # (a voice faster or slower keeps its pitch: `setRate`; the equalizer after it)
+    var filter: pointer
+    if equalizer and gstEqualizerAvailable():
+      var err: pointer
+      filter = parseBin("scaletempo ! audioconvert ! equalizer-10bands name=eq ! audioconvert",
+                        1, addr err)
+      if err != nil: filter = nil
+      if filter != nil: result.eq = binByName(filter, "eq")
+    if filter == nil: filter = makeElement("scaletempo", nil)
+    if filter != nil: objSet(pipe, "audio-filter", filter, nil)
   let wanted = if audioSink.len > 0: audioSink else: systemAudioSink()
   var a = makeElement(wanted.cstring, nil)
   if a == nil and audioSink.len == 0 and wanted != "alsasink" and dirExists("/dev/snd"):
@@ -262,6 +288,14 @@ proc setVolume*(p: GstPlayer; v: float) =
   if p != nil and p.pipe != nil:
     p.volume = clamp(v, 0.0, 4.0)
     if not p.posterPending: objSet(p.pipe, "volume", cdouble(p.volume), nil)
+
+proc setEqualizer*(p: GstPlayer; gains: openArray[float]) =
+  ## The equalizer's 10 bands (31 Hz, 62, 125, 250, 500, 1 k, 2 k, 4 k, 8 k, 16 k: dB, -24 .. 12;
+  ## 0 flat; fewer: the rest flat) -- a sound opened with `equalizer`.
+  if p == nil or p.pipe == nil or p.eq == nil: return
+  for i in 0 ..< 10:
+    let g = if i < gains.len: clamp(gains[i], -24.0, 12.0) else: 0.0
+    objSet(p.eq, cstring("band" & $i), cdouble(g), nil)
 
 proc showFirstPicture*(p: GstPlayer) =
   ## Gets the first picture of a video without playing it (it plays,

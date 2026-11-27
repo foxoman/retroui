@@ -179,6 +179,26 @@ proc programMemory*(): int64 = memoryNumbers().program
   ## The memory this program uses in bytes (resident; on macOS its peak; 0:
   ## not known).
 
+when defined(useMalloc) and defined(linux) and not defined(android):
+  # (glibc's mallinfo2 -- 2.33 on -- looked up as the program runs: all its threads' heaps)
+  type MallInfo2 = object
+    arena, ordblks, smblks, hblks, hblkhd, usmblks, fsmblks, uordblks, fordblks, keepcost: csize_t
+  type MallInfo2Fn = proc (): MallInfo2 {.cdecl, gcsafe.}
+  var RTLD_DEFAULT_G {.importc: "RTLD_DEFAULT", header: "<dlfcn.h>".}: pointer
+  proc dlsymG(h: pointer; name: cstring): pointer {.importc: "dlsym", header: "<dlfcn.h>".}
+  let mallinfo2Fn = cast[MallInfo2Fn](dlsymG(RTLD_DEFAULT_G, "mallinfo2"))
+
+proc heapHeld*(): int64 =
+  ## The bytes the program's memory allocator has handed out and that are not let go of yet --
+  ## what it holds, without what it let go of and the system did not take back (Linux with
+  ## glibc 2.33 or later and `-d:useMalloc`; 0 elsewhere). What `tools/soak.sh` judges a
+  ## leak by.
+  when defined(useMalloc) and defined(linux) and not defined(android):
+    if mallinfo2Fn != nil:
+      let m = mallinfo2Fn()
+      return int64(m.uordblks) + int64(m.hblkhd)
+  0
+
 proc cacheBudget*(share = 0.03; lo = 16 * MB; hi = 192 * MB): int64 =
   ## What a cache may keep: `share` of the device's memory, no less than
   ## `lo` and no more than `hi` (bytes). Not known: 64 MB.
@@ -263,9 +283,39 @@ proc tell(level: MemoryPressure) =
   trimmedAt = getMonoTime()
   trimmedSize = memoryNumbers().program
 
+var heldAccounted*: proc (): int64 {.closure.}
+  ## What the program holds on purpose and knows the size of -- its open documents, their
+  ## undo steps --: `tools/soak.sh` takes it off what it holds (`RETRO_HELD_LOG`), so a run of
+  ## random clicks that opens a big picture is not taken for a leak. nil: nothing.
+
+let heldLog = getEnv("RETRO_HELD_LOG")
+  ## (RETRO_HELD_LOG=FILE: every 20 seconds the caches let go of what can be made again, then a
+  ## line "seconds held resident accounted" -- kB -- added to it: tools/soak.sh)
+var heldAt = MonoTime()
+let heldFrom = getMonoTime()
+
+proc logHeld(now: MonoTime) =
+  if heldLog.len == 0 or (now - heldAt).inSeconds < 20: return
+  heldAt = now
+  # (what is kept to be fast -- pictures, glyphs, pages -- let go: what is left is what is held)
+  tell(mpCritical)
+  told = mpNone
+  let held = heapHeld()
+  if held <= 0: return
+  measured = false
+  let acc = if heldAccounted != nil: heldAccounted() else: 0'i64
+  try:
+    var f: File
+    if open(f, heldLog, fmAppend):
+      f.writeLine $(now - heldFrom).inSeconds & " " & $(held div 1024) & " " &
+                  $(memoryNumbers().program div 1024) & " " & $(acc div 1024)
+      f.close()
+  except IOError, OSError: discard
+
 proc watchTick() {.nimcall.} =
   # (every frame: cheap -- the numbers are measured every two seconds)
   let now = getMonoTime()
+  logHeld(now)
   if ui.pressed or ui.key != KeyNone or ui.wheel != 0 or ui.mouseMoved: lastInput = now
   if ui.paused and not wasPaused:
     wasPaused = true

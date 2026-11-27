@@ -126,7 +126,9 @@ required, so the app installs on a device without a camera or GPS.
 | in the other apps' share sheets (`sharedIn`) | | `--share-target:text/plain,image/*` |
 | in a file manager's "Open with" (`sharedIn`, `adoptSystemFile`) | | `--opens:image/*,application/pdf` |
 | a widget on the home screen (`homeWidget`) | | `--widget` |
-| a sound playing on in the background (`audioView`) | ✓ (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, the playback service) | `--permission:FOREGROUND_SERVICE --permission:FOREGROUND_SERVICE_MEDIA_PLAYBACK` |
+| a sound playing on in the background (`audioView`, `audioPlayer`) | ✓ (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, the playback service) | `--permission:FOREGROUND_SERVICE --permission:FOREGROUND_SERVICE_MEDIA_PLAYBACK` |
+| the equalizer (`setPlayerEqualizer`) | ✓ (`MODIFY_AUDIO_SETTINGS`) | `--permission:MODIFY_AUDIO_SETTINGS` |
+| the music on the phone (`askMusicAccess`) | ✓ (`READ_MEDIA_AUDIO`; `READ_EXTERNAL_STORAGE` up to Android 12) | `--permission:READ_MEDIA_AUDIO` |
 | Java of the app's own (a service, a receiver) | | `--java:DIR` (its classes.dex, its manifest.txt) |
 | installing an update's APK, or another app's (`installApk`) | | `--permission:REQUEST_INSTALL_PACKAGES` |
 
@@ -137,7 +139,7 @@ the app goes on.
 **iOS and macOS**: the app's Info.plist says why it asks (`retroios` and
 `tools/macapp.sh` write them): `NSLocationWhenInUseUsageDescription`,
 `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`; and
-`UIBackgroundModes` audio when the app plays sounds with `audioView`
+`UIBackgroundModes` audio when the app plays sounds with `audioView` (or `audioPlayer`)
 (`retroios` sees it in the compiled code), so they play on in the
 background. `retroios --cleartext` lets the app use plain `http://`
 addresses (App Transport Security's `NSAllowsArbitraryLoads`).

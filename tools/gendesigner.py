@@ -52,7 +52,7 @@ SKIP_PARTS = {"Getting started", "Looks", "Screen readers and input methods"}
 # Names only the screenshot tool has: an example using one is not offered.
 SHOT_ONLY = {"ledgerIcon", "samplePicture", "sampleHome", "sampleRoot", "samplePlaces", "makeSampleHome",
              "target", "aimed", "sampleUi", "themeLook", "kindCols", "settle", "run(",
-             "look(", "opts(", "carScene"}
+             "look(", "opts(", "carScene", "demoCover"}
 
 # The standard modules an example may call (as tools/shots.nim imports
 # them): an example using one of these names gets the module imported.
@@ -365,6 +365,8 @@ def clean_code(code):
         st = l.strip()
         if st in ("aim()", "aimed = true") or st.startswith("target = ") or st.startswith("aimAt("):
             continue
+        if re.match(r"^if .*: aim(At\(.*\))?(\(\))?$", st):
+            continue                     # (where the mouse goes for the guide's picture: not the designer's)
         l = l.replace(", enabled = shotEnabled", "").replace("enabled = shotEnabled", "")
         l = l.replace("(, ", "(")
         lines.append(l)
