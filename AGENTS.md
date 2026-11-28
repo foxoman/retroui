@@ -823,6 +823,31 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   window's (`setLayer` round its drawing), blocks the content under it
   (`ui.blockers`) and leaves `ui.floatInset` for `endPage` and `endPanel` to
   scroll past it -- something new that floats over the content does the same.
+  A panel down to the foot that took it sets `ui.floatTaken`: the page then
+  doesn't scroll for it too (its scroll bar was always there on phones). The
+  navigation bar and a search bar under it are one band of glass on the
+  dialogs' layer, their buttons taking input with the window's through
+  `inputAs` (not `setLayer` round each `interact`: `navButton` and the search
+  box interact inside), recorded in `glassBand`; a plain panel or a
+  `pageView` right under it clips up to its top (`glassBandAbove`) so what
+  scrolls up shows through it. On a touch screen in the newer looks
+  `scrollBarFor` and the window's page draw the thin line of `overlayBars`,
+  never the 3.1 bar: a view a finger doesn't move passes `overlay = false`.
+- **The system's events read during work in a frame** (`busyPump`) ask for
+  the keyboard as it is (`keyboardFlags()`), never `{}`: on Android and iOS
+  `{}` lets the keyboard go, and it came back the next frame -- the
+  keyboard flickered while Retro Music's search filled in.
+- **On Android the app draws in a surface view in the window's views**
+  (`RetroActivity.pictureInView`), not the window's surface taken whole: the
+  window's views draw a free window's frame. Touches (`evX`, `evY` in
+  android_glue.c), the insets, the views laid over the app (`RetroWeb`,
+  `RetroMedia`) and a screen reader's boxes are moved by its place in the
+  window (`nativeSurfaceAt`, `RetroActivity.surfaceX/Y`); something new
+  that reads a touch's place or puts a window over the app does the same.
+- **A widget's id from a variable is its address** (`idOf(v)`): a local's
+  address can change between frames (the sanitizers move the stack), so a
+  settings row filled from a local each frame is known by its title
+  (`settingToggle`, `settingCombo`).
 - **The default look is Classic on computers and the web, Gloss on Android
   and iOS** (`uiLook`, `ui.theme` in core.nim). A phone control takes its
   colors from the scheme -- in Gloss's own schemes (`glossOwnScheme`) iOS

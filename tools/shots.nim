@@ -569,7 +569,7 @@ example("surface", "Surfaces: frosted glass, shadows, masks",
     text(ring.x + dp(9), ring.y + dp(20), "circle", color(255, 255, 255))
 
 example("glass", "The modern glass: glassSurface",
-        "With the modern glass effect (`glassEffect`, on in the Glass look; \"Glass effect\" in `appearanceSettings`) Glass is glass everywhere: the tab bar a capsule floating over the content, which shows through it blurred and scrolls its end out from under it (`ui.floatInset`); the bars' buttons capsules of glass; menus, dialogs, sheets, alerts and the side menu glass with their edges lit. `glassSurface(r, radius, tint)` draws a pane of it of your own -- what is under it blurred and seen through it, a sheen of light down from its top, its edges lit (`glassRim`); `glassFx()` says whether the effect is on.",
+        "With the modern glass effect (`glassEffect`, on in the Glass look; \"Glass effect\" in `appearanceSettings`) Glass is glass everywhere: the tab bar a capsule floating over the content, which shows through it blurred and scrolls its end out from under it (`ui.floatInset`); the navigation bar, a search bar under it and the status bar one band of glass, what scrolls up under them seen through it blurred, their buttons capsules of glass; menus, dialogs, sheets, alerts and the side menu glass with their edges lit. `glassSurface(r, radius, tint)` draws a pane of it of your own -- what is under it blurred and seen through it, a sheen of light down from its top, its edges lit (`glassRim`); `glassFx()` says whether the effect is on.",
         380, 170, ["glassSurface", "glassRim", "glassFx"], std3):
   let area = place(0, dp(150))
   for i in 0 ..< area.w div dp(16) + 1:
@@ -1832,7 +1832,7 @@ do:
 opts(looks = phoneLooks & @[schemeLook("Gloss, Dusk", lookGloss, Dusk), schemeLook("Glass, Dusk", lookGlass, Dusk)])
 
 example("navbar", "navBar",
-        "A phone's navigation bar: the page's title in the middle, Back before it, a button after it. Alt+Left is Back too. In Gloss the glossy blue-gray bar with bordered buttons; in Glass and Matte the buttons are their labels in the highlight.",
+        "A phone's navigation bar: the page's title in the middle, Back before it, a button after it. Alt+Left is Back too. In Gloss the glossy blue-gray bar with bordered buttons; in Glass and Matte the buttons are their labels in the highlight. With Glass's modern glass effect the bar, a `searchBar` under it and the status bar are one band of glass over the content: a plain panel or a `pageView` right under it runs on up under it, and what scrolls up there shows through it blurred (`glassBandAbove`, `glassBandFace`); its buttons are glass, and what is under it takes no tap there.",
         420, 50, ["navBar", "NavPick"], @[ssNormal, ssTouch, ssDark, ssFocused, ssPressed]):
   case navBar("Order 1042", back = "Orders", action = "Edit")
   of npBack: discard            # (back a page)

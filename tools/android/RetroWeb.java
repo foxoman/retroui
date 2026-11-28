@@ -586,8 +586,8 @@ public final class RetroWeb {
         public void run() {
           try {
             Web wb = webOf(act, key);
-            wb.lp.x = x;
-            wb.lp.y = y;
+            wb.lp.x = x + RetroActivity.surfaceX;     // (the app's picture's place in the window)
+            wb.lp.y = y + RetroActivity.surfaceY;
             wb.lp.width = w;
             wb.lp.height = h;
             if (wb.lp.token == null) wb.lp.token = act.getWindow().getDecorView().getWindowToken();

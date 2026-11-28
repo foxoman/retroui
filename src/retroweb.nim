@@ -82,7 +82,11 @@ const cflags = ["--target=wasm32", "-mbulk-memory", "-mnontrapping-fptoint", "-m
 const kitFonts = ["FreeSans.ttf.z", "FreeSansBold.ttf.z", "FreeSansOblique.ttf.z",
   "FreeSansBoldOblique.ttf.z", "FreeSerif.ttf.z", "FreeSerifBold.ttf.z", "FreeSerifItalic.ttf.z",
   "FreeSerifBoldItalic.ttf.z", "FreeMono.ttf.z", "FreeMonoBold.ttf.z", "FreeMonoOblique.ttf.z",
-  "FreeMonoBoldOblique.ttf.z", "LICENSE-FreeFont.txt"]
+  "FreeMonoBoldOblique.ttf.z", "LICENSE-FreeFont.txt",
+  "SuharApp.ttf.z", "SuharAppBold.ttf.z", "SuharAppItalic.ttf.z", "SuharAppBoldItalic.ttf.z",
+  "SuharAppRead.ttf.z", "SuharAppReadBold.ttf.z", "SuharAppReadItalic.ttf.z",
+  "SuharAppReadBoldItalic.ttf.z", "LICENSE-Suhar.txt"]
+  ## (Suhar App, the interface's font, and FreeFont for what it has not drawn)
 
 proc embedded(): seq[(string, string)] {.compileTime.} =
   for f in libcSources: result.add ("libc" / f, staticRead(webDir & "/libc/" & f))

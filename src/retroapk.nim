@@ -1629,13 +1629,14 @@ proc main() =
     bAttr("resizeableActivity", 0x010104f6, true),
     bAttr("exported", 0x01010010, true)],
     kids: @[
-      # (a free window's first and smallest sizes)
+      # (a free window's first and smallest sizes: as small as a phone's, for a tablet's small
+      # floating window -- the kit's layouts are a phone's there)
       XNode(name: "layout", attrs: @[
         iAttr("defaultWidth", 0x010104f4, dp(1280), TDimen),
         iAttr("defaultHeight", 0x010104f5, dp(800), TDimen),
         iAttr("gravity", 0x010100af, 0x11, THex),        # center
-        iAttr("minWidth", 0x0101013f, dp(480), TDimen),
-        iAttr("minHeight", 0x01010140, dp(360), TDimen)]),
+        iAttr("minWidth", 0x0101013f, dp(320), TDimen),
+        iAttr("minHeight", 0x01010140, dp(320), TDimen)]),
       XNode(name: "meta-data", attrs: @[
         sAttr("name", 0x01010003, "android.app.lib_name"),
         sAttr("value", 0x01010024, "main")]),

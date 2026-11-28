@@ -131,4 +131,40 @@ block keyboards:
   run(3)
   check not keyboardWanted(), "a tap on nothing: the keyboard goes"
 
+var flagsAsked: seq[set[InputFlag]]
+var pollWas: proc (e: var Event; flags: set[InputFlag]): bool {.nimcall.}
+
+block keyboardWhileWorking:
+  # (work in a frame -- a picture decoded, results laid out -- reads the system's events now and
+  # then, `busyTick`: the keyboard asked for stays asked for, not let go and asked again --
+  # it flickered on a phone while Retro Music's search filled in)
+  var words = ""
+  var boxR: Rect
+  var working = false
+  view = proc () =
+    edit words
+    boxR = ui.lastRect
+    if working:
+      for _ in 0 ..< 4:
+        ticks += 30
+        busyTick()
+  run(3)
+  click(boxR)
+  run(2)
+  check keyboardWanted(), "the box tapped: the keyboard asked for"
+  pollWas = inputRelays.pollEvent
+  inputRelays.pollEvent = proc (e: var Event; flags: set[InputFlag]): bool {.nimcall.} =
+    flagsAsked.add flags
+    pollWas(e, flags)
+  working = true
+  run(4)
+  working = false
+  inputRelays.pollEvent = pollWas
+  var dropped = 0
+  for f in flagsAsked:
+    if WantTextInput notin f: inc dropped
+  check flagsAsked.len >= 4 and dropped == 0,
+        "work going on: every read of the events still asks for the keyboard (" & $dropped & " of " &
+        $flagsAsked.len & " did not)"
+
 echo "touchpages: ", passed, " passed"

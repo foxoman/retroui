@@ -174,6 +174,10 @@ proc jobsDone() =
       let wasEmpty = known.len == 0
       let before = lib.shows[i].episodes.len
       lib.shows[i] = lib.shows[i].merge(j.value)
+      # (a smoke run: a show's newest hundred episodes kept -- the shows its random clicks follow
+      # change, and a feed of thousands of episodes, notes and all, is what was read, not memory
+      # kept by mistake)
+      if smokeOn() and lib.shows[i].episodes.len > 100: lib.shows[i].episodes.setLen(100)
       let n = lib.shows[i].episodes.len - before
       # (Settings: a show's new episodes downloaded as they come -- not a whole
       # show just followed: its newest one alone then)

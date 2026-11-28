@@ -1049,6 +1049,8 @@ environment of its own: `adb shell am start -n PACKAGE/org.retro.RetroActivity
 | `RETRO_GPU=cpu` / `gpu` / `auto` | drawing on the CPU or with OpenGL |
 | `RETRO_GPU_KEEP=0` | the GPU keeps no pictures between frames (to compare) |
 | `RETRO_SURFACE=0` | no memory shared with the screen (MIT-SHM, the DIB section): the frame copied |
+| `RETRO_WINDOW_SURFACE=1` | Android: the app draws in its window's surface taken whole, as before 0.83 -- not in a surface view in the window's views (a free or floating window then has no system frame) |
+| `RETRO_SYSTEM_DARK=1` / `0` | the system said to be dark (or light) on any system: `systemDarkMode`, `systemColors` (tests, screenshots) |
 | `RETRO_3D_GPU=0` | the 3D view drawn on the CPU |
 | `RETRO_KMS_CARD`, `RETRO_KMS_MODE`, `RETRO_FBDEV` | the screen driver's card, mode, framebuffer |
 | `RETRO_FB_GRAB=0` | the screen driver leaves the input devices to others too |

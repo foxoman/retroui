@@ -943,6 +943,56 @@ proc glassSurface*(r: Rect; radius: float; tint = Color(); lift = 4) =
   glassSheen(r, radius)
   glassRim(r, radius)
 
+var glassBand*: tuple[r: Rect; frame: int]
+  ## (the glass effect's bars at the top of the window -- `navBar`, a `searchBar` under it --
+  ## drawn this `frame` over `r`: a plain panel starting under them runs on up under the glass,
+  ## what scrolls up there showing through it blurred)
+
+var
+  glassUnders: seq[tuple[x, frame: int]]   # (the bars, by their left edge, something went under)
+  glassEdges: tuple[frame: int; xs: seq[int]]   # (... whose hairline is drawn this frame)
+
+proc glassUnder(x: int): bool =
+  ## (something has scrolled up under the bars at `x`: last frame or this one)
+  for u in glassUnders:
+    if u.x == x and u.frame >= ui.frameNo - 1: return true
+
+proc glassUnderNow(x: int) =
+  for u in glassUnders.mitems:
+    if u.x == x:
+      u.frame = ui.frameNo
+      return
+  var i = 0
+  while i < glassUnders.len:                # (bars gone: let go)
+    if glassUnders[i].frame < ui.frameNo - 1: glassUnders.del(i)
+    else: inc i
+  glassUnders.add (x, ui.frameNo)
+
+proc glassBandAbove*(r: Rect): int =
+  ## How far above `r` the glass effect's bars at the top of the window start when `r` is right
+  ## under them (0 when it isn't): a view there runs on up under them, clipped to that much more
+  ## (`panel`s and `pageView` do).
+  let b = glassBand.r
+  if glassBand.frame != ui.frameNo or r.y < b.y + b.h - Pad - 2 or r.y > b.y + b.h + Gap + Pad or
+     r.x >= b.x + b.w or r.x + r.w <= b.x: return 0
+  result = r.y - b.y
+  if glassEdges.frame != ui.frameNo: glassEdges = (ui.frameNo, @[])
+  if b.x notin glassEdges.xs and glassUnder(b.x):
+    # (something under the glass: a hairline at its foot, once, over the bars)
+    glassEdges.xs.add b.x
+    let was = layer()
+    setLayer(LayerDialog)
+    hline(b.x, b.y + b.h - 1, b.w, withAlpha(th.text, if onDark(): 44 else: 32))
+    setLayer(was)
+
+proc glassBandFace*(r: Rect) =
+  ## The glass of the bars at the top of the window with the glass effect (`navBar`,
+  ## `searchBar`): the window's own face while nothing is under it; what has scrolled up under
+  ## it blurred and seen through it, as through a menu's glass (a hairline at its foot: the view
+  ## under it draws it, `glassBandAbove`).
+  if glassUnder(r.x): backdropBlur(r, dp(18), withAlpha(th.window, if onDark(): 176 else: 156), 0)
+  else: fill(r, th.window)
+
 proc frostedFace*(r: Rect; back: Color; corner = 0.0): bool {.discardable.} =
   ## A face of frosted glass in `r` when the look draws them so (`frosted`): what is under it
   ## blurred, `back` over it most of the way, its corners rounded `corner`; false -- nothing
@@ -2139,11 +2189,60 @@ proc scrollbarAt*(id: Id; r: Rect; vert: bool; v: var int; lo, hi, page: int;
     buttonFace(thumb, false, bevel = 1,
                hot = hovered(thumb) or ui.active == ids[4])
 
+proc scrollLine*(r: Rect; y, maxY: int; alpha = 1.0; vert = true) =
+  ## The thin scroll bar of `overlayBars`: a rounded line along the right of `r` (`vert` false:
+  ## along its foot), as long as the part of the content in view, where it is (`alpha`: how much
+  ## of it shows).
+  if maxY <= 0 or r.h <= 0 or r.w <= 0 or alpha <= 0: return
+  let span = if vert: r.h else: r.w
+  let total = span + maxY
+  let len = max(dp(24), span * span div total)
+  let at = dp(2) + (span - dp(4) - len) * y div maxY
+  let w = max(2, dp(3))
+  let line = if vert: rect(r.x + r.w - w - dp(2), r.y + at, w, len)
+             else: rect(r.x + at, r.y + r.h - w - dp(2), len, w)
+  roundRect(line, float(w) / 2,
+            if onDark(): withAlpha(white, int(110 * alpha)) else: withAlpha(black, int(100 * alpha)))
+
+type ScrollHint = object
+  frame, shownAt, lastY, lastMax: int
+
+var scrollHints: Table[Id, ScrollHint]
+
+proc scrollHint*(id: Id; r: Rect; y, maxY: int; line = true; edge = true; vert = true) =
+  ## On a touch screen, as phones say there is more to see: the thin scroll line flashed when the
+  ## page comes up (or grows) with more than shows, shown while it moves, fading a second after;
+  ## a hairline with a soft shadow under the top edge once the content has gone up under it
+  ## (`edge`). (`overlayBars` pages call it; a scroller of your own may, `line` false when it
+  ## draws its own; `vert` false: a sideways one, its line along the foot.)
+  var h = scrollHints.getOrDefault(id)
+  if h.frame < ui.frameNo - 1 or y != h.lastY or maxY > h.lastMax: h.shownAt = ui.now   # (come up, moved, grown)
+  h.frame = ui.frameNo
+  h.lastY = y
+  h.lastMax = maxY
+  scrollHints[id] = h
+  if edge and vert and maxY > 0 and y > 0:
+    # (the edge content went under: a hairline, a soft shadow below it)
+    let c = if onDark(): black else: color(0, 0, 0)
+    hline(r.x, r.y, r.w, withAlpha(c, if onDark(): 120 else: 46))
+    for k in 1 .. max(2, dp(3)):
+      hline(r.x, r.y + k, r.w, withAlpha(c, max(4, (if onDark(): 60 else: 22) - 7 * k)))
+  if line and maxY > 0:
+    let age = ui.now - h.shownAt
+    let a = if age < 1000: 1.0 elif age < 1400: 1 - float(age - 1000) / 400 else: 0.0
+    scrollLine(r, y, maxY, a, vert)
+    if a > 0: wakeIn(if age < 1000: 1000 - age + 16 else: 33)
+
 proc scrollBarFor*(barId, id: Id; r: Rect; vert: bool; v: var int; hi, page, step: int;
-                   enabled = true): bool {.discardable.} =
+                   enabled = true; overlay = true): bool {.discardable.} =
   ## The standard scroll bar at `r` of the scroller `id` (see `scrollTo`),
   ## for a position `v` in pixels (0 .. `hi`): the thumb drags it pixel by
-  ## pixel, the arrows (`step`) and a click on the track (`page`) glide.
+  ## pixel, the arrows (`step`) and a click on the track (`page`) glide. On a touch
+  ## screen in the newer looks (`overlayBars`) a thin line in its place, shown while it moves --
+  ## the finger moves the content (`overlay` false: the bar, for a view a finger doesn't move).
+  if overlay and overlayBars():
+    scrollHint(barId + 6, r, v, hi, edge = false, vert = vert)
+    return false
   var nv = v
   if scrollbarAt(barId, r, vert, nv, 0, max(0, hi), page, enabled, step):
     if ui.active == barId + 5 or not smoothScrolling:   # the thumb
@@ -2154,6 +2253,10 @@ proc scrollBarFor*(barId, id: Id; r: Rect; vert: bool; v: var int; hi, page, ste
     result = true
 
 pageBar = proc (view: Rect; v: var int; hi: int): bool {.nimcall.} =
+  if overlayBars():
+    # (a touch screen in the newer looks: the thin line over the page, shown while it moves)
+    scrollHint(Id(0x9a6e5c12'u32), view, v, hi)
+    return false
   scrollBarFor(Id(0x9a6e5c11'u32), Id(0x9a6e5c90'u32), view, true, v, hi,
                max(ItemH, view.h - 2 * ItemH), ItemH)
 pageBarX = proc (view: Rect; v: var int; hi: int): bool {.nimcall.} =
@@ -4651,51 +4754,7 @@ template scrollPanel*(height: int; body: untyped) =
   body
   endScroll()
 
-var panelStack: seq[tuple[id: Id; inner: Rect; top, reveal: int; glide: bool]]
-
-proc overlayBars*(): bool =
-  ## A page's scroll bar is a thin line over its content, taking no room, as phones show it:
-  ## the newer looks on a touch screen (the finger moves the page).
-  glassLook() and ui.touch
-
-proc scrollLine*(r: Rect; y, maxY: int; alpha = 1.0) =
-  ## The thin scroll bar of `overlayBars`: a rounded line along the right of `r`, as long as the
-  ## part of the content in view, where it is (`alpha`: how much of it shows).
-  if maxY <= 0 or r.h <= 0 or alpha <= 0: return
-  let total = r.h + maxY
-  let len = max(dp(24), r.h * r.h div total)
-  let top = r.y + dp(2) + (r.h - dp(4) - len) * y div maxY
-  let w = max(2, dp(3))
-  roundRect(rect(r.x + r.w - w - dp(2), top, w, len), float(w) / 2,
-            if onDark(): withAlpha(white, int(110 * alpha)) else: withAlpha(black, int(100 * alpha)))
-
-type ScrollHint = object
-  frame, shownAt, lastY, lastMax: int
-
-var scrollHints: Table[Id, ScrollHint]
-
-proc scrollHint*(id: Id; r: Rect; y, maxY: int; line = true) =
-  ## On a touch screen, as phones say there is more to see: the thin scroll line flashed when the
-  ## page comes up (or grows) with more than shows, shown while it moves, fading a second after;
-  ## a hairline with a soft shadow under the top edge once the content has gone up under it.
-  ## (`overlayBars` pages call it; a scroller of your own may, `line` false when it draws its own.)
-  var h = scrollHints.getOrDefault(id)
-  if h.frame < ui.frameNo - 1 or y != h.lastY or maxY > h.lastMax: h.shownAt = ui.now   # (come up, moved, grown)
-  h.frame = ui.frameNo
-  h.lastY = y
-  h.lastMax = maxY
-  scrollHints[id] = h
-  if maxY > 0 and y > 0:
-    # (the edge content went under: a hairline, a soft shadow below it)
-    let c = if onDark(): black else: color(0, 0, 0)
-    hline(r.x, r.y, r.w, withAlpha(c, if onDark(): 120 else: 46))
-    for k in 1 .. max(2, dp(3)):
-      hline(r.x, r.y + k, r.w, withAlpha(c, max(4, (if onDark(): 60 else: 22) - 7 * k)))
-  if line and maxY > 0:
-    let age = ui.now - h.shownAt
-    let a = if age < 1000: 1.0 elif age < 1400: 1 - float(age - 1000) / 400 else: 0.0
-    scrollLine(r, y, maxY, a)
-    if a > 0: wakeIn(if age < 1000: 1000 - age + 16 else: 33)
+var panelStack: seq[tuple[id: Id; inner: Rect; top, reveal: int; glide: bool; underX: int]]
 
 # ---- touch: the ends stretched, pull to refresh, the fast-scroll thumb ---------------------------
 
@@ -4725,7 +4784,7 @@ proc pullRefresh*(refreshing: bool): bool =
   ## While `refreshing` is true it stays pulled open a little, a spinner turning in the room, and
   ## closes when it is false again. (Elsewhere: false, nothing drawn.)
   if panelStack.len == 0 or not stretched(): return false
-  let (id, inner, _, _, _) = panelStack[^1]
+  let (id, inner, _, _, _, _) = panelStack[^1]
   var ps = panelPulls.getOrDefault(id)
   ps.wants = true
   ps.refreshing = refreshing
@@ -4898,10 +4957,15 @@ proc beginPanel*(height = -1; key = ""; plain = false) =
   let y = if over: st.scrollY else: 0
   # (pulled past an end on a touch screen: the content follows the finger, held back)
   let pull = if id in panelPulls: int(panelPulls[id].off) else: 0
-  pushClip(inner)
+  # (a plain panel right under the glass effect's bars: it runs on up under them -- its content
+  # where it was, what scrolls up showing through the glass)
+  var clip = inner
+  let up = if plain: glassBandAbove(inner) else: 0
+  if up > 0: clip = rect(inner.x, inner.y - up, inner.w, inner.h + up)
+  pushClip(clip)
   beginClipped()
   ui.focusRect = rect(0, 0, 0, 0)
-  panelStack.add (id, inner, inner.y + Pad - y, -1, true)
+  panelStack.add (id, inner, inner.y + Pad - y, -1, true, (if up > 0: glassBand.r.x else: -1))
   pushFrame(rect(inner.x + Pad, inner.y + Pad - y + pull,
                  inner.w - 2 * Pad - (if over and not overlayBars(): SbW else: 0), inner.h - 2 * Pad))
 
@@ -4910,10 +4974,13 @@ proc endPanel*() =
   var ch = popFrame() + 2 * Pad
   endClipped()
   popClip()
-  let (id, inner, _, reveal, glide) = panelStack.pop()
+  let (id, inner, _, reveal, glide, underX) = panelStack.pop()
+  let underBand = underX >= 0      # (it runs on up under the glass effect's bars at `underX`)
   # (down to the window's foot, under glass floating over it -- Glass's tab bar --: room to
   # scroll its end out from under it)
-  if ui.floatInset > 0 and inner.y + inner.h >= ui.bottom - Pad - 2: ch += ui.floatInset
+  if ui.floatInset > 0 and inner.y + inner.h >= ui.bottom - Pad - 2:
+    ch += ui.floatInset
+    ui.floatTaken = true
   var st = state(id)
   let maxY = if ch - inner.h > dp(2): ch - inner.h else: 0
   var y = clamp(st.scrollY, 0, maxY)
@@ -4937,10 +5004,11 @@ proc endPanel*() =
         y = clamp(y + (f.y + f.h + Pad - (inner.y + inner.h)), 0, maxY)
   if stretched() and not thumbHeld: pullStep(id, inner, y, maxY)
   if maxY > 0:
-    if overlayBars(): scrollHint(id + 43, inner, y, maxY, line = maxY <= 2 * inner.h)
+    if overlayBars(): scrollHint(id + 43, inner, y, maxY, line = maxY <= 2 * inner.h, edge = not underBand)
     else:
       scrollBarFor(id + 9, id, rect(inner.x + inner.w - SbW, inner.y, SbW, inner.h), true,
                    y, maxY, max(ItemH, inner.h - ItemH), ItemH)
+  if underBand and y > 0: glassUnderNow(underX)     # (the bars' glass shows it)
   let over = ord(maxY > 0)
   if y != st.scrollY or over != st.aux:
     st.scrollY = y

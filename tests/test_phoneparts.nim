@@ -538,6 +538,58 @@ block glassEffectTabBar:
   up(W div 2, H - ui.floatInset div 2)
   run(3)
   doAssert clicks == before, "the content under the capsule takes no tap there"
+  # (a page that fits under a floating tab bar: no scroll bar, the page not scrolling for it)
+  view = proc () =
+    discard bottomNav([(nfHome, "Home"), (nfSearch, "Search"), (nfCog, "Settings")], tab)
+    beginPanel(-1, "fits", plain = true)
+    label "Short"
+    endPanel()
+  ui.pageY = 0
+  run(4)
+  doAssert not ui.pageOn and ui.pageMax == 0, "a page filled by its panel: not scrolling for the capsule"
+  # (the navigation bar of glass: the panel under it runs on up under it, what went up there
+  # seen through it blurred; a tap there is the bar's; its Back still works)
+  var backs, rowTaps = 0
+  var redTop, barR: Rect
+  smoothScrolling = false
+  accessKeep = true
+  view = proc () =
+    discard bottomNav([(nfHome, "Home"), (nfSearch, "Search"), (nfCog, "Settings")], tab)
+    if navBar("Glass", back = "Back") == npBack: inc backs
+    barR = ui.lastRect
+    beginPanel(-1, "underbar", plain = true)
+    let r = place(0, dp(60), fill = true)
+    fill(r, color(230, 20, 20))
+    redTop = r
+    if button("Row", w = W - 40): inc rowTaps
+    for i in 0 ..< 30: label "Line " & $i
+    endPanel()
+  run(4)
+  doAssert redTop.y >= barR.y + barR.h, "the panel's content starts under the bar"
+  let barMid = barR.y + barR.h div 2
+  doAssert countNear(color(230, 20, 20), rect(0, 0, W, barR.y + barR.h), 60) == 0, "nothing under it yet: the bar plain"
+  move(W div 2, H div 2)
+  harness.queue.add Event(kind: MouseWheelEvent, y: -1)     # (a notch: the red block up under the bar)
+  run(4)
+  var tinted, solid = 0
+  for y in barR.y + 2 ..< barR.y + barR.h - 2:
+    for x in W div 4 ..< W * 3 div 4:
+      let p = px(x, y)
+      let (r, g) = (int((p shr 16) and 255), int((p shr 8) and 255))
+      if r > g + 25: inc tinted
+      if r > 200 and g < 50: inc solid
+  doAssert redTop.y < barR.y + barR.h and tinted > 0 and solid == 0,
+           "scrolled up under the bar: seen through its glass, blurred and lightened"
+  let taps = rowTaps
+  click(rect(W div 2 - 10, barMid, 20, 4))
+  run(2)
+  doAssert rowTaps == taps, "the content under the bar takes no tap there"
+  let n = findNode(accessLast, "Back", {arButton})
+  doAssert n >= 0
+  click(nodeRect(accessLast[n]), dx = 8)
+  run(2)
+  doAssert backs == 1, "the bar's Back, over the content: still tapped"
+  smoothScrolling = true
   glassEffect = false
   ui.pageY = 0
   run(4)

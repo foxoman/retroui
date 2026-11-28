@@ -1,5 +1,42 @@
 # Changes
 
+## 0.83.0
+
+- **Glass's bars are glass**: with the glass effect the navigation bar, a search bar under it and
+  the status bar over them are one band of glass over the content -- the window's own face while
+  nothing is under it, and what scrolls up under it blurred and seen through it, as through a
+  menu or a dialog, a hairline at its foot. A plain panel or a `pageView` right under the bars
+  runs on up under them (`glassBandAbove`); the bars' buttons take their taps, the content under
+  them none. `glassBandFace(r)` draws the bars' glass for an app's own bar. The bars float on the
+  dialogs' layer, their buttons taking input with the window's: `inputAs` lets a widget drawn on
+  one layer take input with another.
+- **No scroll bar on a phone's page in Glass**: a page filled by its panel scrolled by the room
+  the floating tab bar leaves, so its scroll bar was always there. It scrolls only when there is
+  more than shows (`ui.floatTaken`), and on a touch screen in Glass, Matte and Gloss every scroll
+  bar the kit draws -- the window's page, lists, grids, editors, views -- is a thin line over the
+  content, shown while it moves and fading a second after (`overlayBars`, `scrollBarFor`'s
+  `overlay`: the terminal keeps its bar).
+- **The touch keyboard flickered open and closed** while typing or searching in Retro Music:
+  work in a frame (pictures decoded as a search's results came) read the system's events asking
+  for no keyboard, and the phone let it go, then showed it again the next frame. Every read asks
+  for the keyboard as it is now.
+- **A window like other apps' on Android**: in split screen, a tablet's small floating window or
+  desktop windowing an app gets the system's frame -- its title bar, the edges it is sized by --
+  and sizes down to a phone's (320 by 320 dp; it was 480 by 360). The picture is in a surface
+  view in the window's own views now, which draw that frame; touches, the web views and videos
+  over it and a screen reader's boxes follow its place. Filling the screen it is as before.
+  `RETRO_WINDOW_SURFACE=1` takes the window's surface whole again.
+- `settingToggle` knows its row by its title, as `settingCombo` does: a switch whose value is a
+  local filled from the app's settings every frame stays the same row (Retro Mail's switches did
+  not flip under the sanitizers, whose stack moves locals between frames).
+- `RETRO_SYSTEM_DARK=1` (or `0`) says the system is dark (or light) on any system: test_looks
+  uses it on Windows and macOS too.
+- **CI**: the fake Android's status bar check expects the bar's color darker; the live pixel
+  references were made again with Suhar (`tools/live/makeref.sh`); a web page carries Suhar App
+  beside it (the web build had FreeFont only: "not a font file" in every web check); Retro
+  Podcast's soak keeps a show's newest hundred episodes, as it keeps eight shows.
+- Retro Music 2.1.3, Retro Mail 1.5.3, Retro DNS 1.9.3, Retro Tasks 1.0.2, the Gallery 0.83.0.
+
 ## 0.82.0
 
 - **The modern glass effect** (`glassEffect`, on by default in the Glass look; "Glass effect" in

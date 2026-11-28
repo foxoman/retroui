@@ -19,7 +19,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.view.KeyEvent;
+import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.inputmethod.InputMethodManager;
@@ -42,6 +44,12 @@ public class RetroActivity extends NativeActivity {
   static native void nativeCompose(String text, int caret);
   /** A key of the keyboard's (delete, Enter) as a key: `down` pressed, else let go. */
   static native void nativeKey(int code, boolean down);
+  /** Where the app's picture is in its window (a free window's title bar over it). */
+  static native void nativeSurfaceAt(int x, int y);
+
+  /** Where the app's picture is in the window: touches, the views laid over it (a web page, a
+   *  video) and a screen reader's boxes are moved by it. 0, 0 filling the screen. */
+  static volatile int surfaceX, surfaceY;
 
   @Override
   protected void onCreate(Bundle state) {
@@ -77,6 +85,7 @@ public class RetroActivity extends NativeActivity {
       }
     } catch (Throwable ignored) { }
     super.onCreate(state);
+    pictureInView();
     takeShared(getIntent());
     takeAction(getIntent());
     getWindow().getDecorView().setOnApplyWindowInsetsListener(
@@ -91,6 +100,50 @@ public class RetroActivity extends NativeActivity {
             return v.onApplyWindowInsets(in);
           }
         });
+  }
+
+  /** The app's picture in a surface view in the window's own views, not the window's surface
+   *  taken whole: the window's views are drawn too -- in a free or floating window (desktop
+   *  windowing, a tablet's small window) the system's frame round it, its title bar and the
+   *  edges it is sized by, as other apps have. Filling the screen it is as before: the picture
+   *  under the status and navigation bars, the app told where they are. RETRO_WINDOW_SURFACE=1
+   *  in the start's extras: the window's surface, as before. */
+  private void pictureInView() {
+    if ("1".equals(System.getenv("RETRO_WINDOW_SURFACE"))) return;
+    try {
+      SurfaceView sv = new SurfaceView(this);
+      sv.getHolder().addCallback(this);            // (NativeActivity's: the surface to the app)
+      sv.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+        public void onLayoutChange(View v, int l, int t, int r, int b,
+                                   int ol, int ot, int or, int ob) {
+          int[] at = new int[2];
+          v.getLocationInWindow(at);
+          if (at[0] == surfaceX && at[1] == surfaceY) return;
+          surfaceX = at[0];
+          surfaceY = at[1];
+          try {
+            nativeSurfaceAt(at[0], at[1]);
+          } catch (UnsatisfiedLinkError e) {
+            // a libmain.so without it: the picture at the window's corner
+          }
+        }
+      });
+      getWindow().takeSurface(null);
+      try {
+        addContentView(sv, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                                                      ViewGroup.LayoutParams.MATCH_PARENT));
+      } catch (Throwable t) {
+        getWindow().takeSurface(this);             // (as before)
+        return;
+      }
+    } catch (Throwable t) {
+      return;
+    }
+    // (laid out under the status and navigation bars, as the window's surface was)
+    try {
+      View d = getWindow().getDecorView();
+      d.setSystemUiVisibility(d.getSystemUiVisibility() | 0x100 | 0x200 | 0x400);
+    } catch (Throwable t) { }
   }
 
   @Override

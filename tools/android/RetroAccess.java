@@ -229,6 +229,7 @@ public class RetroAccess {
       int[] loc = new int[2];
       host.getLocationOnScreen(loc);
       Rect r = new Rect(n.x, n.y, n.x + n.w, n.y + n.h);
+      r.offset(RetroActivity.surfaceX, RetroActivity.surfaceY);   // (the picture's place in the window)
       info.setBoundsInParent(r);
       Rect sr = new Rect(r);
       sr.offset(loc[0], loc[1]);

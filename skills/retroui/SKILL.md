@@ -748,9 +748,14 @@ costs what its visible rows cost.
   `glassBlue(r, radius)` (`modernGlass()`: Glass itself). Its modern glass effect
   (`glassEffect`, on by default; "Glass effect" in Appearance): the tab bar a glass capsule
   floating over the content, which runs under it and scrolls its end out from under it
-  (`ui.floatInset` -- the page and panels do it themselves), the bars' buttons glass, menus,
-  dialogs, sheets, alerts and the side menu glass with lit edges; `glassSurface(r, radius)`
-  draws a pane of it for an app's own floating part (`glassRim`, `glassFx()`). On Android and iOS Glass and Gloss
+  (`ui.floatInset` -- the page and panels do it themselves), the navigation bar, a search bar
+  under it and the status bar one band of glass over the content -- put the page in a plain
+  `beginPanel(-1, key, plain = true)` (or a `pageView`) right under them and it scrolls up under
+  the glass, seen through it blurred --, the bars' buttons glass, menus, dialogs, sheets, alerts
+  and the side menu glass with lit edges; `glassSurface(r, radius)` draws a pane of it for an
+  app's own floating part (`glassRim`, `glassFx()`; `glassBandFace(r)` a bar's glass). On a touch
+  screen in the newer looks every scroll bar is a thin line over the content (`overlayBars`);
+  `scrollBarFor(..., overlay = false)` keeps the bar where a finger doesn't move the view. On Android and iOS Glass and Gloss
   are the phone's (`phoneLook()`): touch sizes on a tablet, dialogs as pages; and the look's own
   colors follow the system's dark theme (`systemColors`, on there by default;
   `followSystemColors()` runs in `appFrameDone`) -- don't fix a phone app to a light scheme.
@@ -767,7 +772,13 @@ costs what its visible rows cost.
   rows, as a phone's settings: `settingCombo` shows the chosen one at its end and opens a page
   of choices (over the dialog it is in: `afterDialog(proc () = ...)` does that for a dialog of
   your own opened from a control in a dialog). `appearanceSettings()` groups its rows by itself
-  with touch sizes in Glass, Matte or Gloss.
+  with touch sizes in Glass, Matte or Gloss. `settingToggle` and `settingCombo` know their row
+  by its title, so `var b = prefs.getBool(...); if settingToggle("X", b): save(b)` works; other
+  controls bound to a variable (`checkbox`, `slider`, `edit`) are known by its address: bind
+  those to a global or an object's field, never a local made in the frame.
+- On Android an app is a window like other apps' in split screen, a tablet's small floating
+  window and desktop windowing (the system's frame round it, sized down to 320 by 320 dp): lay
+  it out for every size (`isCompact()`), don't fix the orientation unless it must be.
 - A phone app is made for tablets too: `isCompact()` (a phone in portrait) gives pages one
   over another with Back; otherwise (a tablet, a phone on its side, a computer) put the list
   down the left -- about a third, at most 340 dp -- and the page chosen beside it, each

@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.82.0"
+const RetroVersion* = "0.83.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -761,6 +761,8 @@ type Ctx* = object
   floatInset*: int               ## the room at its foot that glass floating over the content
                                  ## covers (Glass's floating tab bar, `glassEffect`): the page and
                                  ## the panels that reach it scroll that much further
+  floatTaken*: bool              ## ... a panel down to the foot took it this frame (the page,
+                                 ## then as tall as the window, doesn't scroll for it)
   prevBottom*: int               ## ... last frame
   winX*, winY*: int              ## the window's top left: 0, 0, but a `windowBox`
                                  ## moves it to its box (its bars, dialogs, menus)
@@ -1001,10 +1003,18 @@ proc state*(id: Id): var WState =
 
 # ---- input routing -----------------------------------------------------------
 
+var inputAs* = -1
+  ## The layer the widgets drawn now take their input with when they are drawn on another (-1:
+  ## their own): Glass's bars of glass float over the content on the dialogs' layer, their
+  ## buttons taking input with the window's.
+
+proc inputLayerNow(): int {.inline.} =
+  if inputAs >= 0: inputAs else: layer()
+
 proc canInput*(): bool =
   ## Whether widgets drawn now receive mouse and keyboard input: only the
   ## topmost layer (an open menu, else the top dialog, else the window) does.
-  ui.inertDepth == 0 and layer() == ui.inputLayer and
+  ui.inertDepth == 0 and inputLayerNow() == ui.inputLayer and
     (ui.inputLayer != LayerDialog or ui.curDialog == ui.dialogTop)
 
 proc blocked(p: Point): bool {.inline.} =
@@ -1017,9 +1027,9 @@ proc mouseIn*(r: Rect): bool =
   ## layer takes input.)
   let p = point(ui.mx, ui.my)
   ui.inertDepth == 0 and r.contains(p) and clipRect().contains(p) and
-    (ui.overlayOwner or layer() > ui.overlayLayer or ui.overlay.w == 0 or
+    (ui.overlayOwner or inputLayerNow() > ui.overlayLayer or ui.overlay.w == 0 or
      not ui.overlay.contains(p)) and
-    (ui.blockers.len == 0 or layer() > 0 or not blocked(p))
+    (ui.blockers.len == 0 or inputLayerNow() > 0 or not blocked(p))
 
 proc hover*(r: Rect): bool = canInput() and mouseIn(r)
   ## The mouse is over `r` and its layer takes input (see `mouseIn`).
@@ -1432,6 +1442,16 @@ proc glassLook*(): bool {.inline.} =
   ## and the scheme is not one of the high-contrast ones (their clear black and white edges kept).
   uiLook != lookClassic and ui.theme.select != HighContrast.select and
     ui.theme.select != HighContrastWhite.select
+
+proc overlayBars*(): bool {.inline.} =
+  ## A page's scroll bar is a thin line over its content, taking no room, shown while the page
+  ## moves and fading a second after, as phones show it: the newer looks on a touch screen (the
+  ## finger moves the page). The window's own page, panels and lists in the kit do it.
+  glassLook() and ui.touch
+
+proc pageBarW(): int {.inline.} =
+  ## (the room the window's page bar takes beside the content)
+  if ui.pageOn and not overlayBars(): SbW else: 0
 
 var appNavBars* = false
   ## The app draws navigation bars of its own (`navBar`) on phones and tablets: in the Glass,
@@ -2364,7 +2384,7 @@ proc fileDropTarget*(r: Rect): seq[string] =
   if dropFiles.len == 0: return
   let p = dropAt
   if r.contains(p) and clipRect().contains(p) and canInput() and
-     (ui.blockers.len == 0 or layer() > 0 or not blocked(p)):
+     (ui.blockers.len == 0 or inputLayerNow() > 0 or not blocked(p)):
     result = dropFiles
 
 proc dropTarget*(r: Rect; kind = ""; enabled = true): DropState =
@@ -3929,7 +3949,7 @@ proc busyPump(boxShown: bool) =
     if hasPending:
       e = pending
       hasPending = false
-    elif not pollEvent(e, {}): break
+    elif not pollEvent(e, keyboardFlags()): break    # (the keyboard as it is: none asked, a phone's went)
     case e.kind
     of KeyDownEvent:
       if e.key == KeyEsc: busyCancelAsked = true
@@ -4855,6 +4875,7 @@ proc frameSetup(main: bool) =
              ui.layoutSafe.bottom + fb, ui.layoutSafe.right + fb)
   ui.bottom = ui.h - ui.safe.bottom
   ui.floatInset = 0
+  ui.floatTaken = false
   # (a title in a larger style: a taller bar)
   let titleH = if captionStyle == TextStyle(): 0 else: lineHeight(captionTitleStyle()) + dp(6)
   ui.captionH = if ui.ownFrame: (if full: 0 else: max(MenuH, titleH) + 1)
@@ -4871,6 +4892,7 @@ proc frameSetup(main: bool) =
   ui.tip.setLen(0)
   ui.idStack.setLen(0)
   ui.blockers.setLen(0)
+  inputAs = -1
   # (after the frame's state is reset: what the hooks ask for -- a wake-up,
   # a redraw -- stays)
   if main:
@@ -4894,7 +4916,7 @@ proc frameSetup(main: bool) =
   let topY = ui.safe.top + ui.captionH + Pad
   ui.contentTop = topY
   # content taller than the window scrolls (`pageY`) under the fixed bars
-  let barW = if ui.pageOn: SbW else: 0           # (the standard bar, fingers too)
+  let barW = pageBarW()           # (the standard bar; a thin line over it on touch, `overlayBars`)
   let y0 = topY - ui.pageY
   ui.contentRight = 0
   clippedDepth = 0
@@ -5098,13 +5120,16 @@ proc endPage() =
   let f = ui.frames[0]
   # wider than the window (rows of fixed widths): a scroll bar along the
   # bottom too
-  let room = ui.w - ui.safe.right - Pad - (if ui.pageOn: SbW else: 0)
+  let room = ui.w - ui.safe.right - Pad - pageBarW()
   let overX = ui.contentRight - room
   let wasX = ui.pageMaxX > 0
   ui.pageMaxX = if overX > 0 or (wasX and overX > -SbW and ui.pageX > 0): max(1, overX) else: 0
   let hbarH = if ui.pageMaxX > 0: SbW else: 0
   let view = rect(0, ui.barY, ui.w, max(0, ui.bottom - hbarH - ui.barY))
-  let over = f.bottom + ui.pageY + Pad + ui.floatInset - (ui.bottom - hbarH)
+  # (glass floating over the page's foot: room to scroll its end out from under it -- unless a
+  # panel down to the foot took it, the page then as tall as the window)
+  let inset = if ui.floatTaken: 0 else: ui.floatInset
+  let over = f.bottom + ui.pageY + Pad + inset - (ui.bottom - hbarH)
   let was = ui.pageOn
   ui.pageOn = over > 0 or (was and over > -SbW and ui.pageY > 0)
   ui.pageMax = max(0, over)
@@ -5141,30 +5166,31 @@ proc endPage() =
       if r.y < view.y: y -= view.y + Pad - r.y
       elif r.y + r.h > view.y + view.h: y += r.y + r.h + Pad - (view.y + view.h)
       if ui.pageMaxX > 0:                  # ... and sideways
-        let right = ui.w - ui.safe.right - (if ui.pageOn: SbW else: 0)
+        let right = ui.w - ui.safe.right - pageBarW()
         if r.x < ui.safe.left: x -= ui.safe.left + Pad - r.x
         elif r.x + r.w > right: x += r.x + r.w + Pad - right
   y = clamp(y, 0, ui.pageMax)
   x = clamp(x, 0, ui.pageMaxX)
   if ui.pageOn or ui.pageMaxX > 0:
-    # the standard 3.1 scroll bars, on touch screens too (where a finger can
-    # also drag the content itself)
+    # the standard 3.1 scroll bars (on a touch screen in the newer looks a
+    # thin line over the content instead, `overlayBars`: the finger drags it)
     pushLayer(LayerBase)
     # (the frame's size grip keeps its corner: a bar that would reach it
     # stops short, as the two bars stop at the corner between them)
     let grip = sizeGrip()
     if ui.pageOn and pageBar != nil:
-      var bar = rect(ui.w - ui.safe.right - SbW, view.y, SbW, view.h)
+      var bar = if overlayBars(): rect(ui.safe.left, view.y, ui.w - ui.safe.left - ui.safe.right, view.h)
+                else: rect(ui.w - ui.safe.right - SbW, view.y, SbW, view.h)
       if grip.h > 0 and ui.pageMaxX == 0 and bar.y + bar.h > grip.y:
         bar.h = max(0, grip.y - bar.y)
       discard pageBar(bar, y, ui.pageMax)
     if ui.pageMaxX > 0 and pageBarX != nil:
       var bar = rect(ui.safe.left, view.y + view.h,
-                     ui.w - ui.safe.left - ui.safe.right - (if ui.pageOn: SbW - 1 else: 0), SbW)
+                     ui.w - ui.safe.left - ui.safe.right - (if pageBarW() > 0: SbW - 1 else: 0), SbW)
       if grip.w > 0 and not ui.pageOn and bar.y + bar.h > grip.y and bar.x + bar.w > grip.x:
         bar.w = max(0, grip.x - bar.x)
       discard pageBarX(bar, x, ui.pageMaxX)
-      if ui.pageOn:                        # the corner between the two bars
+      if pageBarW() > 0:                   # the corner between the two bars
         fill(rect(bar.x + bar.w, bar.y, SbW - 1, SbW), ui.theme.face)
     popLayer()
   if y != ui.pageY or ui.pageOn != was or x != ui.pageX or (ui.pageMaxX > 0) != wasX:

@@ -309,12 +309,20 @@ effect" in Appearance, kept with the look) makes it glass everywhere, as
 2026's phones draw it: the tab bar is a capsule of glass floating over the
 content, which runs on under it and shows through it blurred -- the page and
 the panels scroll their end out from under it, and what is under it takes no
-tap there; the navigation bars have no band of their own, their buttons
-(Back too) capsules of glass; menus, dialogs, sheets, alerts, toasts and the
-side menu are glass with more of what is under them showing, a sheen of light
-down from the top and their edges lit. `glassSurface(r, radius)` draws a pane
-of it for an app's own parts (`glassRim` its lit edge; `glassFx()`: the effect
-is on). Off, Glass is drawn as 0.81 drew it.
+tap there (a page its panel fills doesn't scroll for it); the navigation bar,
+a search bar under it and the status bar over them are one band of glass:
+the window's own face while nothing is under it, and what scrolls up under it
+-- a plain panel or a `pageView` right under the bars runs on up there --
+blurred and seen through it, as through a menu, a hairline at its foot; its
+buttons (Back too) are capsules of glass, and what is under the bars takes no
+tap there. Menus, dialogs, sheets, alerts, toasts and the side menu are glass
+with more of what is under them showing, a sheen of light down from the top
+and their edges lit. `glassSurface(r, radius)` draws a pane of it for an
+app's own parts (`glassRim` its lit edge; `glassFx()`: the effect is on;
+`glassBandFace(r)` the bars' glass, `glassBandAbove(r)` how far a view right
+under them runs on up). The bars float on the dialogs' layer, their buttons
+taking input with the window's (`inputAs`). Off, Glass is drawn as 0.81 drew
+it.
 
 **The default look.** `uiLook` is Classic (Windows 3.1's) on Windows, macOS,
 Linux and the web, and Gloss (iOS 6's) on Android and iOS, in Gloss Light or
@@ -325,7 +333,8 @@ user's choice in Appearance wins.
 **Light or dark as the system.** On Android and iOS the look's own colors
 follow the phone's dark theme by themselves, changing over when it does
 (`systemColors`; "Light or dark as the system" in Appearance -- picking a
-scheme turns it off). An app's own theme stays as it is.
+scheme turns it off). An app's own theme stays as it is. `RETRO_SYSTEM_DARK=1` (or `0`)
+says the system is dark (or light) on any system, for a test or a screenshot.
 
 **Appearance as a phone's settings.** With touch sizes in Glass, Matte or
 Gloss, `appearanceSettings` draws its rows in groups, as phones had their
@@ -637,10 +646,13 @@ retrokit designer app.nim       # app.nim's windows (a new file when there is no
   per-monitor DPI), in whole pixels so lines stay sharp. Users can make
   everything larger (Ctrl + / − / 0, `setUiScale`) or just the text
   (`setTextScale`). Touch screens get finger-sized metrics.
-- **Content larger than its place scrolls**, always with the standard 3.1
-  scroll bar (on touch screens too, where a finger can also drag the
-  content): the window's page (both ways), dialogs, panes, lists, grids,
-  MDI windows, the details pane.
+- **Content larger than its place scrolls**, with the standard 3.1 scroll
+  bar: the window's page (both ways), dialogs, panes, lists, grids, MDI
+  windows, the details pane. A finger drags the content too; on a touch
+  screen in Glass, Matte and Gloss the bar is a thin line over the content,
+  shown while it moves and fading a second after, as phones show it
+  (`overlayBars`; `scrollBarFor(..., overlay = false)` keeps the bar for a
+  view a finger doesn't move, as the terminal does).
 
 ## Controls
 
@@ -711,8 +723,8 @@ let cols = responsive(1, 2, 3)
 Widths in rows, `col(w)`, dialogs and grid columns are design pixels:
 they grow with the screen and the user's size. `dp(13)` scales your own.
 Content larger than the window scrolls both ways under the fixed menu,
-tool and status bars, always with the standard scroll bars (on touch
-screens too): the wheel (Shift + the wheel goes sideways), a finger,
+tool and status bars, with the standard scroll bars (a thin line over the
+content on a touch screen in the newer looks): the wheel (Shift + the wheel goes sideways), a finger,
 PageUp / PageDown, Ctrl+Home / End, and Tab brings the focused control
 into view. A dialog taller than the screen scrolls inside; `scrollPanel`
 scrolls a part of a page (`scrollPanel -1:` down to the bottom).
@@ -3440,6 +3452,15 @@ start` -- it comes back as it was, and the app's start (NimMain) never
 runs twice at once in one process: an activity Android makes beside the
 running app, or in its place, takes the app over.
 
+**A window like other apps':** in split screen, a tablet's small floating
+window or desktop windowing the app gets the system's frame -- its title bar,
+the edges it is sized by -- and follows every size, down to a phone's (320 by
+320 dp). The app's picture is in a surface view in the window's own views,
+which draw that frame (a native activity taking the window's surface whole
+had none); filling the screen it is as before, under the status and
+navigation bars. `RETRO_WINDOW_SURFACE=1` in the start's extras (`adb shell am
+start ... --es RETRO_WINDOW_SURFACE 1`) takes the window's surface whole again.
+
 **On a phone or tablet,** a build runs as many C compilers as the memory
 allows, at most four in Termux (Android stops builds with too many:
 "signal 9"; BUILDING.md has the setting that turns that off).
@@ -3937,7 +3958,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_photo` | the image engine: blend modes, layers, undo and cancelled steps, the selection and channels, Quick Mask, paths, every painting tool, transforms, color modes, every filter and adjustment, .rpd / PNG / JPEG / BMP files |
 | `test_canvas2d` | the Canvas 2D API: paths, fills and strokes, transforms, gradients and patterns, text, pictures, clipping, compositing, against expected pixels |
 | `test_pdf`, `test_report` | the PDF writer (structure, fonts, pictures, cross-reference table), templates, HTML reports, page breaks, repeated headers, totals, previews |
-| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; `androiddex.nim` made from the Java there is now (`classesDexOf`); the playback service in the foreground as it is made and on every start, a stop before it waiting for it; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused; the permissions read from an app's C, Nim 2.4's function names and 2.2's |
+| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; `androiddex.nim` made from the Java there is now (`classesDexOf`); the playback service in the foreground as it is made and on every start, a stop before it waiting for it; the picture in a surface view in the window (a free window's frame), the views over it, a screen reader's boxes and the touches moved by its place; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused; the permissions read from an app's C, Nim 2.4's function names and 2.2's |
 | `test_store` | DER, certificates and their subjects, JAR signatures, Authenticode (the digest, the checksum, signing again, a time stamp from an authority made with OpenSSL), MSIX (ZIP64 records, the block map's blocks one by one, the signed digests rebuilt by the test), macOS: the `.icns`, the code directory read back page by page (one architecture and universal), the sealed resources, the `.ipa`; `osslsigncode` and `rcodesign` when they are there |
 | `test_tilemap` | the street map: tiles of every kind of source, the cache, dragging, zooming, markers and shapes, the services' answers (places and routes of each), polylines, GCJ-02, GeoJSON, vector tiles decoded and drawn, PMTiles and MBTiles read and written |
 | `test_system` | `retroui/system` on Linux: what answers and what says false, the autostart entry made and taken away, the answers of a page and of phones read right, speech when a voice is installed; `retroui/admin`'s words for sh, Windows and AppleScript, and its answer with no polkit; GNOME's settings read, a folder watched (made, changed, removed), the clipboard's pictures and the desktop's shortcuts with no driver, the app installed for the user and taken away, the Linux packages |
@@ -4033,7 +4054,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_backdrop` | frosted glass and masks: what is under a blur smoothed and lighter, its rounded corners keeping what is outside them, a mask's circle and a mask inside it; a change near a blur, far from it, of its tint and over it the very pixels of a whole frame; the GPU's frames the CPU's (3 levels at most apart), and its partial frames, at every buffer age, a whole frame's |
 | `test_terminal` | the terminal: text, the 16, 256 and RGB colors (semicolons and colons), bold, underlined, inverse, struck; the cursor moved, lines and characters erased, inserted, deleted; a line wrapped and the lines scrolled off kept; a scroll region; the other screen and back; wide characters and the line-drawing set; the answers asked for (the cursor's place, what it is), the title; the keys as xterm sends them; a size changed; a shell in a pseudo-terminal -- its colors, its size, an exit code, what is typed answered; the view taking the keys, a word chosen with a double click and copied; found text (back and on, any case), its size bigger and smaller, a reset; kitty's keyboard protocol (its flags pushed and popped per screen, Esc, Ctrl, Alt and the keypad told apart, releases, every key as an escape with its text) and graphics protocol (RGB, RGBA and PNG, zlib'ed, in pieces, by number, placed again, quiet, deleted, scrolled with the text, its answers and errors; an app's own picture) |
 | `test_mobile` | the controls from phones: the navigation bar's Back (and Alt+Left) and its action; an alert (Enter its last button, Esc its cancel, a tap beside it waits); rows in groups (a row, its info button apart, a switch's row, a button's row, Enter); a search bar's Cancel; an action bar's action and Back; a wheel picker by the keys, a click on a row, the mouse wheel, a letter, a drag, a fling that stops on a row, the app's own value, a long wheel made as it shows; a day's wheels (31 January to February: the 28th) and a time's (12 hours, a step of minutes); a number with - and + (held, it goes on; the keys, + typed, the wheel); page dots; rows with actions behind them swiped, picked, closed by a tap, one at a time, by the keys and a right click's menu; the action sheet (the keys, Esc, a click beside it, from the bottom on a phone), the bottom sheet (its controls, dragged down, Esc), the popover (under its button, closed by a click outside) -- in every look, light and dark |
-| `test_phoneparts` | the phone's newer parts in every look: round buttons (a click, Space, disabled; Gloss's green inside a white ring), the index down a list (the letter under the finger, dragged past its foot, -1 let go), bubbles (the other's gray on the left, yours pale blue on the right), the clock (its red second hand, the hour hand at three), app icons (a click, Enter, the badge), the textures (their colors, the same grain each frame); Gloss's colors (iOS 6's own in Gloss Light, green in a green scheme) and the window plain by default, its pinstripes when asked for; a row in a row after one that took the line, side by side on the next; `vslider` dragged past its top and its keys, `ratingStars` (a tap, the same again, the keys, a digit), `editRow` (the minus alone deletes nothing, then Delete; a grip dragged two rows down; Alt+Down), `coverFlow` (the middle one tapped, Right, a tap at a side, a drag, End); the About box at touch sizes in Gloss, Glass and Matte a phone's page (Website, Copy Info putting its facts on the clipboard), in Classic the desktop's; a settings row's page of choices in a dialog drawn over it (the dialog's rows not through it, one tapped chosen); a page's status bar the bar's color, darker; Glass's modern glass effect -- the tab bar floating over the content, which runs to the foot, scrolls its end out from under it and shows through it blurred, takes no tap under it; without it, the band; Glass effect in Appearance, kept with the look |
+| `test_phoneparts` | the phone's newer parts in every look: round buttons (a click, Space, disabled; Gloss's green inside a white ring), the index down a list (the letter under the finger, dragged past its foot, -1 let go), bubbles (the other's gray on the left, yours pale blue on the right), the clock (its red second hand, the hour hand at three), app icons (a click, Enter, the badge), the textures (their colors, the same grain each frame); Gloss's colors (iOS 6's own in Gloss Light, green in a green scheme) and the window plain by default, its pinstripes when asked for; a row in a row after one that took the line, side by side on the next; `vslider` dragged past its top and its keys, `ratingStars` (a tap, the same again, the keys, a digit), `editRow` (the minus alone deletes nothing, then Delete; a grip dragged two rows down; Alt+Down), `coverFlow` (the middle one tapped, Right, a tap at a side, a drag, End); the About box at touch sizes in Gloss, Glass and Matte a phone's page (Website, Copy Info putting its facts on the clipboard), in Classic the desktop's; a settings row's page of choices in a dialog drawn over it (the dialog's rows not through it, one tapped chosen); a page's status bar the bar's color, darker; Glass's modern glass effect -- the tab bar floating over the content, which runs to the foot, scrolls its end out from under it and shows through it blurred, takes no tap under it; without it, the band; Glass effect in Appearance, kept with the look; a page its panel fills not scrolling for the capsule; the navigation bar of glass, a panel scrolled up under it seen through it blurred, no tap reaching it there, its Back still tapped |
 | `test_glosstouch` | Gloss on a touch screen: a flick into a page's top goes on past it and springs back; pull to refresh's drop and fresh content asked once; a toast as the black banner at the top; `slideToConfirm` (part way: nothing, back; all the way: once); `bigButton`; a row's count capsule; the Glass focus ring only while the keys move the focus |
 | `test_reach` | how the controls take the mouse, the keys and a finger: a finger's press just beside a small button or a round button is its, not far off, not beside a list it is on, the nearer of two, the gesture with it; a mouse not moved so; a tap or a drag by 8 points at 100 % and 200 %; a finger held on a word chooses it (Copy gives the word); a right click on a list's row chooses it; a breadcrumb by the keys; a drop-down list's wheel only with the focus; Glass and Matte light a text box, a check box, a radio button under the mouse, 3.1 not; a chip's cross for a finger |
 | `test_audiotags` | music files' tags: MP3 (ID3v2.3 in UTF-16, ID3v2.4), FLAC, M4A, Ogg Vorbis, Opus and WAV -- title with its accents, artist, album, album artist, track and disc, year, genre, composer, the cover as it was (and not read when not asked for), the length, rate, channels and bit rate, ReplayGain --, the same from memory, cut short anywhere or damaged with no fault, music by its name |
@@ -4042,7 +4063,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_mailtouch` | Retro Mail on a phone and a tablet in the newer looks: Mailboxes (All Inboxes, the accounts), a list (Focused and Other), a message tapped and read, its place on the bar, Mark as Unread, Flag, the arrow to the one before, Reply's sheet and writing, Cancel and Delete Draft, a finger held (several chosen, Mark), an account's folders, a folder; Settings as a phone's (a switch kept at once, a choice's page of them and one tapped, Close), Appearance in groups, About Retro Mail the phone's About page; on a tablet the message beside the list, People and Calendar the whole width -- every page in every look, light and dark |
 | `test_comfyui` | `retroui/comfyui` against a made-up ComfyUI server: found (its checkpoints, its LaMa), a picture from words (the workflow it got), a fill (the picture sent clear where the mask is), Remove (LaMa's workflow; without it, the model asked), a work that failed on the server, no server; through `retroui/aiimage` (`kind = "comfyui"`), kept |
 | `test_tasks` | Retro Tasks: tasks in lists, late or not, their days written, Today, Upcoming, Flagged, Completed, put in order; notes (their titles and previews, pinned first); the search; a reminder raised once; the file kept and read back; then by taps -- a row's check (done, not done), the row's page, Edit's minus and Delete, the phone's Back -- and every page in every look |
-| `test_touchpages` | a page under the finger on a touch screen: pulled down past its top and let go it asks for fresh content once, a short pull nothing; a dialog as a page of the app closed by its Close; a shelf of cards, the one tapped, a card with no picture the app's own art; Back by a swipe from a page's left edge, a short one staying |
+| `test_touchpages` | a page under the finger on a touch screen: pulled down past its top and let go it asks for fresh content once, a short pull nothing; a dialog as a page of the app closed by its Close; a shelf of cards, the one tapped, a card with no picture the app's own art; Back by a swipe from a page's left edge, a short one staying; a text box's keyboard on a phone (its kind, a number box's digits, a tap on nothing letting it go), and kept asked for while work in a frame reads the system's events (`busyTick`) |
 | `test_music` | Retro Music without a window: Spotify's answers read (a search, a playlist's items -- a missing track and a local file left out --, your playlists, the devices, what plays, nothing playing), the bodies of play and transfer, YouTube's search (its HTML entities), your YouTube playlists, a playlist's songs (a deleted one left out, an artist's Topic channel as the artist), the ones you like and their lengths, the player's page, a YouTube queue, LrcLib's timed lines (several times a line, the line at a time), and its screens drawn with no account in every look |
 | `test_signals` | signals and computed values worked out again only when what they read changed (through two, a branch not taken, an answer that stayed the same, a change in place), effects run and stopped; `keep`: nothing outside `--watch`, the values written, and a second program started with the file getting them back |
 | `test_photoaffinity` | Retro Atelier 5.15 as a program: studios kept, deleted, exported and imported; a help card for every tool of the toolbar; paint on type making a pixel layer; a live blend following its end and expanded; Hue Curves; the Mask Brush (a mask made, black hides, Alt shows, the pixels untouched, the Background made a layer); the Tone Brush; Procedural Texture's dialog; the Artboard tool: a box drawn a new artboard, sized by its corner with what is on it following its Constraints, moved with its artwork, Alt+dragged a copy with its artwork, deleted with its artwork kept; Symbols made, inserted, kept alike and detached; each new menu command run by its name doing its work; Fill with Placeholder Text (Arabic, paragraphs, added after, as many as fill the box, your own, the choices kept) |

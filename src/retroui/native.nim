@@ -720,8 +720,12 @@ proc systemDarkMode*(): bool =
   ## The user chose a dark look for the system (Android's dark theme, iOS
   ## and macOS Dark appearance, Windows' dark app mode, a dark GTK theme or
   ## GNOME's color scheme on Linux). Asked at most every 5 seconds.
+  ## `RETRO_SYSTEM_DARK=1` (or `0`) says it on any system, for a test or a
+  ## screenshot.
   when defined(wasm): return systemCall("dark", "") == "1"
   else:
+    let forced = getEnv("RETRO_SYSTEM_DARK")
+    if forced.len > 0: return forced notin ["0", "false", "no", "off"]
     let now = epochTime()
     if now - darkCache.at < 5: return darkCache.v
     var dark = false

@@ -174,9 +174,19 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   let bg = if glassLook() or own: titleColors(true).bg else: th.face
   let fg = if mobileStyle.barText.a != 0: mobileStyle.barText
            elif glassLook() or own: titleColors(true).fg else: th.text
-  if glassFx() and not own:
-    # (the modern glass effect: no band -- the page's own face, its buttons glass floating on it)
-    fill(full, th.window)
+  # (the modern glass effect: the bar is glass -- the window's face while nothing is under it,
+  # what scrolls up under it showing through it blurred, as through a menu; its buttons glass
+  # floating on it. Drawn over the content, on the dialogs' layer before any dialog, its buttons
+  # taking input with the window's; the content under it takes none there. At the window's top
+  # the glass goes on up under the status bar.)
+  let fxBar = glassFx() and not own and layer() == LayerBase
+  var band = full
+  if fxBar:
+    if full.y <= ui.barY + 1: band = rect(full.x, ui.winY, full.w, full.y + full.h - ui.winY)
+    setLayer(LayerDialog)
+    inputAs = LayerBase
+    glassBandFace(band)
+  elif glassFx() and not own: fill(full, th.window)
   elif glassLook():
     titleBar(full, true)
     # (a soft shadow under it on the page, as the bar stood over it; Glass: a hairline)
@@ -256,6 +266,12 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
     ui.keyUsed = true
     result = npBack
   if accessOn: accessNode(arHeading, title, r = r)
+  if fxBar:
+    inputAs = -1
+    setLayer(LayerBase)
+    ui.blockers.add band
+    glassBand.r = band
+    glassBand.frame = ui.frameNo
   ui.lastId = 0
   ui.lastRect = cell
 
@@ -2179,12 +2195,15 @@ proc settingToggle*(title: string; v: var bool; detail = "";
   ## A settings row: a title, a line or two of detail, and a switch at the
   ## right; a click anywhere on the row flips it. True when it changed. In a `tableGroup`: a
   ## row of it, as a phone's settings have them (`tableSwitch`, with the detail under the
-  ## title).
+  ## title). The row is known by its title, so `v` may be a local filled from the app's settings
+  ## every frame.
   var stack = false
   let (sw, sh) = switchSize()
   let c = settingRow(title, detail, sw, stack, ctlH = sh)
   let r = c.r
-  let id = idOf(v, title)
+  # (known by its title, as `settingCombo`: the same row from frame to frame when `v` is a local
+  # filled from the app's settings each frame)
+  let id = idOfLabel("settingtoggle:", title)
   var hit = interact(id, r, enabled = enabled)
   if enabled:
     spaceKey(id, hit)
@@ -2657,7 +2676,17 @@ proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool 
   let boxId = idOf(s, "search")
   let showCancel = cancel.len > 0 and (ui.focus == boxId or s.len > 0)
   let gloss = glossLook()
-  if gloss and not onDarkWindow(): glossSearchFill(full)    # (lighter than a navigation bar, as then)
+  # (right under the glass effect's navigation bar: glass with it, the bars' glass one band)
+  let band = glassBand.r
+  let fxBar = glassFx() and layer() == LayerBase and glassBand.frame == ui.frameNo and
+              abs(full.y - (band.y + band.h)) <= Gap and full.x < band.x + band.w and full.x + full.w > band.x
+  let whole = if fxBar: rect(full.x, band.y + band.h, full.w, full.y + full.h - band.y - band.h) else: full
+  if fxBar:
+    setLayer(LayerDialog)
+    inputAs = LayerBase
+    glassBandFace(whole)
+  elif glassFx(): fill(full, th.window)
+  elif gloss and not onDarkWindow(): glossSearchFill(full)    # (lighter than a navigation bar, as then)
   elif gloss: glossBarFill(full)
   elif matteLook():
     fill(full, th.face)
@@ -2698,6 +2727,11 @@ proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool 
         s = ""
         result = true
       if ui.focus == boxId: ui.focus = 0
+  if fxBar:
+    inputAs = -1
+    setLayer(LayerBase)
+    ui.blockers.add whole
+    glassBand.r = rect(band.x, band.y, band.w, whole.y + whole.h - band.y)
   ui.lastRect = cell
 
 # ---- an action bar -------------------------------------------------------------------------------

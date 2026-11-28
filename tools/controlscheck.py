@@ -47,6 +47,8 @@ NOT_CONTROLS = {
         "withAlpha", "glassHair", "glassRadius", "glassFace", "glassWell", "glassAccent",
         "selectFill", "fieldFace", "glassCard", "glassTrack", "softShadow",
         "glassPlate", "glassBlue", "modernGlass", "glossShine", "glossOnyx",
+        # ... the glass effect's bars at the top: their glass, how far a view under them runs up
+        "glassBandFace", "glassBandAbove",
         # ... and Matte's and Gloss's (a title bar's band, a tool bar's face, a face in a color)
         "titleBar", "barFace", "glossBar", "tintedFace", "glossBarColors", "glossBarFill",
         "glossBlue", "glossBarButton", "glossText", "buttonInk", "buttonBold",
@@ -59,7 +61,7 @@ NOT_CONTROLS = {
         "glossSheetButton", "glossAlertButton",
         # a page's thin scroll bar over its content (phones, the newer looks), its hints and stretch;
         # dialogs as pages (phones and tablets in Gloss): helpers the panels and dialogs use
-        "overlayBars", "scrollLine", "scrollHint", "stretched", "dialogsAsPages",
+        "scrollLine", "scrollHint", "stretched", "dialogsAsPages",
         # input helpers for controls of one's own
         "spaceKey", "mnemonicHit", "doubleClicked", "tapped", "scrubLabel",
         # text helpers (lines, the caret's stops)

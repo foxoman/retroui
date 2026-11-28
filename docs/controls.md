@@ -495,7 +495,7 @@ look).
 
 ### The modern glass: glassSurface
 
-With the modern glass effect (`glassEffect`, on in the Glass look; "Glass effect" in `appearanceSettings`) Glass is glass everywhere: the tab bar a capsule floating over the content, which shows through it blurred and scrolls its end out from under it (`ui.floatInset`); the bars' buttons capsules of glass; menus, dialogs, sheets, alerts and the side menu glass with their edges lit. `glassSurface(r, radius, tint)` draws a pane of it of your own -- what is under it blurred and seen through it, a sheen of light down from its top, its edges lit (`glassRim`); `glassFx()` says whether the effect is on.
+With the modern glass effect (`glassEffect`, on in the Glass look; "Glass effect" in `appearanceSettings`) Glass is glass everywhere: the tab bar a capsule floating over the content, which shows through it blurred and scrolls its end out from under it (`ui.floatInset`); the navigation bar, a search bar under it and the status bar one band of glass, what scrolls up under them seen through it blurred, their buttons capsules of glass; menus, dialogs, sheets, alerts and the side menu glass with their edges lit. `glassSurface(r, radius, tint)` draws a pane of it of your own -- what is under it blurred and seen through it, a sheen of light down from its top, its edges lit (`glassRim`); `glassFx()` says whether the effect is on.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -5134,7 +5134,8 @@ proc settingToggle*(title: string; v: var bool; detail = "";
 A settings row: a title, a line or two of detail, and a switch at the
 right; a click anywhere on the row flips it. True when it changed. In a `tableGroup`: a
 row of it, as a phone's settings have them (`tableSwitch`, with the detail under the
-title).
+title). The row is known by its title, so `v` may be a local filled from the app's settings
+every frame.
 
 ```nim
 proc settingChoice*(title: string; options: openArray[string]; v: var int;
@@ -5210,7 +5211,8 @@ proc settingToggle*(title: string; v: var bool; detail = "";
 A settings row: a title, a line or two of detail, and a switch at the
 right; a click anywhere on the row flips it. True when it changed. In a `tableGroup`: a
 row of it, as a phone's settings have them (`tableSwitch`, with the detail under the
-title).
+title). The row is known by its title, so `v` may be a local filled from the app's settings
+every frame.
 
 ```nim
 proc settingCombo*(title: string; options: openArray[string]; v: var int;
@@ -5761,7 +5763,7 @@ on the row or the switch flips it, Space too. True when `v` changed.
 
 ### navBar
 
-A phone's navigation bar: the page's title in the middle, Back before it, a button after it. Alt+Left is Back too. In Gloss the glossy blue-gray bar with bordered buttons; in Glass and Matte the buttons are their labels in the highlight.
+A phone's navigation bar: the page's title in the middle, Back before it, a button after it. Alt+Left is Back too. In Gloss the glossy blue-gray bar with bordered buttons; in Glass and Matte the buttons are their labels in the highlight. With Glass's modern glass effect the bar, a `searchBar` under it and the status bar are one band of glass over the content: a plain panel or a `pageView` right under it runs on up under it, and what scrolls up there shows through it blurred (`glassBandAbove`, `glassBandFace`); its buttons are glass, and what is under it takes no tap there.
 
 | Gloss | Glass |
 |---|---|

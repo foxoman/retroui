@@ -398,10 +398,15 @@ int main(void) {
   for (int yy = 50 + 66; yy < 50 + 66 + 120 && !face; yy++)
     face = win.px[(size_t)yy * (win.w + 16) + 2 * 12] == 0xFFC0C0C0u;
   check(face, "the button face is drawn below the title bar");
-  check(win.px[(size_t)10 * (win.w + 16) + 300] == 0xFF800000u,
-        "navy under the status bar (the title bar's color)");
-  check(barsCalls > 0 && barsTop == 0x000080 && barsBottom == 0xFFFFFF,
-        "the status bar is told it is over navy, the navigation bar over white");
+  /* (the status bar over the title bar's navy, darker -- the kit's status bar color: navy mixed
+   * a tenth with black; RGBX here, the blue in its third byte) */
+  uint32_t sb = win.px[(size_t)10 * (win.w + 16) + 300];
+  int sbBlue = (int)((sb >> 16) & 255);
+  check((sb & 0xFF00FFFFu) == 0xFF000000u && sbBlue >= 0x60 && sbBlue < 0x80,
+        "dark navy under the status bar (the title bar's color, darker)");
+  check(barsCalls > 0 && (barsTop & 0xFFFF00) == 0 && (barsTop & 255) == sbBlue &&
+        barsBottom == 0xFFFFFF,
+        "the status bar is told it is over that navy, the navigation bar over white");
 
   tap(q, 2 * 20, 50 + 64 + 2 * 20);
   check(sawClick, "a tap on the button clicks it");
@@ -479,6 +484,21 @@ int main(void) {
     for (int yy = 0; yy < 400 && first < 0; yy++)
       if (win.px[(size_t)yy * (win.w + 16) + 2 * 12] == 0xFFC0C0C0u) first = yy;
     check(first >= 100, "the system bar insets move the content down");
+    /* the picture in a surface view 40 down its window (a free window's title bar over it):
+     * the bar's inset less that */
+    void (*surfaceAt)(JNIEnv *, jclass, jint, jint) =
+      (void (*)(JNIEnv *, jclass, jint, jint))nativeNamed("nativeSurfaceAt");
+    check(surfaceAt != NULL, "the picture's place in its window: told by the activity");
+    if (surfaceAt) {
+      surfaceAt((JNIEnv *)&envPtr, NULL, 0, 40);
+      ms(300);
+      first = -1;
+      for (int yy = 0; yy < 400 && first < 0; yy++)
+        if (win.px[(size_t)yy * (win.w + 16) + 2 * 12] == 0xFFC0C0C0u) first = yy;
+      check(first >= 60 && first < 100, "the picture 40 down its window: the bar's inset less those 40");
+      surfaceAt((JNIEnv *)&envPtr, NULL, 0, 0);
+      ms(300);
+    }
   }
   /* one more activity while the app runs (made beside it, or in its place):
    * the app goes on in it, the first one finished */

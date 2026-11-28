@@ -145,7 +145,8 @@ template pageView*(p: var PageStack; height: int; body: untyped) =
       for k in 1 .. dp(8):
         vline(if ui.rtl: pr.x + pr.w - swipe + k - 1 else: pr.x + swipe - k, pr.y, pr.h,
               withAlpha(color(0, 0, 0), max(2, 34 - 4 * k)))
-    pushClip(pr)
+    let up = glassBandAbove(pr)             # (right under the glass effect's bars: on up under them)
+    pushClip(rect(pr.x, pr.y - up, pr.w, pr.h + up))
     beginClipped()                          # (sliding in, it never makes the window scroll)
     pushFrame(rect(pr.x + dx, pr.y, pr.w, pr.h))
     body

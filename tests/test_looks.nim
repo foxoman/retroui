@@ -18,7 +18,7 @@ startApp("looks", W, H)
 # ---- light or dark as the system is (`systemColors`, a phone's default) ------------------------------
 
 block:
-  putEnv("GTK_THEME", "Adwaita:dark")       # (the system dark: Linux's way of saying it)
+  putEnv("RETRO_SYSTEM_DARK", "1")          # (the system dark, on any system the tests run on)
   delEnv("RETRO_THEME")
   systemColors = true
   uiLook = lookGlass
@@ -38,7 +38,7 @@ block:
   ui.theme = GlassLight
   followSystemColors()
   doAssert ui.theme == GlassLight, "systemColors off: as chosen"
-  delEnv("GTK_THEME")
+  delEnv("RETRO_SYSTEM_DARK")
   uiLook = lookClassic
   ui.theme = Classic
 

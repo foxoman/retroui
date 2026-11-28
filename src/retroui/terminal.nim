@@ -2543,7 +2543,7 @@ proc terminalView*(t: Terminal; w = 0; lines = 24; focusFirst = false; menu: pro
     var v = off
     let sb = if glass: rect(r.x + r.w - bar - 1, r.y + dp(4), bar, r.h - 2 * dp(4))
              else: rect(r.x + r.w - bar, r.y, bar, r.h)
-    scrollBarFor(id + 77, id, sb, true, v, maxOff, max(lh, inner.h - lh), lh)
+    scrollBarFor(id + 77, id, sb, true, v, maxOff, max(lh, inner.h - lh), lh, overlay = false)
     if v != off: t.viewTop = maxOff - v
   if not glass: box(r, if hit.focused: ui.theme.select else: mixColor(t.colors.bg, t.colors.fg, 0.25))
   if accessible():

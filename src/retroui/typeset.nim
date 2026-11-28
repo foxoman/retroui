@@ -62,7 +62,7 @@ const
 when defined(wasm):
   # (a web page: the fonts are files beside the page, fetched when a face
   # is first used -- a PDF, the canvas's text; the page's own text is the
-  # browser's -- so an app's WebAssembly does not carry their 1.0 MB)
+  # browser's -- so an app's WebAssembly does not carry their 1.8 MB)
   proc packedFont(id: FaceId): string =
     try: readFile("/kit/fonts/" & faceFiles[id] & ".ttf.z")
     except IOError, OSError: ""

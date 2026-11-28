@@ -1040,8 +1040,8 @@ public class RetroMedia {
               v.playing = true;
             }
           }
-          v.lp.x = x;
-          v.lp.y = y;
+          v.lp.x = x + RetroActivity.surfaceX;        // (the app's picture's place in the window)
+          v.lp.y = y + RetroActivity.surfaceY;
           v.lp.width = Math.max(1, w);
           v.lp.height = Math.max(1, h);
           if (v.lp.token == null) v.lp.token = a.getWindow().getDecorView().getWindowToken();

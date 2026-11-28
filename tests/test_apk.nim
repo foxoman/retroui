@@ -52,6 +52,26 @@ block playbackForeground:
   doAssert stop > 0 and j.find("if (!foreground)", stop) in stop .. stop + 200 and
            j.find("stopWanted = true", stop) in stop .. stop + 300,
            "RetroPlayback: a stop before it is in the foreground kept until it is"
+block pictureInView:
+  # (a tablet's small floating window, a free window: the system's frame round it -- drawn by
+  # the window's own views, which a native activity's surface taken whole left out: the app's
+  # picture in a surface view in them, touches and the views over it moved by its place)
+  let dir = currentSourcePath.parentDir.parentDir / "tools" / "android"
+  let a = readFile(dir / "RetroActivity.java")
+  let p = a.find("private void pictureInView()")
+  doAssert p > 0 and a.find("super.onCreate(state);\n    pictureInView();") > 0,
+           "RetroActivity: the picture in a view, as it is made"
+  doAssert a.find("getWindow().takeSurface(null)", p) > p and a.find("addContentView(sv", p) > p and
+           a.find("nativeSurfaceAt(at[0], at[1])", p) > p,
+           "... the window's surface given back, a surface view in the window, its place told"
+  doAssert "RetroActivity.surfaceX" in readFile(dir / "RetroWeb.java") and
+           "RetroActivity.surfaceX" in readFile(dir / "RetroMedia.java") and
+           "RetroActivity.surfaceX" in readFile(dir / "RetroAccess.java"),
+           "the web pages, videos and screen reader's boxes over it moved by its place"
+  let glue = readFile(currentSourcePath.parentDir.parentDir / "src" / "retroui" / "uirelays" / "drivers" /
+                      "android_glue.c")
+  doAssert glue.count("AMotionEvent_getX(") == 1 and glue.count("evX(ev, ") >= 4,
+           "the glue's touches all moved by it"
 let icon = iconPng(192)
 doAssert icon[1 .. 3] == "PNG".toBytes and icon.len < 10_000, "a small PNG"
 
