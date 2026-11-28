@@ -485,17 +485,30 @@ int main(void) {
       if (win.px[(size_t)yy * (win.w + 16) + 2 * 12] == 0xFFC0C0C0u) first = yy;
     check(first >= 100, "the system bar insets move the content down");
     /* the picture in a surface view 40 down its window (a free window's title bar over it):
-     * the bar's inset less that */
+     * a touch there is moved by it, one on the title bar left to the window's views */
     void (*surfaceAt)(JNIEnv *, jclass, jint, jint) =
       (void (*)(JNIEnv *, jclass, jint, jint))nativeNamed("nativeSurfaceAt");
     check(surfaceAt != NULL, "the picture's place in its window: told by the activity");
     if (surfaceAt) {
       surfaceAt((JNIEnv *)&envPtr, NULL, 0, 40);
       ms(300);
-      first = -1;
-      for (int yy = 0; yy < 400 && first < 0; yy++)
-        if (win.px[(size_t)yy * (win.w + 16) + 2 * 12] == 0xFFC0C0C0u) first = yy;
-      check(first >= 60 && first < 100, "the picture 40 down its window: the bar's inset less those 40");
+      send(q, (struct AInputEvent){ AINPUT_EVENT_TYPE_MOTION, AINPUT_SOURCE_TOUCHSCREEN,
+                                    AMOTION_EVENT_ACTION_DOWN, 0, 0, 400, 20 });
+      ms(60);
+      int onBar = lastHandled;
+      send(q, (struct AInputEvent){ AINPUT_EVENT_TYPE_MOTION, AINPUT_SOURCE_TOUCHSCREEN,
+                                    AMOTION_EVENT_ACTION_UP, 0, 0, 400, 20 });
+      ms(60);
+      int barUp = lastHandled;
+      send(q, (struct AInputEvent){ AINPUT_EVENT_TYPE_MOTION, AINPUT_SOURCE_TOUCHSCREEN,
+                                    AMOTION_EVENT_ACTION_DOWN, 0, 0, 400, 300 });
+      ms(60);
+      int inside = lastHandled;
+      send(q, (struct AInputEvent){ AINPUT_EVENT_TYPE_MOTION, AINPUT_SOURCE_TOUCHSCREEN,
+                                    AMOTION_EVENT_ACTION_UP, 0, 0, 400, 300 });
+      ms(150);
+      check(onBar == 0 && barUp == 0, "a touch on the title bar over the picture: left to the window's frame");
+      check(inside == 1, "... one on the picture: the app's");
       surfaceAt((JNIEnv *)&envPtr, NULL, 0, 0);
       ms(300);
     }

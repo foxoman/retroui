@@ -70,8 +70,12 @@ block pictureInView:
            "the web pages, videos and screen reader's boxes over it moved by its place"
   let glue = readFile(currentSourcePath.parentDir.parentDir / "src" / "retroui" / "uirelays" / "drivers" /
                       "android_glue.c")
-  doAssert glue.count("AMotionEvent_getX(") == 1 and glue.count("evX(ev, ") >= 4,
-           "the glue's touches all moved by it"
+  doAssert glue.count("AMotionEvent_getX(") == 2 and glue.count("evX(ev, ") >= 4 and
+           "static int besidePicture(" in glue and "if (g.beside)" in glue,
+           "the glue's touches all moved by it; one beside the picture (a free window's title bar) " &
+           "left to the window's views"
+  doAssert a.find("underBars(!inMultiWindow())") > 0 and a.find("void sendInsets()") > 0,
+           "... the bars over it in split screen and small windows, the insets the picture's"
 let icon = iconPng(192)
 doAssert icon[1 .. 3] == "PNG".toBytes and icon.len < 10_000, "a small PNG"
 

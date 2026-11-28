@@ -18,7 +18,7 @@ export local, online, tv
 
 const
   AppKey* = "RetroMusic"
-  MusicVersion* = "2.1.3"
+  MusicVersion* = "2.1.4"
   AppOrigin* = "https://net.foxoman.retromusic"
     ## (the app's address for YouTube's player: its identifier, as YouTube asks)
 

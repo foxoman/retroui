@@ -1,5 +1,19 @@
 # Changes
 
+## 0.83.1
+
+- **A small window's frame works on Android**: its title bar's buttons and a drag on it -- to
+  move the window, make it whole or close it -- and its edges reach the system again. A touch
+  that comes down beside the app's picture is the window's, not the app's (the app took every
+  touch in its window, the frame's too).
+- **Split screen and small windows on Android**: the app is laid out between the status and
+  navigation bars there, as other apps are (it ran on under the status bar in split screen, its
+  bar under the clock), and under them only when it fills the screen. The insets the app gets
+  are the picture's own -- the window's, less what lies between the picture and the window's
+  edges --, worked out again after every layout. The application says it is resizable too, not
+  only its activity.
+- Retro Music 2.1.4, Retro Mail 1.5.4, Retro DNS 1.9.4, Retro Tasks 1.0.3, the Gallery 0.83.1.
+
 ## 0.83.0
 
 - **Glass's bars are glass**: with the glass effect the navigation bar, a search bar under it and

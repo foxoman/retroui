@@ -91,12 +91,11 @@ public class RetroActivity extends NativeActivity {
     getWindow().getDecorView().setOnApplyWindowInsetsListener(
         new View.OnApplyWindowInsetsListener() {
           public WindowInsets onApplyWindowInsets(View v, WindowInsets in) {
-            try {
-              nativeInsets(in.getSystemWindowInsetTop(), in.getSystemWindowInsetLeft(),
-                           in.getSystemWindowInsetBottom(), in.getSystemWindowInsetRight());
-            } catch (UnsatisfiedLinkError e) {
-              // a libmain.so without the glue: the content rect is used
-            }
+            windowInsets[0] = in.getSystemWindowInsetTop();
+            windowInsets[1] = in.getSystemWindowInsetLeft();
+            windowInsets[2] = in.getSystemWindowInsetBottom();
+            windowInsets[3] = in.getSystemWindowInsetRight();
+            sendInsets();
             return v.onApplyWindowInsets(in);
           }
         });
@@ -113,21 +112,6 @@ public class RetroActivity extends NativeActivity {
     try {
       SurfaceView sv = new SurfaceView(this);
       sv.getHolder().addCallback(this);            // (NativeActivity's: the surface to the app)
-      sv.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
-        public void onLayoutChange(View v, int l, int t, int r, int b,
-                                   int ol, int ot, int or, int ob) {
-          int[] at = new int[2];
-          v.getLocationInWindow(at);
-          if (at[0] == surfaceX && at[1] == surfaceY) return;
-          surfaceX = at[0];
-          surfaceY = at[1];
-          try {
-            nativeSurfaceAt(at[0], at[1]);
-          } catch (UnsatisfiedLinkError e) {
-            // a libmain.so without it: the picture at the window's corner
-          }
-        }
-      });
       getWindow().takeSurface(null);
       try {
         addContentView(sv, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -136,14 +120,92 @@ public class RetroActivity extends NativeActivity {
         getWindow().takeSurface(this);             // (as before)
         return;
       }
+      surface = sv;
+      // (its place in the window after every layout: a title bar over it, the bars beside it)
+      sv.getViewTreeObserver().addOnGlobalLayoutListener(
+          new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            public void onGlobalLayout() {
+              underBars(!inMultiWindow());
+              sendInsets();
+            }
+          });
     } catch (Throwable t) {
       return;
     }
-    // (laid out under the status and navigation bars, as the window's surface was)
+    underBars(!inMultiWindow());
+  }
+
+  /** The surface view the app draws in (`pictureInView`); null: the window's surface. */
+  SurfaceView surface;
+  /** The system's bars and keyboard over the window, as it says them. */
+  final int[] windowInsets = new int[4];
+  private final int[] insetsSent = {-1, -1, -1, -1};
+
+  /** (the bars and the keyboard over the app's picture -- the window's insets less what lies
+   *  between the picture and the window's edges --, and the picture's place, to the app when
+   *  they change) */
+  void sendInsets() {
+    int t = windowInsets[0], l = windowInsets[1], b = windowInsets[2], r = windowInsets[3];
+    SurfaceView sv = surface;
+    if (sv != null && sv.getWidth() > 0 && sv.getHeight() > 0) {
+      int[] at = new int[2];
+      sv.getLocationInWindow(at);
+      View d = getWindow().getDecorView();
+      t = Math.max(0, t - at[1]);
+      l = Math.max(0, l - at[0]);
+      b = Math.max(0, b - (d.getHeight() - at[1] - sv.getHeight()));
+      r = Math.max(0, r - (d.getWidth() - at[0] - sv.getWidth()));
+      if (at[0] != surfaceX || at[1] != surfaceY) {
+        surfaceX = at[0];
+        surfaceY = at[1];
+        try {
+          nativeSurfaceAt(at[0], at[1]);
+        } catch (UnsatisfiedLinkError e) {
+          // a libmain.so without it: the picture at the window's corner
+        }
+      }
+    }
+    if (t == insetsSent[0] && l == insetsSent[1] && b == insetsSent[2] && r == insetsSent[3]) return;
+    insetsSent[0] = t; insetsSent[1] = l; insetsSent[2] = b; insetsSent[3] = r;
+    try {
+      nativeInsets(t, l, b, r);
+    } catch (UnsatisfiedLinkError e) {
+      // a libmain.so without the glue: the content rect is used
+    }
+  }
+
+  private static Method multiWindow;
+  private int underBarsNow = -1;
+
+  /** (in split screen or a small window: Activity.isInMultiWindowMode, Android 7 on) */
+  private boolean inMultiWindow() {
+    if (Build.VERSION.SDK_INT < 24) return false;
+    try {
+      if (multiWindow == null) multiWindow = android.app.Activity.class.getMethod("isInMultiWindowMode");
+      return (Boolean) multiWindow.invoke(this);
+    } catch (Throwable t) {
+      return false;
+    }
+  }
+
+  /** The picture laid out under the status and navigation bars (filling the screen, as the
+   *  window's surface was: the app colors them), or between them (split screen, a small
+   *  window: the system's own there, as other apps have). */
+  private void underBars(boolean on) {
+    if (surface == null || underBarsNow == (on ? 1 : 0)) return;
+    underBarsNow = on ? 1 : 0;
     try {
       View d = getWindow().getDecorView();
-      d.setSystemUiVisibility(d.getSystemUiVisibility() | 0x100 | 0x200 | 0x400);
+      int bits = 0x100 | 0x200 | 0x400;        // LAYOUT_STABLE, _HIDE_NAVIGATION, _FULLSCREEN
+      int f = d.getSystemUiVisibility();
+      d.setSystemUiVisibility(on ? (f | bits) : (f & ~bits));
     } catch (Throwable t) { }
+  }
+
+  @Override
+  public void onConfigurationChanged(android.content.res.Configuration c) {
+    super.onConfigurationChanged(c);
+    underBars(!inMultiWindow());                 // (into split screen or a small window, or out)
   }
 
   @Override

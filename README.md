@@ -3457,8 +3457,10 @@ window or desktop windowing the app gets the system's frame -- its title bar,
 the edges it is sized by -- and follows every size, down to a phone's (320 by
 320 dp). The app's picture is in a surface view in the window's own views,
 which draw that frame (a native activity taking the window's surface whole
-had none); filling the screen it is as before, under the status and
-navigation bars. `RETRO_WINDOW_SURFACE=1` in the start's extras (`adb shell am
+had none), and a touch that comes down beside the picture -- the title bar,
+the window's edges -- is the frame's. In split screen and a small window the
+app is laid out between the status and navigation bars, as other apps are;
+filling the screen it is as before, under them. `RETRO_WINDOW_SURFACE=1` in the start's extras (`adb shell am
 start ... --es RETRO_WINDOW_SURFACE 1`) takes the window's surface whole again.
 
 **On a phone or tablet,** a build runs as many C compilers as the memory
@@ -3958,7 +3960,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_photo` | the image engine: blend modes, layers, undo and cancelled steps, the selection and channels, Quick Mask, paths, every painting tool, transforms, color modes, every filter and adjustment, .rpd / PNG / JPEG / BMP files |
 | `test_canvas2d` | the Canvas 2D API: paths, fills and strokes, transforms, gradients and patterns, text, pictures, clipping, compositing, against expected pixels |
 | `test_pdf`, `test_report` | the PDF writer (structure, fonts, pictures, cross-reference table), templates, HTML reports, page breaks, repeated headers, totals, previews |
-| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; `androiddex.nim` made from the Java there is now (`classesDexOf`); the playback service in the foreground as it is made and on every start, a stop before it waiting for it; the picture in a surface view in the window (a free window's frame), the views over it, a screen reader's boxes and the touches moved by its place; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused; the permissions read from an app's C, Nim 2.4's function names and 2.2's |
+| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; `androiddex.nim` made from the Java there is now (`classesDexOf`); the playback service in the foreground as it is made and on every start, a stop before it waiting for it; the picture in a surface view in the window (a free window's frame), the views over it, a screen reader's boxes and the touches moved by its place, a touch beside it left to the frame, the insets the picture's; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused; the permissions read from an app's C, Nim 2.4's function names and 2.2's |
 | `test_store` | DER, certificates and their subjects, JAR signatures, Authenticode (the digest, the checksum, signing again, a time stamp from an authority made with OpenSSL), MSIX (ZIP64 records, the block map's blocks one by one, the signed digests rebuilt by the test), macOS: the `.icns`, the code directory read back page by page (one architecture and universal), the sealed resources, the `.ipa`; `osslsigncode` and `rcodesign` when they are there |
 | `test_tilemap` | the street map: tiles of every kind of source, the cache, dragging, zooming, markers and shapes, the services' answers (places and routes of each), polylines, GCJ-02, GeoJSON, vector tiles decoded and drawn, PMTiles and MBTiles read and written |
 | `test_system` | `retroui/system` on Linux: what answers and what says false, the autostart entry made and taken away, the answers of a page and of phones read right, speech when a voice is installed; `retroui/admin`'s words for sh, Windows and AppleScript, and its answer with no polkit; GNOME's settings read, a folder watched (made, changed, removed), the clipboard's pictures and the desktop's shortcuts with no driver, the app installed for the user and taken away, the Linux packages |

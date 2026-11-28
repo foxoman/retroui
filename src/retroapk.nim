@@ -1676,6 +1676,9 @@ proc main() =
     iAttr("icon", 0x01010002, int(IconRes), TRef),
     bAttr("hasCode", 0x0101000c, true),     # classes.dex: RetroActivity
     bAttr("largeHeap", 0x0101035a, true),   # room to decode big photos
+    # (every activity of the app sized as the user sizes it -- split screen, a small window --,
+    # said for the whole app too: some systems ask the application, not the activity)
+    bAttr("resizeableActivity", 0x010104f6, true),
     iAttr("theme", 0x01010000, 0x0103012c, TRef)],   # DeviceDefault.Light.NoActionBar
     kids: @[activity,
       # hands files to other apps for "Open" and "Share" (read only)

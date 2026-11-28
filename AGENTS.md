@@ -844,6 +844,13 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   `RetroMedia`) and a screen reader's boxes are moved by its place in the
   window (`nativeSurfaceAt`, `RetroActivity.surfaceX/Y`); something new
   that reads a touch's place or puts a window over the app does the same.
+  A touch that comes down beside the picture (`besidePicture`: a free
+  window's title bar and edges) is left unhandled for the window's views --
+  the native input queue sees every touch first and would keep the frame's.
+  `RetroActivity.sendInsets` sends the insets as the picture's (the window's
+  less what lies between the picture and its edges) after every layout; the
+  picture is under the bars only filling the screen (`underBars`), between
+  them in split screen and small windows.
 - **A widget's id from a variable is its address** (`idOf(v)`): a local's
   address can change between frames (the sanitizers move the stack), so a
   settings row filled from a local each frame is known by its title
