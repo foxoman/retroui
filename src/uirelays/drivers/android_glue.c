@@ -107,6 +107,7 @@ static struct {
   /* where the app's picture is in its window (RetroActivity's surface view: a free window's
    * title bar over it); touches are moved by it (UI thread writes, app thread reads) */
   volatile int surfX, surfY;
+  int beside;              /* the touch now came down beside the picture: the window's views have it */
   char *inbox;
   size_t inboxLen;
   /* JNI: cached classes and methods (global references) */
@@ -502,7 +503,8 @@ static void JNICALL nativeInsets(JNIEnv *env, jclass cls, jint top, jint left,
   writeCmd(CMD_RECT);
 }
 
-/* RetroActivity.nativeSurfaceAt, on the UI thread: where the app's picture is in its window */
+/* RetroActivity.nativeSurfaceAt, on the UI thread: where the app's picture is in its window
+ * (the insets it sends are the picture's already) */
 static void JNICALL nativeSurfaceAt(JNIEnv *env, jclass cls, jint x, jint y) {
   (void)env; (void)cls;
   g.surfX = x;
@@ -925,12 +927,8 @@ void uirelays_layout(int *w, int *h, int *density, int *top, int *left,
   int have = g.haveInsets;
   int in[4] = { g.insets[0], g.insets[1], g.insets[2], g.insets[3] };
   pthread_mutex_unlock(&g.mu);
-  if (have) {                    /* from UiRelaysActivity: bars and keyboard */
-    /* (the window's; the app's picture may start below its top or in from its left: a free
-     * window's title bar over it) */
-    *top = in[0] > g.surfY ? in[0] - g.surfY : 0;
-    *left = in[1] > g.surfX ? in[1] - g.surfX : 0;
-    *bottom = in[2]; *right = in[3];
+  if (have) {                    /* from UiRelaysActivity: bars and keyboard over the picture */
+    *top = in[0]; *left = in[1]; *bottom = in[2]; *right = in[3];
   } else if (r.right > r.left && r.bottom > r.top) {
     *top = r.top; *left = r.left;
     *bottom = g.winH - r.bottom; *right = g.winW - r.right;
@@ -1519,11 +1517,35 @@ static void endGesture(void) {
   g.g2wait = 1;
 }
 
+/* (a place in the window beside the app's picture: a free window's title bar over it, or the
+ * edges of a free window -- where the system's frame takes a drag to size it) */
+static int besidePicture(const AInputEvent *ev) {
+  float x = AMotionEvent_getX(ev, 0), y = AMotionEvent_getY(ev, 0);
+  int sx = g.surfX, sy = g.surfY;
+  if (x < sx || y < sy) return 1;
+  if (sx > 0 || sy > 0) {                  /* (a free window: its edges too) */
+    int edge = (g.density > 0 ? g.density : 160) * 8 / 160;
+    if (x < sx + edge || (g.winW > 0 && x >= sx + g.winW - edge) ||
+        (g.winH > 0 && y >= sy + g.winH - edge)) return 1;
+  }
+  return 0;
+}
+
 static int translate(AInputEvent *ev) {
   int type = AInputEvent_getType(ev);
   if (type == AINPUT_EVENT_TYPE_MOTION) {
     int action = AMotionEvent_getAction(ev);
     int a = action & AMOTION_EVENT_ACTION_MASK;
+    /* a touch that comes down beside the picture -- a free window's title bar, its edges --:
+     * not the app's, the whole of it; the window's own views take it (its buttons, a drag that
+     * moves or sizes the window), as they do in other apps */
+    if (a == AMOTION_EVENT_ACTION_DOWN) g.beside = besidePicture(ev);
+    if (g.beside) {
+      if (a == AMOTION_EVENT_ACTION_UP || a == AMOTION_EVENT_ACTION_CANCEL) g.beside = 0;
+      return 0;
+    }
+    if ((a == AMOTION_EVENT_ACTION_HOVER_MOVE || a == AMOTION_EVENT_ACTION_HOVER_ENTER ||
+         a == AMOTION_EVENT_ACTION_SCROLL) && besidePicture(ev)) return 0;
     int src = AInputEvent_getSource(ev);
     int tool = AMotionEvent_getToolType(ev, 0);
     /* a mouse, a touchpad or a pen: hovers, clicks, no drag-to-scroll */
