@@ -116,3 +116,43 @@ program. Retro Navigator's numbers are mostly the system's web engine
 24 MB at rest. The first frames move by
 10 to 70 ms from one run to the next here (hello took 87 ms in its first
 run, the machine's first, and 16 ms in the next).
+
+## Persistent collections
+
+What `retroui/persist` costs against copying a `seq`, a `Table` or a
+`string` for every version kept (an undo history, the last frame's state to
+compare with this one's). `nim c -r -d:release tests/bench_persist.nim` on
+the same machine, 0.84.0; memory is the resident memory the kept versions
+add.
+
+| | Copying | Persistent |
+|---|---|---|
+| A map of 100,000 ints, made | `Table`: 11.3 ms | `PMap.put` one at a time: 122 ms; with a builder: 29 ms |
+| Every key read | `Table`: 4.4 ms | `PMap`: 10 to 13 ms |
+| 1000 edits, every version kept | `Table` copied each time: 421 ms and 605 MB for the first 100 | `PMap`: 1.7 ms and 176 KB for all 1000 |
+| What changed between two versions (10 keys apart) | every key compared: 11.2 ms | `diff`: 0.02 ms |
+| A vector of 100,000 ints, made | `seq`: 0.16 ms | `PVec.add`: 11.9 ms; with a builder: 0.67 ms |
+| Every item read | `seq`: 0.09 ms | `PVec`: 1.6 ms |
+| 1000 edits of the vector, every version kept | `seq` copied: 79 ms and 63 MB for the first 100 | `PVec`: 0.6 ms, next to nothing kept |
+| A text of 1 MB, 1000 inserts, every version kept | `string` copied: 269 ms and 95 MB for the first 100 | `Rope`: 3.5 ms and 520 KB for all 1000 |
+
+So: make a large one with a builder, read it as a `seq` or a `Table` would
+be read, a few times slower; keep its versions for next to nothing.
+
+Beside [thetos](https://github.com/elcritch/thetos) 0.9.1, a library of the
+same structures for Nim (after C++'s immer), the same 100,000 ints:
+
+| | thetos | the kit |
+|---|---|---|
+| A map made | `TrieMap`, in place: 17 ms | `PMap` builder: 29 ms (`put`: 127 ms) |
+| Every key read | 9.2 ms | 10.5 ms |
+| 1000 versions kept | 1.5 ms, 800 KB | 1.5 ms, 608 KB |
+| The diff of two versions (992 changes) | 0.63 ms | 0.62 ms |
+| A vector made | `TrieVec`, in place: 0.97 ms | `PVec` builder: 2.0 ms (`add`: 7.5 ms) |
+| Every item read | 0.60 ms | 1.57 ms |
+
+thetos builds faster in place and reads its vector faster, and its nodes'
+counts are atomic, for versions shared between threads without locks; the
+kit's keep their versions in less memory, diff as fast, and are written to
+and read from NIF as they are (`keepState`) -- with nothing to add to an
+app's dependencies.

@@ -18,6 +18,7 @@ import std/[os, strutils, tables, algorithm, sequtils, json, math]
 from std/times import fromUnix, epochTime
 from std/unicode import runes, toUTF8
 import retroui
+import retroui/[barcode, scanner, device]
 import retroui/[textwidgets, richedit, qrcode, pdfview, tilemap, mvt, capture, mediasession, system,
                 secrets, update, jobs, tray, motion, forcegraph, assistant, modelstore, terminal,
                 textengine]
@@ -227,6 +228,7 @@ var
   flowAt = 3
   target: Rect                ## where the mouse goes (`aim` after the widget)
   aimed = false
+  hoverAfter: Rect            ## where the mouse goes after the click that opens it (an item lit)
 
 proc part(title: string; intro = ""; outro = "") =
   parts.add Part(title: title, intro: intro, outro: outro)
@@ -582,6 +584,27 @@ example("glass", "The modern glass: glassSurface",
   glassSurface(card, float(dp(14)), ui.theme.window)
   text(card.x + dp(14), card.y + (card.h - FontH) div 2, "A card, its edge lit", ui.theme.text)
 
+
+example("liquidglass", "The glass effect: lens, light, clear or tinted",
+        "The glass bends what is under it at its edge as a lens's thick rim does (`backdropBlur`'s `lens`), its light glints where it falls (`glassLight`; under the pointer or a finger; the phone's tilt with `glassTilt`), and `glassTint` takes it from clear (0.0: what is under it shows most) to tinted (1.0: frosted, easiest to read); `glassSolid` (reduce transparency, followed from the system) makes it solid. `glassParams` says how it is drawn now; `concentric` rounds a shape inside another round the same center; `scrollEdge` fades content going under a bar of the app's own; `glassKnob` the knob of a slider or switch that swells into clear glass while dragged. Tool bars group their buttons in capsules of glass between `toolSeparator`s; menus grow out of where they hang from.",
+        380, 170, ["glassTint", "glassSolid", "glassParams", "glassLight", "concentric", "scrollEdge", "glassKnob",
+                   "backdropBlur"], std3):
+  let area = place(0, dp(150))
+  for i in 0 ..< area.w div dp(16) + 1:
+    fill(rect(area.x + i * dp(16), area.y, dp(8), area.h),
+         if i mod 2 == 0: color(230, 120, 60) else: color(60, 150, 220))
+  let clearPane = rect(area.x + dp(14), area.y + dp(14), dp(160), dp(54))
+  glassSurface(clearPane, float(clearPane.h) / 2, clear = true)
+  text(clearPane.x + dp(20), clearPane.y + (clearPane.h - FontH) div 2, "Clear", ui.theme.text, style(bold = true))
+  let tinted = rect(area.x + dp(190), area.y + dp(14), dp(160), dp(54))
+  glassSurface(tinted, float(tinted.h) / 2)
+  text(tinted.x + dp(20), tinted.y + (tinted.h - FontH) div 2, "Regular", ui.theme.text, style(bold = true))
+  let card = rect(area.x + dp(14), area.y + dp(84), dp(336), dp(56))
+  glassSurface(card, float(dp(20)))
+  let inner = rect(card.x + dp(8), card.y + dp(8), dp(120), card.h - dp(16))
+  roundRect(inner, concentric(float(dp(20)), dp(8)), withAlpha(accentColor(), 120))
+opts(looks = @[lookOf("Glass", lookGlass)])
+
 example("form", "Forms and fields",
         "`form` lines up labels and their controls in two columns (0: the labels as wide as the longest). On a phone the label goes above its control.",
         340, 120, ["form", "field"], std3):
@@ -698,6 +721,31 @@ opts(act = acRest)
 
 part("Buttons")
 
+
+example("whatsthis", "helpText, What's This?",
+        "What a control is for, a sentence or two, for the guide's context help: `helpText` after it. Shift+F1 (or `startHelpMode`, a Help menu's What's This? item) puts a question mark by the pointer: the next click on a control shows its help in a pop-up and works nothing; F1 with the focus on it shows it too. A control with only a `tooltip` shows its tooltip there. `helpMode` says whether the question mark is up.",
+        340, 130, ["helpText", "startHelpMode", "helpMode"], std3):
+  var helpAsked = false
+do:
+  if not helpAsked:           # (the pictures: What's This?, then a click on Print)
+    startHelpMode()
+    helpAsked = true
+  row:
+    if button("&Print"): discard
+    target = ui.lastRect
+    aimed = true
+    helpText "Prints the document on the printer you chose."
+    if button("Pre&view"): discard
+    tooltip "Shows the pages as they will print"
+opts(act = acClick, reset = proc () = helpAsked = false)
+
+example("ellipsize", "ellipsize, ellipsizeMiddle, ellipsizePath",
+        "Words cut short to fit: `ellipsize` at their end, `ellipsizeMiddle` in their middle (names whose ends tell them apart), `ellipsizePath` a path as the guide has it -- its first folder and its name kept, \"...\" for the folders between. Show the whole as the tooltip.",
+        380, 90, ["ellipsize", "ellipsizeMiddle", "ellipsizePath"], std3):
+  label ellipsizePath("/home/sultan/Documents/Reports/2026/November/annual-report-final.pdf", dp(300))
+  label ellipsizeMiddle("annual-report-final-version-three.pdf", dp(220))
+  label ellipsize("A long title that does not fit in the room it has", dp(220))
+
 example("button", "button",
         "A push button: true in the frame it is clicked. `isDefault` gives it the 3.1 default ring, and Enter clicks it.",
         300, 60, ["button"], basic):
@@ -707,6 +755,25 @@ do:
     if button("&OK", isDefault = true, enabled = shotEnabled): inc okClicks
     aim()
     button("Cancel", enabled = shotEnabled)
+
+
+example("unfold", "unfoldButton",
+        "A button that shows more of a dialog -- \"Options >>\" folded, \"Options <<\" unfolded --: the choices most people never need, kept out of the way; the dialog grows by what the app draws while it is open.",
+        320, 110, ["unfoldButton"], std3):
+  var moreOptions = true
+  var matchCase = false
+do:
+  unfoldButton("&Options", moreOptions)
+  if moreOptions: checkbox("Match &case", matchCase)
+
+example("glassbutton", "glassButton",
+        "A button of glass: a capsule with its label or an icon, `prominent` tinted in the highlight for the one action that matters on the screen, `clear` for one over a picture. Pressed it swells a little, the light where the finger is. Without the glass effect it is a usual button (the accent one when prominent).",
+        360, 80, ["glassButton"], std3):
+  row:
+    glassButton("Cancel")
+    glassButton("Done", prominent = true)
+    glassButton("", glyph = nfShare)
+opts(looks = phoneLooks, both = true)
 
 example("picbuttons", "Buttons with a picture",
         "A button with an icon shows it four ways: the text beside it, below it, the icon only (the text becomes its tooltip), or the text only. `glyphPic` makes a Nerd Fonts symbol the picture.",
@@ -771,6 +838,16 @@ do:
   checkbox("&Auto save", autoSave, enabled = shotEnabled)
   aim()
   checkbox("Keep &backups", backups, enabled = shotEnabled)
+
+
+example("checkbox3", "checkbox of three states, mixedOf",
+        "A check box bound to a `CheckState`: `csMixed` shows that what is chosen together differs (some bold, some not) -- 3.1 fills it with gray dots, the newer looks put a dash in it. Clicked it goes on, then off, and back to mixed when it began mixed. `mixedOf` gives the state of several values.",
+        320, 80, ["checkbox", "CheckState", "mixedOf"], basicNoHover):
+  var boldState = csMixed
+  var italicState = mixedOf([false, false])
+do:
+  checkbox("&Bold", boldState, enabled = shotEnabled)
+  checkbox("&Italic", italicState, enabled = shotEnabled)
 
 example("radio", "radio",
         "One of several: each radio button sets the `int` to its value when clicked.",
@@ -839,6 +916,19 @@ do:
   form 0:
     field "&Name:": edit(name, enabled = shotEnabled)
     field "&Password:": edit(secret, password = true, enabled = shotEnabled)
+
+
+example("autoexit", "edit with maxLen, autoExit",
+        "A box for a few characters (`maxLen`), and with `autoExit` the focus goes on to the next box by itself once it is full -- with what was typed past its end: the parts of a fixed code, a card's groups of four. Sparingly, as the guide says.",
+        320, 60, ["edit"], input4):
+  var part1 = "4111"
+  var part2 = "1111"
+  var part3 = ""
+do:
+  row:
+    edit(part1, w = dp(56), maxLen = 4, autoExit = true, enabled = shotEnabled)
+    edit(part2, w = dp(56), maxLen = 4, autoExit = true, enabled = shotEnabled)
+    edit(part3, w = dp(56), maxLen = 4, enabled = shotEnabled)
 
 example("editarea", "editArea",
         "Text of several lines, `lines` high (-1: down to the bottom), with its scroll bars.",
@@ -937,6 +1027,18 @@ do:
     field "&Copies:": spin(copies, 1, 99, enabled = shotEnabled)
     field "&Quantity:": intEdit(qty, enabled = shotEnabled)
     field "&Amount:": numberEdit(amount, enabled = shotEnabled)
+
+
+example("numberspin", "numberSpin, spin with wrap",
+        "`numberSpin` a number with decimals -- a type size in points, a length in millimeters -- with arrows, and with `sizes` a list of the usual ones beside it, as a font's size box has; it shows no more decimals than it needs. `wrap` (on `spin` too): stepping past an end goes round to the other, as a clock's minutes.",
+        340, 80, ["numberSpin", "spin"], input4):
+  var typeSize = 12.0
+  var minutes = 59
+do:
+  form 0:
+    field "&Size:": numberSpin(typeSize, 1, 999, step = 1, decimals = 1, w = dp(110),
+                               sizes = [8.0, 9, 10, 11, 12, 14, 18, 24, 36, 48, 72], enabled = shotEnabled)
+    field "&Minutes:": spin(minutes, 0, 59, wrap = true, enabled = shotEnabled)
 
 example("slider", "slider, progress",
         "A track bar for a value between two ends, and a 3.1 progress bar (0.0 to 1.0).",
@@ -1386,6 +1488,22 @@ do:
   target = rect(8, 2, 30, 14)
   aimed = true
 
+
+example("menuhints", "menuItem's hint and default, menuHint, the keys' sheet",
+        "A menu item's `hint` -- what it does, or, grayed, why it can't now -- shows across the `statusbar` while it is lit (`menuHint`). `isDefault` draws the item a double click does bolder. With the glass effect the usual commands (Cut, Copy, Paste, Undo...) show their icons by themselves. Hold Ctrl (Command on a Mac) alone for a moment: a sheet of every key shortcut of the menus comes up, menu by menu (`shortcutSheet`).",
+        380, 120, ["menuItem", "menuHint", "shortcutSheet", "shortcutSheetShown"], popup4):
+  menubar:
+    menu "&Edit":
+      if menuItem("&Copy", "Ctrl+C", hint = "Copies the selection to the Clipboard"): discard
+      if menuItem("&Paste", "Ctrl+V", enabled = false, hint = "Nothing to paste: copy something first"): discard
+      menuSeparator()
+      if menuItem("&Open", isDefault = true, hint = "Opens the file"): discard
+  label "A document"
+  statusbar("Ready")
+  target = rect(8, 2, 30, 14)
+  aimed = true
+  hoverAfter = rect(dp(12), dp(34), dp(40), dp(2))   # (the picture open: Copy lit, its hint below)
+
 example("contextmenu", "contextMenu",
         "A menu for the control drawn last, opened by a right click, a long press or the menu key. The pictures show it open.",
         320, 150, ["contextMenu"], std3):
@@ -1460,6 +1578,44 @@ do:
   discard msgBox(msgOpen, "Retro Files", "Delete \"Budget.csv\" for good?\nThis cannot be undone.",
                  ["&Delete", "Cancel"], miWarning)
 opts(reset = proc () = msgOpen = true)
+
+
+example("dontask", "msgBox with Don't show this again",
+        "A message box with a check box under its words bound to a `bool` the app keeps with its settings: while it is true the box isn't shown -- opened, it answers its first button at once. For a tip or a warning the user knows by heart; never for one about losing work.",
+        400, 170, ["msgBox"], std3):
+  var tipOpen = true
+  var tipNoMore = false
+do:
+  discard msgBox(tipOpen, "Retro Paint", "Hold Shift while you draw for straight lines.", ["OK"], miInfo, tipNoMore)
+opts(reset = proc () = tipOpen = true)
+
+example("savechanges", "saveChangesBox, closeGuard",
+        "The question before work is lost: Yes, No and Cancel in Classic; Save, Don't Save and Cancel with what is at stake under it in the newer looks. `closeGuard(dirty, name, save)` once a frame does it all: the window closed with changes asks first, Save calls `save` (closing when it saved), Don't Save closes, Cancel stays.",
+        420, 170, ["saveChangesBox", "SaveChoice", "closeGuard"], std3):
+  var saveAskOpen = true
+do:
+  discard saveChangesBox(saveAskOpen, "Report.txt")
+opts(reset = proc () = saveAskOpen = true)
+
+example("propertysheet", "propertySheet",
+        "The properties of something in pages of tabs, OK, Cancel and Apply under them, as the guide has it: title it \"Name Properties\"; draw the page of `page` with controls bound to copies of the values and set `changed` when one changes. `saOk` and `saApply`: put the copies in the real thing; `saCancel`: make them again from it. Apply is grayed until something changed; switching pages takes nothing; closed with changes not applied, it asks whether to apply them.",
+        420, 230, ["propertySheet", "beginPropertySheet", "endPropertySheet", "SheetAction"], std3):
+  var sheetOpen = true
+  var sheetPage = 0
+  var sheetChanged = false
+  var reportTitle = "Annual Report"
+  var reportReadOnly = false
+do:
+  discard propertySheet(sheetOpen, "Report Properties", sheetPage, ["General", "Summary"], 380, sheetChanged):
+    case sheetPage
+    of 0:
+      form 0:
+        field "&Title:":
+          if edit(reportTitle): sheetChanged = true
+        field "":
+          if checkbox("&Read-only", reportReadOnly): sheetChanged = true
+    else: label "Pages: 12"
+opts(reset = proc () = sheetOpen = true)
 
 example("inputbox", "inputBox",
         "A question with a text box: true once, when OK is clicked.",
@@ -1782,6 +1938,17 @@ do:
   discard fab(nfPlus, "New")
 opts(looks = phoneLooks, both = true)
 
+
+example("bottomnavbadges", "bottomNav with badges and a search place",
+        "`bottomNav(items, sel, badges, search)`: a number in a red capsule on the places that have news (numbers only), and the search place -- with the glass effect -- a round button of its own at the bar's end. `tabBarMinimizes`: the floating bar shrinks to the chosen place while the page scrolls down.",
+        380, 120, ["bottomNav", "tabBarMinimizes"], std3):
+  var navPlace = 0
+do:
+  bottomNav([(nfHome, "Home"), (nfEnvelope, "Mail"), (nfCog, "Settings"), (nfSearch, "Search")], navPlace,
+            ["", "3", "", ""], search = 3)
+  label "Inbox"
+opts(looks = phoneLooks)
+
 example("captionbar", "captionBar",
         "The window's 3.1 title bar where the app draws it: on phones and tablets, and on desktops with the 3.1 frame. `app` calls it every frame, so an app has nothing to do. See [The window's frame](#the-windows-frame).",
         360, 60, ["captionBar"], std3):
@@ -1982,6 +2149,60 @@ do:
   tableGroup "":
     discard tableButton("Reset Settings", destructive = true)
 opts(looks = phoneLooks)
+
+
+example("edittable", "editTableGroup, tableMoved",
+        "A list an Edit button puts in edit mode: a red minus before each row -- tapped, a Delete button at its end, tapped, the row's `deleted` --, and a grip at its end to drag it to another place (`tableMoved` says from where to where). The bar's Edit becomes Done.",
+        360, 230, ["editTableGroup", "tableMoved", "TableHit"], std3):
+  var groceries = @["Milk", "Bread", "Eggs"]
+  var editingList = true
+do:
+  if navBar("Groceries", action = if editingList: "Done" else: "Edit") == npAction:
+    editingList = not editingList
+  editTableGroup("Today", editingList):
+    var gone = -1
+    for i, it in groceries:
+      if tableRow(it, accessory = taChevron).deleted: gone = i
+    if gone >= 0: groceries.delete(gone)
+opts(looks = phoneLooks)
+
+example("scopebar", "scopeBar",
+        "Under a `searchBar`: where to search, two to four scopes in a segmented control the width of the row.",
+        360, 110, ["scopeBar"], std3):
+  var searchText = ""
+  var searchScope = 0
+do:
+  searchBar(searchText)
+  scopeBar(["All", "Mail", "Contacts"], searchScope)
+opts(looks = phoneLooks)
+
+example("modalsheet", "modalSheet",
+        "A sheet for a task of its own -- a new event, a message --, Cancel and Done on a bar at its top: the whole screen on a phone, sliding up; a sheet in the middle of a tablet's or a desktop's window. A tap beside it doesn't close it; Esc and Back are Cancel, Enter is Done. Returns `shDone` or `shCancel` once, as it closes. `beginModalSheet` names the buttons and grays Done until the form is filled.",
+        420, 300, ["modalSheet", "beginModalSheet", "endModalSheet", "SheetAnswer"], std3):
+  var eventOpen = true
+  var eventTitle = "Lunch with Sami"
+do:
+  label "Calendar"
+  discard modalSheet(eventOpen, "New Event"):
+    edit(eventTitle, hint = "Title")
+opts(reset = proc () = eventOpen = true, settle = 400, looks = phoneLooks, both = true)
+
+example("largetitle", "largeTitle, skeletonRows, skeletonBlock",
+        "A page's title in large letters at the top of its content: it scrolls with it, and once it has gone up under the bars the `navBar` of the same title shows its own (until then it leaves it out). Gray placeholders where content is still coming -- `skeletonRows` for a list, `skeletonBlock` for a picture --, a light sweeping over them: the page has its shape at once.",
+        360, 260, ["largeTitle", "largeTitleShown", "skeletonRows", "skeletonBlock"], std3):
+  discard navBar("Library")
+  largeTitle("Library", "12 albums")
+  skeletonRows(3)
+opts(looks = phoneLooks)
+
+example("liftmenu", "liftMenu, growing",
+        "A finger held on an item -- or a right click -- lifts it out of the page with its actions in a card under it, the rest dimmed and blurred (`liftMenu`: call it after the item). `growing(key, cardRect)` makes a page grow out of the card that opened it as it first shows.",
+        360, 120, ["liftMenu", "liftedItem", "growing", "beginGrow", "endGrow"], std3):
+  let song = place(0, dp(48), fill = true)
+  roundRect(song, float(dp(10)), ui.theme.field)
+  text(song.x + dp(14), song.y + (song.h - FontH) div 2, "Harbour Lights", ui.theme.text)
+  discard liftMenu(song, "song1", ["Play Next", "Add to Library", "Delete"], destructive = 2)
+opts(noPicture = "It shows when a finger is held on the item: try it in examples/androidapis.nim or examples/music.nim.")
 
 example("mobilestyle", "MobileStyle, withMobileStyle",
         "The phone controls in colors and sizes of the app's own, past the scheme and the look, as `withTheme` does for every control: the bars at the top and the status bar over them, the tab bar, the side menu, a group's face and corners, the lines between its rows, a row's words, its value and its height (`MobileStyle`; a color with alpha 0, a size 0: the look's own). `mobileStyle` for the whole app, `withMobileStyle` for a part of it. Without one, Gloss's bars, tab bar and side menu take the scheme's colors -- iOS 6's steel blue and black in Gloss's own schemes (`glossOwnScheme`) -- and the status bar the top bar's, darker (`statusBarColor`, `glossDarkFace`).",
@@ -2773,6 +2994,15 @@ of their own, and `uiSound` plays the system's sounds for a message or an
 error. They have no picture.
 """)
 
+
+example("codesread", "qrRead, barcodeRead, barcodeBitmap, scannerView",
+        "Codes read from a picture: `qrRead` the QR codes in it (turned, in perspective, a little damaged: mended by their error correction), `barcodeRead` barcodes -- EAN-13, UPC-A, EAN-8, Code 128, Code 39 -- across it, down it or upside down (`retroui/barcode`, which makes them too: `barcodeBitmap`). `scannerView` (`retroui/scanner`) is the camera with a guide, reading both a few times a second on a worker and handing back each code once.",
+        320, 130, ["qrRead", "qrDecodeModules", "barcodeRead", "barcodeBitmap", "barcodeModules", "scannerView"], std3):
+  let ean = barcodeBitmap(bcEan13, "4006381333931", module = 2, height = 60)
+do:
+  drawBitmap(canvas(ean.w, ean.h), ean)
+  label "Read: " & barcodeRead(ean)[0].text
+
 example("animation", "animation (animated GIFs)",
         "The frames of `loadGif` played round and round, each for its delay. The app wakes only when the next frame is due.",
         300, 70, ["animation", "loadGif", "playSound", "tone", "beep", "uiSound"], std3):
@@ -2859,6 +3089,24 @@ example("notify", "notify, share, haptic",
         putClipboardText("https://example.com/o/1042")
     if button("&Tap"): haptic(hSuccess)
     if button("&Attention"): requestAttention()
+
+
+example("device", "takeLink, askUnlock, motion, pictureInPicture, the store",
+        "The device past the window (`retroui/device`): `takeLink` the link that opened the app (`retroapk --links:myapp`, `retroios --links`), `singleInstance` one copy at a time on desktops (another hands it what it was opened with), `registerLinks` on Linux and Windows; `askUnlock` and `unlockAnswer` the system's fingerprint, face or PIN sheet; `motion`, `shaken` and `glassTilt` the motion sensors; `pictureInPicture` (`retroapk --pip`); `dragToApps` and `droppedFromApps` drag and drop with the app beside it; `storeStart`, `storeProducts`, `storeBuy`, `storeEvent`, `storeFinish`, `storeOwned` purchases (Google Play's billing library the app brings, StoreKit). examples/androidapis.nim tries each.",
+        380, 90, ["takeLink", "singleInstance", "registerLinks", "askUnlock", "unlockAnswer", "canUnlock",
+                  "startMotion", "motion", "shaken", "glassTilt", "pictureInPicture", "inPictureInPicture",
+                  "dragToApps", "droppedFromApps", "storeStart", "storeProducts", "storeBuy", "storeEvent",
+                  "storeFinish", "storeOwned"], std3):
+  if button("Show the &Secret"): discard askUnlock("To show the secret")
+  if unlockAnswer() == laOk: label "The secret: 42"
+opts(noPicture = "The sheets are the system's own: a fingerprint, a face, the PIN; the rest has no picture.")
+
+example("appstate", "keepState, restoreState, NIF, persistent collections",
+        "An app's state kept across its ends (`retroui/appstate`): `restoreState(name, default)` at the start, `keepState(name, v)` in the frame -- written as NIF when the app goes to the background or ends, so a phone that ended it meanwhile brings the user back where they were. `toNif`, `fromNif`, `saveNif`, `loadNif` (`retroui/nif`) write and read any value as NIF, Nim's own format. `PVec`, `PMap`, `PSet`, `Rope`, `Box` (`import retroui/persist`: not brought by `import retroui`): collections whose versions share what they didn't change -- undo steps, last frame's list -- and `diff` finds what changed in a few steps.",
+        380, 90, ["keepState", "restoreState", "writeStates", "forgetState", "toNif", "fromNif", "saveNif",
+                  "loadNif", "parseNif", "PVec", "PMap", "PSet", "Rope", "Box", "diff", "vecBuilder", "mapBuilder"], std3):
+  label "(nothing to see: the state is kept as NIF)"
+opts(noPicture = "Saving and reading back have no picture.")
 
 example("location", "location, speak",
         "Where the device is (`location`: `psWaiting` until the first fix, the user asked the first time; `stopLocation` when done) and words said aloud with the system's voice (`speak`, `stopSpeaking`, `speaking`).",
@@ -3355,7 +3603,8 @@ const apiModules = ["widgets", "extras", "business", "morecontrols", "records", 
   "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning", "mapview",
   "view3d", "htmlview", "markdown", "richedit", "media", "qrcode", "pdfview", "core", "gfx",
   "platform", "files", "textfile", "mediagif", "imaging", "templates", "native", "canvas2d",
-  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage", "modelstore", "devicemodel", "llm", "meaning", "terminal", "mobile", "textengine"]
+  "report", "tilemap", "gltf", "capture", "mediasession", "motion", "forcegraph", "forcelayout", "assistant", "aichat", "aiimage", "modelstore", "devicemodel", "llm", "meaning", "terminal", "mobile", "textengine", "modern", "barcode", "scanner",
+  "device", "persist", "nif", "appstate", "commandhud", "system"]
   ## Where the API is read from; a name in several is shown from the first
   ## (or as "module.name").
 
@@ -3542,6 +3791,7 @@ proc shoot(s: Shot; st: ShotState; outDir: string; lk: Look = Look()): string =
     discard interact(Id(0x5ec0ffee'u32), rect(-40, -40, 1, 1))
     if closeRequested(): cancelClose()       # (Esc and Back close the app otherwise)
     aimed = false
+    hoverAfter = Rect()
     s.draw()
     if not aimed: target = ui.lastRect
   run(4)
@@ -3600,6 +3850,10 @@ proc shoot(s: Shot; st: ShotState; outDir: string; lk: Look = Look()): string =
   of ssOpen:
     press(cx, cy)
     release(cx, cy)
+    if hoverAfter.w > 0:
+      run(2)
+      queue.add Event(kind: MouseMoveEvent, x: hoverAfter.x + hoverAfter.w div 2, y: hoverAfter.y + hoverAfter.h div 2)
+      run(3)
   else: discard
   let file = s.fileOf(if lk.label.len > 0: lk.label else: $st)
   capture(outDir / file)
@@ -3638,6 +3892,7 @@ proc probeStart(s: Shot; touch: bool) =
     discard interact(Id(0x5ec0ffee'u32), rect(-40, -40, 1, 1))
     if closeRequested(): cancelClose()
     aimed = false
+    hoverAfter = Rect()
     s.draw()
     if not aimed: target = ui.lastRect
   run(4)

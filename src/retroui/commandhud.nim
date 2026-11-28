@@ -16,6 +16,10 @@ import std/[strutils, algorithm]
 import uirelays/input
 import core, widgets, desktop
 
+template th: untyped = ui.theme
+const black = color(0, 0, 0)
+const white = color(255, 255, 255)
+
 var
   commandHudKeys* = "Ctrl+Shift+P"
     ## The keys that open the command search ("" none: an app with a search of its own, or
@@ -79,7 +83,7 @@ proc findCommands() =
   var scored: seq[(int, int)]
   var seen: seq[string]
   for i, c in menuWalked:
-    if c.path.len == 0: continue
+    if c.path.len == 0 or c.path[^1] in ["\x01", "-"]: continue   # (the system menu's marks)
     let s = hudScore(c, q)
     if s <= 0: continue
     let key = c.path.pathText
@@ -139,19 +143,104 @@ proc drawHud() =
         hudOpen = false
         ui.redraw = true
 
+var
+  shortcutSheet* = true
+    ## Hold Ctrl (Command on a Mac) alone for a moment and a sheet of every key shortcut of the
+    ## menu bar's menus comes up over the app, menu by menu; let go of it and it goes -- the
+    ## keys found without opening a menu. Not on touch screens. False: never.
+  ctrlHeld: tuple[since: int; on: bool]   # (Ctrl down alone since then; the sheet up)
+
+proc shortcutSheetShown*(): bool = ctrlHeld.on
+  ## The sheet of key shortcuts is up now (Ctrl held).
+
+proc watchCtrl() =
+  ## (Ctrl held alone, nothing else pressed, the mouse still: after 0.9 s the sheet)
+  let alone = CtrlPressed in ui.mods and ui.mods - {CtrlPressed} == {} and not ui.mouseDown and
+              ui.wheel == 0 and not ui.touch and shortcutSheet and ui.popup == 0 and ui.dialogTop == 0
+  if not alone or ui.key != KeyNone:
+    ctrlHeld = (0, false)
+    return
+  if ctrlHeld.since == 0: ctrlHeld.since = ui.now
+  if not ctrlHeld.on:
+    if ui.now - ctrlHeld.since >= 900: ctrlHeld.on = true
+    else: wakeIn(900 - (ui.now - ctrlHeld.since))
+
+proc drawShortcutSheet() =
+  ## (every shortcut of the menus, in columns by menu, on a sheet over the app)
+  var groups: seq[tuple[menu: string; rows: seq[(string, string)]]]
+  for c in menuWalked:
+    if c.keys.len == 0 or c.path.len == 0 or c.path[^1] in ["\x01", "-"]: continue
+    let m = c.path[0]
+    if groups.len == 0 or groups[^1].menu != m: groups.add (m, @[])
+    groups[^1].rows.add (c.path[1 .. ^1].join(" > "), shortcutText(c.keys))
+  pushLayer(LayerPopup)
+  defer: popLayer()
+  let pad = dp(16)
+  let colW = dp(230)
+  let rowH = FontH + dp(5)
+  let cols = max(1, min(groups.len, (ui.w - 2 * pad - dp(40)) div colW))
+  var heights = newSeq[int](cols)
+  var place: seq[tuple[col, y: int]]
+  for g in groups:
+    var c = 0
+    for k in 1 ..< cols:
+      if heights[k] < heights[c]: c = k
+    place.add (c, heights[c])
+    heights[c] += (g.rows.len + 1) * rowH + dp(10)
+  var h = 0
+  for x in heights: h = max(h, x)
+  if groups.len == 0: h = rowH
+  let w = cols * colW + 2 * pad
+  let r = rect(ui.winX + (ui.w - w) div 2, ui.winY + max(dp(20), (ui.h - h - 2 * pad - rowH) div 3), w,
+               h + 2 * pad + rowH)
+  if not frostedFace(r, th.window, float(dp(14))):
+    fill(rect(r.x + 3, r.y + 3, r.w, r.h), withAlpha(black, 70))
+    fill(r, th.window)
+    box(r, th.frame)
+  let tst = style(bold = true, size = 1.15)
+  text(r.x + pad, r.y + pad - dp(4), tr("Keys"), th.text, tst)
+  if groups.len == 0:
+    text(r.x + pad, r.y + pad + rowH, tr("This window's menus have no key shortcuts"), th.gray)
+  for gi, g in groups:
+    let x = r.x + pad + place[gi].col * colW
+    var y = r.y + pad + rowH + place[gi].y
+    text(x, y, splitMnemonic(g.menu).text, th.text, true)
+    y += rowH
+    for (label, keys) in g.rows:
+      let kw = textWidth(keys)
+      text(x, y, ellipsize(splitMnemonic(label).text, colW - kw - dp(24)), th.text)
+      text(x + colW - dp(12) - kw, y, keys, th.gray)
+      y += rowH
+  if accessOn: accessNode(arDialog, tr("Keys"), r = r)
+
 proc hudBefore() =
   if not hudOpen and commandHudKeys.len > 0 and hotkeyPressed(commandHudKeys): openCommandHud()
-  # (walked this frame: to list them, or to choose the one picked)
-  menuWalk = hudOpen or hudPending.len > 0
+  watchCtrl()
+  # (walked this frame: to list them, or to choose the one picked, or for the keys' sheet, or
+  # for the system's menu bar)
+  let mirrored = menuBarElsewhere != nil and menuBarElsewhere()
+  menuWalk = hudOpen or hudPending.len > 0 or ctrlHeld.on or mirrored
   if menuWalk:
     menuWalked.setLen(0)
     if hudPending.len > 0:
       menuWalkRun = hudPending
       hudPending.setLen(0)
 
+var menuMirror*: proc () {.nimcall.}
+  ## (called after the menus were walked for the system's menu bar: retroui/macmenu builds it
+  ## from `menuWalked`)
+
+proc pickMenuCommand*(path: seq[string]) =
+  ## Chooses the menu item at `path` (its menus and label, as `menuWalked` has it) when the menus
+  ## are walked next -- as a click on it would (the system's menu bar's items do it).
+  hudPending = path
+  ui.redraw = true
+
 proc hudAfter() =
+  if menuMirror != nil and menuBarElsewhere != nil and menuBarElsewhere(): menuMirror()
   menuWalk = false
   menuWalkRun.setLen(0)          # (not found: its menu changed meanwhile)
   if hudOpen: drawHud()
+  elif ctrlHeld.on: drawShortcutSheet()
 
 menubarHooks = (hudBefore, hudAfter)

@@ -1,5 +1,86 @@
 # Changes
 
+## 0.84.0
+
+- **The Retro UI Interface Guidelines** ([docs/hig.md](docs/hig.md)): how an app made with the
+  kit looks and behaves on the desktop (Classic, with what Windows 95 added) and on the phone
+  (Gloss), and the glass of both -- the window, the mouse and the keys, selection, menus, which
+  control for what, dialogs, message boxes, property sheets, help, drag and drop, words and
+  layout; the phone's app, touch, bars, lists, modal views, saving by itself, the device --,
+  each rule with what the kit does by itself and the call the app makes, checklists for a
+  desktop app and a phone app, and two apps that do all of it: Retro Report
+  (`examples/higdesk.nim`) and Retro Groceries (`examples/higphone.nim`). The Gallery's
+  Guidelines page has the new parts side by side.
+- **The desktop's missing pieces**:
+  - check boxes that say "some are" (`checkbox(label, var CheckState)`: on, off, mixed;
+    `mixedOf`), for things chosen together that differ;
+  - property sheets (`propertySheet`): tabs, OK, Cancel and Apply -- grayed until something
+    changed --, asking whether to apply what wasn't when closed;
+  - "Save changes?" (`saveChangesBox`: Yes, No, Cancel; Save, Don't Save, Cancel in the newer
+    looks) and `closeGuard`, which asks it by itself when the window closes with work not saved;
+  - "Don't show this again" on a message box (`msgBox(..., dontAsk)`);
+  - What's This? (Shift+F1, `startHelpMode`) and F1 on a control: its `helpText` in a pop-up;
+  - a menu item's `hint` in the status bar while it is lit (`menuHint`), the default item in
+    bold (`isDefault`), and the usual commands' icons in the glass effect's menus;
+  - the sheet of every key shortcut, held Ctrl (`shortcutSheet`);
+  - the Options >> button (`unfoldButton`); spin boxes that wrap round (`spin(wrap = true)`);
+    boxes of a fixed length that go on to the next when full (`edit(maxLen, autoExit)`);
+    paths cut in the middle (`ellipsizePath`, `ellipsizeMiddle`);
+  - a scroll bar's thumb dragged far off its bar goes back; a drag cancelled by Esc; a list
+    under a drag scrolls by itself near its edge;
+  - on a Mac the menus in the system's menu bar at the top of the screen (`macMenuBar`, on by
+    default), Ctrl's shortcuts as Command's;
+  - one copy running (`singleInstance`): started again, what it was opened with goes to the
+    first, which comes forward (`bringForward`: Windows, macOS, X11).
+- **The phone's missing pieces**: edit mode -- a red minus and its Delete, grips to move rows --
+  (`editTableGroup`, `TableHit.deleted`, `tableMoved`; a `checkRow` too); a scope bar under the
+  search bar (`scopeBar`); modal sheets with Cancel and Done for a task of their own
+  (`modalSheet`: the whole screen on a phone, a sheet in the middle of a tablet); a number on a
+  tab bar's place and the search place apart (`bottomNav(items, sel, badges, search)`); an
+  action sheet out of the button that opened it (`actionSheet(anchor)`: a popover without
+  Cancel on a tablet and with the glass effect); a tap on the status bar or the bar's title
+  scrolls the page to its top; a large title at the top of a page (`largeTitle`), placeholders
+  while content comes (`skeletonRows`, `skeletonBlock`), an item lifted with its menu by a
+  finger held on it (`liftMenu`), a page that grows out of what was tapped (`growing`) --
+  `retroui/modern`.
+- **Liquid glass**: the glass effect now bends what is under it at its edges as through the rim
+  of a lens, a glint of light along it following the pointer -- and the phone's tilt with
+  `glassTilt` --, from clear to tinted (`glassTint`; "Glass: clear to tinted" in Appearance),
+  solid when the system asks for less transparency (`glassSolid`; "Reduce transparency"). Tool
+  bars group their buttons in capsules of glass (`toolSeparator` between groups); menus grow out
+  of where they hang from; content fades as it goes under the bars (`scrollEdge`); a slider's
+  or a switch's knob swells into clear glass while dragged (`glassKnob`); the tab bar may shrink
+  as the page scrolls down (`tabBarMinimizes`); bottom sheets float in from the screen's edges;
+  rows are taller and rounder, inner shapes rounded round the same center (`concentric`).
+  For an app's own: `glassButton` (regular, `prominent`, `clear`), `glassSurface`,
+  `glassParams`; `backdropBlur` and `patchBlur` take `lens`, the same on the CPU and the GPU.
+- **The device** (`retroui/device`): links that open the app (`takeLink`; `retroapk --links`,
+  `retroios --links`, `RETRO_LINKS` for a Mac's app, `registerLinks` on Linux and Windows), the
+  screen lock asked before something private (`askUnlock`, `unlockAnswer`: fingerprint, face or
+  PIN), how the device is held and a shake (`motion`, `shaken`), picture in picture
+  (`pictureInPicture`, `retroapk --pip`), drag and drop with the app beside it on Android
+  (`dragToApps`, `droppedFromApps`), and purchases in the app (`storeStart`, `storeProducts`,
+  `storeBuy`, `storeFinish`: Google Play's billing and Apple's StoreKit). `examples/androidapis.nim`
+  has a page for each of the phone's features.
+- **Codes read**: QR codes (`qrRead`: found in a photo, straightened, mended by their error
+  correction) and bar codes -- EAN-13, UPC-A, EAN-8, Code 128, Code 39 -- (`barcodeRead`,
+  `retroui/barcode`), and a camera view that reads them as they come in front of it
+  (`scannerView`, `retroui/scanner`).
+- **Values that are never changed in place** (`retroui/persist`): a vector, a map, a set and a
+  rope (`PVec`, `PMap`, `PSet`, `Rope`) whose versions share all they didn't change -- a
+  thousand undo steps of a big document for next to nothing, and what changed between two
+  versions found at once (`diff`); builders for making a large one. `retroui/nif` writes any
+  value as NIF text and reads it back (`toNif`, `fromNif`, `saveNif`, `loadNif`), and
+  `retroui/appstate` keeps the app's state as it goes to the background or ends and brings it
+  back as it starts (`keepState`, `restoreState`), as Android and iOS end apps whenever they
+  need their memory. Their numbers, beside copying and beside thetos, are in
+  [docs/benchmarks.md](docs/benchmarks.md).
+- **Retro Atelier**: type sizes are boxes with arrows -- a point a step, half a millimeter --
+  and the usual sizes in a list beside them, as the photo program has them (`numberSpin`).
+- A full-screen form sheet is solid (content, not glass); the glass bars and the sheets start
+  under the kit's own title bar when it draws one (they covered it).
+- Retro Music 2.1.5, Retro Mail 1.5.5, Retro DNS 1.9.5, Retro Tasks 1.0.4, the Gallery 0.84.0.
+
 ## 0.83.1
 
 - **A small window's frame works on Android**: its title bar's buttons and a drag on it -- to

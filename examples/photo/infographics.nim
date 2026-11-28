@@ -187,11 +187,11 @@ proc chartFields() =
     sized.h = igDlg.box.h
     let (ts0, fs0) = sized.chartTextSizes
     let d = cur()
-    let (tsSet, ts) = d.typeField(float32(ts0), dp(56), "igtitle", 1, 2000)
+    let (tsSet, ts) = d.typeField(float32(ts0), dp(56), "igtitle", 1, 2000, size = true)
     if tsSet: c.titleSize = max(1.0, ts.float)
     label typeShort()
     label "Text:"
-    let (fsSet, fs) = d.typeField(float32(fs0), dp(56), "igtext", 1, 1000)
+    let (fsSet, fs) = d.typeField(float32(fs0), dp(56), "igtext", 1, 1000, size = true)
     if fsSet: c.textSize = max(1.0, fs.float)
     label typeShort()
   row:

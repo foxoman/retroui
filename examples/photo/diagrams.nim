@@ -167,7 +167,7 @@ proc diagramFields() =
     if fontCombo(fl, w = dp(190)): s.theme.latinFont = fl
   row:
     label "Text size:"
-    let (sized, sz) = cur().typeField(float32(s.size), dp(60), "dgsize", 0, 2000)
+    let (sized, sz) = cur().typeField(float32(s.size), dp(60), "dgsize", 0, 2000, size = true)
     if sized: s.size = sz.float
     label(if s.size > 0: typeShort() else: "(0: by its width)", color = ui.theme.gray)
   row:

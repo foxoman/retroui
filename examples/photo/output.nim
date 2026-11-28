@@ -513,7 +513,7 @@ proc equationDialog() =
     edit(eqDlg.src)
     row([110, 80, -1]):
       label "Size:"
-      let (eqSet, es) = d.typeField(float32(eqDlg.size), dp(64), "eqsize", 1, 2000)
+      let (eqSet, es) = d.typeField(float32(eqDlg.size), dp(64), "eqsize", 1, 2000, size = true)
       if eqSet: eqDlg.size = max(6, int(round(es)))
       label typeShort()
     let key = eqDlg.src & "|" & $eqDlg.size

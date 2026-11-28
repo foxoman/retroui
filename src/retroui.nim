@@ -100,10 +100,18 @@ export core, widgets, business, extras, markdown, icons, nerdicons, pixelicons,
        memwatch, thumbcache, systemfiles
 import retroui/[records, desktop, planning, view3d, mapview, htmlview, native, media,
                 report, pdf, templates, canvas2d, morecontrols, dock, toolcustom, inspect,
-                drive, undo, pages, typeforms, codeedit, uistrings, commandhud, lorem, mobile]
+                drive, undo, pages, typeforms, codeedit, uistrings, commandhud, lorem, mobile,
+                modern, nif, appstate]
 export records, desktop, planning, view3d, mapview, htmlview, native, media,
        report, pdf, templates, canvas2d, morecontrols, dock, toolcustom, inspect, drive,
-       undo, pages, typeforms, codeedit, uistrings, commandhud, lorem, mobile
+       undo, pages, typeforms, codeedit, uistrings, commandhud, lorem, mobile, modern, nif,
+       appstate
+# (retroui/persist -- Box, Rope, diff... -- is imported by the apps that use it: its names are
+# ones an app often has of its own)
+
+when defined(macosx) and not defined(ios):
+  import retroui/macmenu       # (the menus in the system's menu bar)
+  export macmenu
 
 import std/[macros, os]
 
@@ -166,6 +174,7 @@ proc openApp*(title: string; w, h: int; theme = ui.theme; frame = wfAsBuilt;
   # what the user chose in the app's own look, below, comes over them)
   let sp = systemPrefs()
   if sp.reduceMotion: setSmoothScrolling(false)
+  if sp.reduceTransparency: glassSolid = true
   if sp.textScale > 1.05: setTextScale(int(sp.textScale * 100 + 0.5))
   appLook = look
   if look.len > 0:

@@ -102,16 +102,27 @@ proc typeShort(): string =
   ## (type's unit's short name: "pt", "px", "mm")
   typeUnitAbbrev(viewPrefs.typeUnit)
 
+const typeSizes: array[TypeUnit, seq[float]] = [
+  @[6.0, 7, 8, 9, 10, 11, 12, 14, 18, 21, 24, 30, 36, 48, 60, 72],     # points
+  @[8.0, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72, 96, 128], # pixels
+  @[2.0, 2.5, 3, 3.5, 4, 5, 6, 8, 10, 12, 15, 20, 25]]                 # millimeters
+  ## (the sizes a size box lists, in type's unit: the photo program's in points)
+
 proc typeField(d: Doc; px: float32; w: int; id: string; lo = 0.0; hi = 99999.0;
-               enabled = true): tuple[changed: bool; px: float32] =
+               enabled = true; size = false): tuple[changed: bool; px: float32] =
   ## (a length of type -- a size, a leading, a shift, an indent -- kept in the document's pixels,
-  ## shown and typed in type's unit, as the photo program shows it: "12 pt", "10.5 pt"; `lo` and
-  ## `hi` in that unit; `id` its own, each field another)
+  ## shown and typed in type's unit, points by default, as the photo program shows it: "12",
+  ## "10.5"; a box with arrows that step it a point -- half a millimeter --, and for a size the
+  ## usual sizes in a list beside it (`size`); `lo` and `hi` in that unit; `id` its own, each
+  ## field another)
   let per = d.typePixels
   var v = float(px) / per
-  let dec = if abs(v - round(v)) > 0.04: 1 else: 0
+  let mm = viewPrefs.typeUnit == tuMillimeters
   pushId(id)
-  let ch = numberEdit(v, decimals = dec, w = w, lo = lo, hi = hi, thousands = false, enabled = enabled)
+  let room = (if fingers(): dp(26) else: dp(16)) + (if size: SbW else: 0)
+  let ch = numberSpin(v, lo, hi, step = (if mm: 0.5 else: 1.0), decimals = (if mm: 2 else: 1),
+                      w = w + room, sizes = (if size: typeSizes[viewPrefs.typeUnit] else: @[]),
+                      enabled = enabled)
   popId()
   if ch: result = (true, float32(v * per))
   else: result = (false, px)

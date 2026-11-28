@@ -19,6 +19,9 @@ them where they differ from this file:
 1. https://github.com/foxoman/retroui/blob/main/README.md -- what is in the kit, how it works
 2. https://github.com/foxoman/retroui/blob/main/docs/controls.md -- every control: signature, example, pictures
    (and docs/customizing.md beside it: making a control look different, making your own)
+   and https://github.com/foxoman/retroui/blob/main/docs/hig.md -- the interface guidelines: how a
+   desktop app and a phone app should behave, each rule with the call it takes; follow them
+   (examples/higdesk.nim and examples/higphone.nim do all of it)
 3. https://github.com/foxoman/retroui/blob/main/CHANGELOG.md -- what changed (the top section is the newest)
 4. https://github.com/foxoman/retroui/blob/main/BUILDING.md -- desktop (Windows, macOS, Linux), Android and iOS builds, signing
 5. https://github.com/foxoman/retroui/blob/main/AGENTS.md -- rules for working on the kit itself
@@ -248,13 +251,13 @@ or put several in a `row:` inside the `field`. `field("")` lines a control
 up under the others. When the row is narrower than the captions plus about
 200 pixels (a phone), each caption goes above its control.
 
-## 6. Controls (docs/controls.md has all 421, with pictures)
+## 6. Controls (docs/controls.md has all 528, with pictures)
 
 Text: `label`, `paragraph`, `heading`, `styledText`, `link`, `badge`, `icon`, `iconLabel`, `image`, `tooltip`.
 Buttons: `button`, `segmented`, `menuButton`, `splitButton`, `buttonRow`.
-Choices: `checkbox`, `radio`, `toggle`, `chips`, `tagInput`, `rating`.
-Text input: `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit`, code (`codeEdit(s, lang = clNim)`: colored, line numbers, indent, Ctrl+/, find), rich text (`richEdit`, `richToolbar`).
-Numbers, dates, colors: `spin`, `intEdit`, `numberEdit`, `slider`, `progress`, `datePicker`, `calendar`, `timePicker`, `colorPicker`, `colorWell` (`alpha = true` for a color that may be see-through: Opacity, Transparent).
+Choices: `checkbox` (on, off or mixed: `checkbox(label, var CheckState)`, `mixedOf(bools)` -- for things chosen together that differ), `radio`, `toggle`, `chips`, `tagInput`, `rating`, `unfoldButton("&Options", open)` (Options >>).
+Text input: `edit` (`maxLen`; `autoExit`: full, the next box takes the keys -- a code in parts), `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit`, code (`codeEdit(s, lang = clNim)`: colored, line numbers, indent, Ctrl+/, find), rich text (`richEdit`, `richToolbar`).
+Numbers, dates, colors: `spin` (`wrap = true` for minutes, degrees), `numberSpin(v, lo, hi, step, decimals, sizes = [8.0, 9, 10, 12])` (a type size with the usual ones in a list), `intEdit`, `numberEdit`, `slider`, `progress`, `datePicker`, `calendar`, `timePicker`, `colorPicker`, `colorWell` (`alpha = true` for a color that may be see-through: Opacity, Transparent).
 Lists and data: `listbox`, `combo`, `grid` (the data grid with editing, sorting, totals), `gridOf(rows, sel)` (a grid of a seq of your object: a column a field, sorted for you), `tree`.
 Files: `fileDialog`, `fileList`, `folderTree`, `filePicker` (`pickerFolder`: the folder it shows), `filePreview`, `placesView`. On a phone, `systemFiles(true)` at the start makes `fileDialog` and `filePicker` the system's own picker (Android, iOS; what the app saves goes back into the document by itself); without it, `filePicker` on Android starts in the user's Pictures (it asks for Android's access to the user's files when it has none). A color from anywhere in the window (an eyedropper): `readScreenPixel(x, y)`, then `screenPixelRead()` once the next frame is drawn.
 Charts and more: `chart` (21 kinds, from your numbers or a CSV table), `barChart`, `lineChart`, `pieChart`, `liveGraph` (a task manager's graph that moves: a frame costs a copy), the world map (`retroui/mapview`), street maps (`tileMap`, `retroui/tilemap`; places and routes `retroui/geo`), 3D (`retroui/view3d`; Blender's models `retroui/gltf`),
@@ -457,6 +460,42 @@ app "Staff", 520, 420:
   `retroui/apkinfo`'s `readApk` reads one. The camera: `cameraCaps`,
   `cameraZoom`, `cameraFlash`, `cameraFocus`, `cameraExposure`; on
   Android `cameraPhoto` is full size and the view zooms with two fingers.
+
+**What the interface guidelines ask, and the calls** (docs/hig.md):
+on the desktop, `menuItem(..., hint = "What it does")` with `statusbar(menuHint())`,
+`isDefault` for the item a double click does; `helpText "..."` after a control
+whose use isn't plain (Shift+F1, `startHelpMode()`, F1); properties in
+`let a = propertySheet(open, "Name Properties", page, ["General", "Summary"], 420, changed): ...`
+bound to copies, `saOk`/`saApply` put them back; `closeGuard(dirty, name, save)` once a frame
+after the content ("Save changes?" when the window closes; `saveChangesBox` for another
+document replacing it); `msgBox(open, title, msg, ["OK"], miInfo, dontAsk)` for a tip;
+`singleInstance("id")` first thing (false: quit). On a phone, `navBar(title, action = if
+editing: "Done" else: "Edit", done = editing)` and `editTableGroup(header, editing): rows`
+(`.deleted`, `tableMoved()`); `if beginModalSheet(open, "New Item", done = "Add",
+doneEnabled = ok): ...; if endModalSheet(open) == shDone: add()` (call `endModalSheet` only
+when `beginModalSheet` was true); `actionSheet(open, "", actions, anchor = ui.lastRect)`;
+`bottomNav(items, sel, badges, search = i)`; `largeTitle(title, subtitle)` first in the page's
+panel; `skeletonRows(n)` while loading; `liftMenu(ui.lastRect, key, actions)` after a row;
+work saved by itself: `var items = restoreState("items", defaults)` and `keepState("items",
+items)` in the frame -- no Save on a phone. `retroui/modern` has `largeTitle`, `skeletonRows`,
+`liftMenu`, `growing`.
+
+**The glass effect** (the Glass look): the kit's bars, menus, sheets and alerts are glass by
+themselves; an app's own important control: `glassButton(label, prominent = true)`,
+`glassSurface(r, radius, tint, clear = true)`; tool bar groups between `toolSeparator()`s;
+`glassTint` (0 clear .. 1 tinted), `glassSolid` (reduced transparency, the system's followed),
+`scrollEdge(r, top)` beside an app's own bar over scrolling content. Never glass on content.
+
+**The device** (`import retroui/device`): `takeLink()` each frame (`retroapk
+--links:myapp`, `retroios --links:myapp`, `registerLinks(["myapp"])` on Linux and Windows),
+`askUnlock(reason)` then `unlockAnswer() == laOk`, `motion()`/`shaken()`, `pictureInPicture()`
+(`retroapk --pip`), `dragToApps(paths)`/`droppedFromApps()` (Android), purchases
+`storeStart()` until `ssReady`, `storeProducts(ids)`, `storeBuy(id)`, `storeEvent()` each frame,
+`storeFinish(purchase, consumable)` (Android: the app brings Play Billing with `--java`). Codes:
+`qrRead(bitmap)`, `barcodeRead(bitmap)` (`retroui/barcode`), `scannerView()` (`retroui/scanner`).
+Values with every version kept cheaply (undo of a big document, last frame's state):
+`retroui/persist` (`PVec`, `PMap`, `PSet`, `Rope`, `diff`); any value as text: `retroui/nif`
+(`saveNif(path, v)`, `loadNif(path, T, default)`).
 
 **The system's features** (`import retroui/system`; docs/system.md has
 every system's answer and what the app declares): `notify`, `setBadge`,

@@ -39,10 +39,14 @@ hello, notepad, ledger, charts, invoice, then the apps.
 | [tasks](#retro-tasks) | Retro Tasks, a whole phone app: tasks and notes ([lesson 17](../tutorials/17-whole-app/) builds it) |
 | [grow](#grow) | Grow, a savings goal planner for phones, its years as 3D bars |
 | [bmi](#bmi-studio) | BMI Studio, a window with a look of its own: the example of changing controls and making new ones |
+| [higdesk](#retro-report-and-retro-groceries) | Retro Report: the desktop app of the [interface guidelines](../docs/hig.md) |
+| [higphone](#retro-report-and-retro-groceries) | Retro Groceries: the phone app of the interface guidelines |
+| [androidapis](#android-apis) | a page for each of the phone's features an app reaches: links, the screen lock, motion, purchases... |
 
 The pictures of hello, the gallery (and its Forms & Code page), charts,
 native, HR Book, the magazine, 7GUIs, Retro Navigator, Retro DNS, Retro
-Podcast, Grow and BMI Studio are made by `sh tools/exampleshots.sh`;
+Podcast, Grow, BMI Studio and the guidelines' two apps are made by
+`sh tools/exampleshots.sh`;
 the others are the main README's.
 
 ## Hello
@@ -93,7 +97,13 @@ wheels for a size, a day and a time, rows of mail with Archive and Delete behind
 number with - and +, page dots, an action sheet, a bottom sheet of filters and a popover,
 round buttons, message bubbles, clocks by day and by night, app icons with a badge and the
 textures drawn in code. The Jobs page shows one slow load shared by
-two views (`retroui/queries`).
+two views (`retroui/queries`). The Guidelines page has the parts the
+[interface guidelines](../docs/hig.md) ask for side by side: a check box
+that says "some are", a spin box that wraps, a type size with its list,
+boxes that go on to the next when full, Options >>, a property sheet,
+"Don't show this again", "Save changes?" and What's This? for the
+desktop; edit mode, a scope bar, a modal sheet and glass buttons for the
+phone.
 
 ```sh
 nimble gallery              # or: nim c -r examples/gallery.nim
@@ -1230,3 +1240,63 @@ RETRO_APP=bmi nimble appapk                 # build/BMIStudio.apk
 ```
 
 `tests/test_bmi.nim` checks its numbers and runs its window without one.
+
+## Retro Report and Retro Groceries
+
+![Retro Report in Classic and in Glass](../docs/examples/higdesk.png)
+
+![Retro Groceries in Gloss and in Glass](../docs/examples/higphone.png)
+
+The two apps of [the Retro UI Interface Guidelines](../docs/hig.md): each
+does what the guidelines ask of an app, each rule with the call it takes,
+to read beside them.
+
+`higdesk.nim`, Retro Report, is a small report editor for the desktop:
+one copy running (`singleInstance`: started again, the first comes
+forward), a menu bar of every command with what each does in the status
+bar (`hint`), a tool bar of the frequent ones in groups, Undo and Redo of
+every change named by what they undo (`UndoStack`), What's This? and F1
+(`helpText`), the report's properties in a property sheet with OK, Cancel
+and Apply and a check box that says "some are" (`propertySheet`,
+`CheckState`), a tip with "Don't show this again" and "Save changes?"
+before work is lost (`closeGuard`). The report is saved as NIF
+(`saveNif`).
+
+`higphone.nim`, Retro Groceries, is a shopping list for a phone or a
+tablet: a large title over the list (`largeTitle`), a tab bar with a
+number on the list and search apart (`bottomNav`), Edit's minus and grips
+(`editTableGroup`), a row lifted with its menu by a finger held on it
+(`liftMenu`), a new item in a modal sheet (`modalSheet`), Clear from an
+action sheet that comes out of its button, search with a scope bar,
+placeholders as the list loads (`skeletonRows`), and the list kept by
+itself as the app goes to the background (`keepState`, `restoreState`):
+no Save. On a tablet its rows keep a reading width and the sheet sits in
+the middle.
+
+```sh
+nim c -r examples/higdesk.nim
+nim c -r examples/higphone.nim
+retroapk examples/higphone.nim --name:"Retro Groceries" --id:org.retro.groceries   # an APK
+```
+
+`tests/test_higdesk.nim` and `tests/test_higphone.nim` check the
+behaviours they show.
+
+## Android APIs
+
+`androidapis.nim` has a page for each of the phone's features an app
+reaches from Nim: notifications (with buttons, and from the background),
+vibration and taps felt, sharing in and out, files, the camera and its
+code scanner (`scannerView`), the place, the battery, the network and dark
+mode, the clipboard, speech, a home screen widget, keeping the screen on,
+Android's own Java by reflection, the motion sensors and a shake, links
+that open the app (`takeLink`), the screen lock (`askUnlock`), picture in
+picture, drag and drop with the app beside it, purchases in the app
+(`storeStart`, `storeBuy`), and the app's state kept when Android ends it
+(`keepState`). Each page's code is short and stands alone: copy the one
+you need. On a desktop it runs too, each page saying what it does there.
+
+```sh
+retroapk examples/androidapis.nim --name:"Android APIs" --id:org.retro.apis --links:retroapis \
+  --widget --share-target:text/plain,image/* --background --pip
+```

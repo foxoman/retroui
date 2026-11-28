@@ -17,8 +17,8 @@ cd "$(dirname "$0")"
 
 NAME="Retro DNS"
 ID="net.foxoman.retrodns"
-VERSION="1.9.4"
-CODE="17"
+VERSION="1.9.5"
+CODE="18"
 # Play needs 36 for new apps since 31 Aug 2026. x86_64 too (Chromebooks)
 # when lld is there: pkg install lld, then ABIS="arm64-v8a,x86_64".
 TARGET="36"

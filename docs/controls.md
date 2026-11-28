@@ -22,27 +22,27 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 ## Contents
 
 - **[Getting started](#getting-started)**: [Install](#install) · [A first app](#a-first-app) · [How immediate mode works](#how-immediate-mode-works) · [The app's options](#the-apps-options) · [Building and running](#building-and-running)
-- **[Layout](#layout)**: [Rows and columns](#rows-and-columns) · [Widths in a row](#widths-in-a-row) · [spring and space](#spring-and-space) · [Groups, cards and separators](#groups-cards-and-separators) · [Surfaces: frosted glass, shadows, masks](#surfaces-frosted-glass-shadows-masks) · [The modern glass: glassSurface](#the-modern-glass-glasssurface) · [Forms and fields](#forms-and-fields) · [adaptive, and the window's size](#adaptive-and-the-windows-size) · [Scrolling: scrollPanel, panel, pane](#scrolling-scrollpanel-panel-pane) · [Tabs](#tabs) · [Splitters: split, vsplit](#splitters-split-vsplit) · [sidePane](#sidepane)
+- **[Layout](#layout)**: [Rows and columns](#rows-and-columns) · [Widths in a row](#widths-in-a-row) · [spring and space](#spring-and-space) · [Groups, cards and separators](#groups-cards-and-separators) · [Surfaces: frosted glass, shadows, masks](#surfaces-frosted-glass-shadows-masks) · [The modern glass: glassSurface](#the-modern-glass-glasssurface) · [The glass effect: lens, light, clear or tinted](#the-glass-effect-lens-light-clear-or-tinted) · [Forms and fields](#forms-and-fields) · [adaptive, and the window's size](#adaptive-and-the-windows-size) · [Scrolling: scrollPanel, panel, pane](#scrolling-scrollpanel-panel-pane) · [Tabs](#tabs) · [Splitters: split, vsplit](#splitters-split-vsplit) · [sidePane](#sidepane)
 - **[Text](#text)**: [label, paragraph, heading](#label-paragraph-heading) · [styledText, link, badge](#styledtext-link-badge) · [icon, iconLabel, image](#icon-iconlabel-image) · [tooltip](#tooltip)
-- **[Buttons](#buttons)**: [button](#button) · [Buttons with a picture](#buttons-with-a-picture) · [segmented](#segmented) · [menuButton, splitButton](#menubutton-splitbutton) · [buttonRow](#buttonrow) · [buttonAt](#buttonat)
-- **[Choices](#choices)**: [checkbox](#checkbox) · [radio](#radio) · [toggle (a switch)](#toggle-a-switch) · [chips](#chips) · [tagInput](#taginput) · [rating](#rating)
-- **[Text input](#text-input)**: [edit](#edit) · [editArea](#editarea) · [searchBox](#searchbox) · [autocomplete](#autocomplete) · [maskedEdit](#maskededit) · [comboEdit](#comboedit) · [hotkeyEdit](#hotkeyedit) · [codeEdit](#codeedit) · [terminalView (retroui/terminal)](#terminalview-retrouiterminal)
-- **[Numbers, dates, colors](#numbers-dates-colors)**: [spin, intEdit, numberEdit](#spin-intedit-numberedit) · [slider, progress](#slider-progress) · [rangeSlider](#rangeslider) · [popupSlider](#popupslider) · [knob](#knob) · [datePicker](#datepicker) · [calendar](#calendar) · [dateRange, presetRange](#daterange-presetrange) · [timePicker](#timepicker) · [colorPicker](#colorpicker) · [colorWell and the Color dialog](#colorwell-and-the-color-dialog)
+- **[Buttons](#buttons)**: [helpText, What's This?](#helptext-whats-this) · [ellipsize, ellipsizeMiddle, ellipsizePath](#ellipsize-ellipsizemiddle-ellipsizepath) · [button](#button) · [unfoldButton](#unfoldbutton) · [glassButton](#glassbutton) · [Buttons with a picture](#buttons-with-a-picture) · [segmented](#segmented) · [menuButton, splitButton](#menubutton-splitbutton) · [buttonRow](#buttonrow) · [buttonAt](#buttonat)
+- **[Choices](#choices)**: [checkbox](#checkbox) · [checkbox of three states, mixedOf](#checkbox-of-three-states-mixedof) · [radio](#radio) · [toggle (a switch)](#toggle-a-switch) · [chips](#chips) · [tagInput](#taginput) · [rating](#rating)
+- **[Text input](#text-input)**: [edit](#edit) · [edit with maxLen, autoExit](#edit-with-maxlen-autoexit) · [editArea](#editarea) · [searchBox](#searchbox) · [autocomplete](#autocomplete) · [maskedEdit](#maskededit) · [comboEdit](#comboedit) · [hotkeyEdit](#hotkeyedit) · [codeEdit](#codeedit) · [terminalView (retroui/terminal)](#terminalview-retrouiterminal)
+- **[Numbers, dates, colors](#numbers-dates-colors)**: [spin, intEdit, numberEdit](#spin-intedit-numberedit) · [numberSpin, spin with wrap](#numberspin-spin-with-wrap) · [slider, progress](#slider-progress) · [rangeSlider](#rangeslider) · [popupSlider](#popupslider) · [knob](#knob) · [datePicker](#datepicker) · [calendar](#calendar) · [dateRange, presetRange](#daterange-presetrange) · [timePicker](#timepicker) · [colorPicker](#colorpicker) · [colorWell and the Color dialog](#colorwell-and-the-color-dialog)
 - **[Lists and data](#lists-and-data)**: [listbox](#listbox) · [combo](#combo) · [checkList](#checklist) · [fontCombo, fontStyleCombo](#fontcombo-fontstylecombo) · [glyphPicker](#glyphpicker) · [grid](#grid) · [grid with cell kinds](#grid-with-cell-kinds) · [tree, branch, leaf](#tree-branch-leaf) · [treeGrid](#treegrid) · [iconView](#iconview) · [lineView](#lineview) · [dualList](#duallist) · [propertyGrid](#propertygrid) · [formOf, gridOf: forms and grids from your types](#formof-gridof-forms-and-grids-from-your-types) · [imageView](#imageview)
 - **[Progress and status](#progress-and-status)**: [progressRing, spinner, sparkline, usageBar](#progressring-spinner-sparkline-usagebar) · [banner](#banner) · [toast](#toast) · [showSnackbar, snackbar](#showsnackbar-snackbar) · [led, pill](#led-pill) · [timeline](#timeline) · [emptyState, busyState](#emptystate-busystate) · [statusbar](#statusbar) · [statusRow, statusSep](#statusrow-statussep)
 - **[Containers](#containers)**: [expander](#expander) · [accordionHeader](#accordionheader) · [tabStrip (document tabs)](#tabstrip-document-tabs) · [pageView, pageHeader: pages over pages](#pageview-pageheader-pages-over-pages) · [listDetail](#listdetail)
-- **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
-- **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
-- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [Settings rows in a tableGroup](#settings-rows-in-a-tablegroup) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [captionBar](#captionbar)
-- **[Phone controls](#phone-controls)**: [A phone's page: navBar, searchBar, tableGroup, bottomNav](#a-phones-page-navbar-searchbar-tablegroup-bottomnav) · [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [cardShelf](#cardshelf) · [pullRefresh](#pullrefresh) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [MobileStyle, withMobileStyle](#mobilestyle-withmobilestyle) · [searchBar](#searchbar) · [actionBar](#actionbar) · [roundButton](#roundbutton) · [indexBar](#indexbar) · [messageBubble](#messagebubble) · [clockFace](#clockface) · [appIcon](#appicon) · [slideToConfirm](#slidetoconfirm) · [bigButton](#bigbutton) · [texture](#texture) · [vslider](#vslider) · [ratingStars](#ratingstars) · [checkRow](#checkrow) · [editRow](#editrow) · [coverFlow](#coverflow) · [sideMenu](#sidemenu)
+- **[Menus and bars](#menus-and-bars)**: [menubar, menu, menuItem, submenu](#menubar-menu-menuitem-submenu) · [UndoStack, undoMenuItems, undoKeys](#undostack-undomenuitems-undokeys) · [menuItem's hint and default, menuHint, the keys' sheet](#menuitems-hint-and-default-menuhint-the-keys-sheet) · [contextMenu](#contextmenu) · [popupMenu, openPopupMenu](#popupmenu-openpopupmenu) · [breadcrumb](#breadcrumb) · [pager, stepper](#pager-stepper) · [recordNav](#recordnav) · [findBar, findIn, replaceAllIn](#findbar-findin-replaceallin)
+- **[Dialogs](#dialogs)**: [msgBox](#msgbox) · [msgBox with Don't show this again](#msgbox-with-dont-show-this-again) · [saveChangesBox, closeGuard](#savechangesbox-closeguard) · [propertySheet](#propertysheet) · [inputBox](#inputbox) · [dialog](#dialog) · [progressBox](#progressbox) · [wizard, stepDone](#wizard-stepdone) · [aboutBox](#aboutbox) · [splashBox](#splashbox) · [problemBox, reportProblem](#problembox-reportproblem) · [stoppedScreen, stoppedFrame, stoppedPending, startFresh, showStoppedScreen](#stoppedscreen-stoppedframe-stoppedpending-startfresh-showstoppedscreen) · [fileDialog (3.1)](#filedialog-31)
+- **[App parts](#app-parts)**: [toolbar, toolButton, toolSeparator, toolSpace](#toolbar-toolbutton-toolseparator-toolspace) · [window](#window) · [windowBox, inert, showMenu, hideMenu](#windowbox-inert-showmenu-hidemenu) · [barButton, setToolbarLook](#barbutton-settoolbarlook) · [customizeToolbar](#customizetoolbar) · [mdiArea, mdiWindow, mdiWindowMenu](#mdiarea-mdiwindow-mdiwindowmenu) · [dockPanels: docked panels](#dockpanels-docked-panels) · [paletteTabs](#palettetabs) · [keymapEditor, keymapPressed](#keymapeditor-keymappressed) · [settingToggle, settingChoice, settingSlider, settingCombo, settingButtons, settingLink](#settingtoggle-settingchoice-settingslider-settingcombo-settingbuttons-settinglink) · [Settings rows in a tableGroup](#settings-rows-in-a-tablegroup) · [animated](#animated) · [sprung, presence, glided, dragSnap, staggered, fixedSteps](#sprung-presence-glided-dragsnap-staggered-fixedsteps) · [appearanceSettings](#appearancesettings) · [avatar, factList](#avatar-factlist) · [bottomNav, fab](#bottomnav-fab) · [bottomNav with badges and a search place](#bottomnav-with-badges-and-a-search-place) · [captionBar](#captionbar)
+- **[Phone controls](#phone-controls)**: [A phone's page: navBar, searchBar, tableGroup, bottomNav](#a-phones-page-navbar-searchbar-tablegroup-bottomnav) · [navBar](#navbar) · [wheelPicker](#wheelpicker) · [dateWheels, timeWheels](#datewheels-timewheels) · [quantity](#quantity) · [pageDots](#pagedots) · [cardShelf](#cardshelf) · [pullRefresh](#pullrefresh) · [swipeRow](#swiperow) · [actionSheet](#actionsheet) · [bottomSheet](#bottomsheet) · [popover](#popover) · [alertBox](#alertbox) · [tableGroup, tableRow, tableSwitch, tableButton](#tablegroup-tablerow-tableswitch-tablebutton) · [editTableGroup, tableMoved](#edittablegroup-tablemoved) · [scopeBar](#scopebar) · [modalSheet](#modalsheet) · [largeTitle, skeletonRows, skeletonBlock](#largetitle-skeletonrows-skeletonblock) · [liftMenu, growing](#liftmenu-growing) · [MobileStyle, withMobileStyle](#mobilestyle-withmobilestyle) · [searchBar](#searchbar) · [actionBar](#actionbar) · [roundButton](#roundbutton) · [indexBar](#indexbar) · [messageBubble](#messagebubble) · [clockFace](#clockface) · [appIcon](#appicon) · [slideToConfirm](#slidetoconfirm) · [bigButton](#bigbutton) · [texture](#texture) · [vslider](#vslider) · [ratingStars](#ratingstars) · [checkRow](#checkrow) · [editRow](#editrow) · [coverFlow](#coverflow) · [sideMenu](#sidemenu)
 - **[Files](#files)**: [fileList](#filelist) · [fileList: large icons](#filelist-large-icons) · [folderTree](#foldertree) · [placesView](#placesview) · [filePreview](#filepreview) · [pathBar](#pathbar) · [driveBar](#drivebar) · [filePicker](#filepicker) · [trashList](#trashlist) · [propertiesDialog](#propertiesdialog) · [runJobDialog](#runjobdialog) · [textFileView, hexFileView](#textfileview-hexfileview) · [pictureBox](#picturebox) · [storageDialog](#storagedialog)
 - **[Charts](#charts)**: [chart](#chart) · [A combo chart](#a-combo-chart) · [gauge](#gauge) · [gauge in bands, rangeBar](#gauge-in-bands-rangebar) · [barChart, lineChart, pieChart](#barchart-linechart-piechart) · [The 21 kinds of chart](#the-21-kinds-of-chart) · [liveGraph](#livegraph) · [graphView](#graphview) · [assistantPanel](#assistantpanel) · [aiServiceForm](#aiserviceform)
 - **[Planning and dashboards](#planning-and-dashboards)**: [kpiTile, statCard, kpiRow](#kpitile-statcard-kpirow) · [kanbanBoard](#kanbanboard) · [ganttView](#ganttview) · [agendaView](#agendaview) · [orgChart](#orgchart)
 - **[Maps and 3D](#maps-and-3d)**: [mapView](#mapview) · [tileMap](#tilemap) · [view3d](#view3d) · [Models: parts and clips](#models-parts-and-clips) · [bars3d](#bars3d)
 - **[HTML, Markdown and rich text](#html-markdown-and-rich-text)**: [htmlView, htmlBlock](#htmlview-htmlblock) · [webView, webRun, webPost](#webview-webrun-webpost) · [markdownView, markdown](#markdownview-markdown) · [richEdit, richToolbar](#richedit-richtoolbar)
 - **[Canvas and reports](#canvas-and-reports)**: [canvas: your own drawing](#canvas-your-own-drawing) · [canvas2d (the HTML5 Canvas 2D API)](#canvas2d-the-html5-canvas-2d-api) · [reportView (an HTML template: PDF, printing)](#reportview-an-html-template-pdf-printing) · [pdfView](#pdfview) · [QR codes](#qr-codes)
-- **[Sound and video](#sound-and-video)**: [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview) · [audioPlayer](#audioplayer)
-- **[The system's features](#the-systems-features)**: [notify, share, haptic](#notify-share-haptic) · [location, speak](#location-speak) · [deviceInfo, setOpenAtLogin](#deviceinfo-setopenatlogin) · [saveSecret, loadSecret](#savesecret-loadsecret) · [checkForUpdate, downloadUpdate, installUpdate](#checkforupdate-downloadupdate-installupdate) · [job, fetch: work off the screen's thread](#job-fetch-work-off-the-screens-thread) · [trayIcon](#trayicon)
+- **[Sound and video](#sound-and-video)**: [qrRead, barcodeRead, barcodeBitmap, scannerView](#qrread-barcoderead-barcodebitmap-scannerview) · [animation (animated GIFs)](#animation-animated-gifs) · [videoView](#videoview) · [cameraView](#cameraview) · [setNowPlaying, mediaKeys](#setnowplaying-mediakeys) · [audioView](#audioview) · [audioPlayer](#audioplayer)
+- **[The system's features](#the-systems-features)**: [notify, share, haptic](#notify-share-haptic) · [takeLink, askUnlock, motion, pictureInPicture, the store](#takelink-askunlock-motion-pictureinpicture-the-store) · [keepState, restoreState, NIF, persistent collections](#keepstate-restorestate-nif-persistent-collections) · [location, speak](#location-speak) · [deviceInfo, setOpenAtLogin](#deviceinfo-setopenatlogin) · [saveSecret, loadSecret](#savesecret-loadsecret) · [checkForUpdate, downloadUpdate, installUpdate](#checkforupdate-downloadupdate-installupdate) · [job, fetch: work off the screen's thread](#job-fetch-work-off-the-screens-thread) · [trayIcon](#trayicon)
 - **[Looks](#looks)**: [Themes](#themes) · [A look of your own](#a-look-of-your-own) · [Dark mode](#dark-mode) · [Size and text size](#size-and-text-size) · [Fonts](#fonts) · [The window's frame](#the-windows-frame) · [The accent button; a button's own text and height](#the-accent-button-a-buttons-own-text-and-height) · [The state colours](#the-state-colours) · [A group with a title strip; options in boxes; large digits](#a-group-with-a-title-strip-options-in-boxes-large-digits)
 - **[Screen readers and input methods](#screen-readers-and-input-methods)**: [Screen readers: what an app draws itself](#screen-readers-what-an-app-draws-itself) · [The keyboard alone: Tab's order and F6](#the-keyboard-alone-tabs-order-and-f6) · [The focus ring](#the-focus-ring) · [The inspector and the driver: controls found by their names](#the-inspector-and-the-driver-controls-found-by-their-names)
 
@@ -446,7 +446,7 @@ proc drawSurface*(r: Rect; s: Surface)
 A surface's shadow, its blurred face and its border in `r` (what is drawn after it, over it).
 
 ```nim
-proc backdropBlur*(r: Rect; radius = 16; tint = Color(); corner = 0.0)
+proc backdropBlur*(r: Rect; radius = 16; tint = Color(); corner = 0.0; lens = 0)
 ```
 
 Frosted glass: what is drawn under `r` so far, blurred -- each color spread about `radius`
@@ -454,7 +454,9 @@ logical pixels round it -- with `tint` over it (its alpha: how much of it; none 
 `r` with its corners rounded `corner` pixels (the edge smooth). What is drawn after it is
 drawn over it as it is. The same on the CPU and the GPU; while it is on the screen, a
 change under it or near it draws it again (what is under it read back, made smaller,
-blurred and put back: a little work, more the bigger it is).
+blurred and put back: a little work, more the bigger it is). `lens`: its edge, that many
+logical pixels in, bends what is under it as a lens's thick rim does -- what lies just
+outside drawn in, squeezed, along its edge (the glass effect's).
 
 ```nim
 template masked*(r: Rect; corner: float; body: untyped)
@@ -521,14 +523,17 @@ text(card.x + dp(14), card.y + (card.h - FontH) div 2, "A card, its edge lit",
 **API**
 
 ```nim
-proc glassSurface*(r: Rect; radius: float; tint = Color(); lift = 4)
+proc glassSurface*(r: Rect; radius: float; tint = Color(); lift = 4; clear = false)
 ```
 
 A pane of the modern glass (`glassEffect`) in `r`, its corners rounded `radius`: a soft
-shadow under it (`lift`), what is under it blurred and seen through it, `tint` over that a
-little (the field's color when none), a sheen of light down from its top and its edges lit
-(`glassRim`). What goes in it is drawn after it. The floating tab bar, the bars' buttons, a
-toast; menus, dialogs, sheets and alerts through `frostedFace`.
+shadow under it (`lift`), what is under it blurred and seen through it -- bent at its edge
+as through a lens --, `tint` over that a little (the field's color when none), a sheen of
+light down from its top and its edges lit (`glassRim`), as `glassTint` sets it from clear
+to tinted. `clear`: clearer still, for glass over pictures and video (a knob held, a
+player's buttons). What goes in it is drawn after it. The floating tab bar, the bars'
+buttons, a toast; menus, dialogs, sheets and alerts through `frostedFace`. With
+`glassSolid` (reduce transparency) nothing shows through it.
 
 ```nim
 proc glassRim*(r: Rect; radius: float)
@@ -537,13 +542,92 @@ proc glassRim*(r: Rect; radius: float)
 The lit edge of a pane of glass in `r` (`glassSurface`): a bright line round its top
 fading down its sides, a faint one at its foot where the light comes through, a second line
 of light just inside its top, and a faint dark hairline round it to set it off what is
-behind.
+behind. With the glass effect, a glint where the light falls (`glassLight`) -- under the
+pointer or a finger when one is on it -- and a fainter one across at its foot.
 
 ```nim
 proc glassFx*(): bool {.inline.}
 ```
 
 The modern glass effect drawn now (`glassEffect`, in the Glass look).
+
+### The glass effect: lens, light, clear or tinted
+
+The glass bends what is under it at its edge as a lens's thick rim does (`backdropBlur`'s `lens`), its light glints where it falls (`glassLight`; under the pointer or a finger; the phone's tilt with `glassTilt`), and `glassTint` takes it from clear (0.0: what is under it shows most) to tinted (1.0: frosted, easiest to read); `glassSolid` (reduce transparency, followed from the system) makes it solid. `glassParams` says how it is drawn now; `concentric` rounds a shape inside another round the same center; `scrollEdge` fades content going under a bar of the app's own; `glassKnob` the knob of a slider or switch that swells into clear glass while dragged. Tool bars group their buttons in capsules of glass between `toolSeparator`s; menus grow out of where they hang from.
+
+| Glass |
+|---|
+| ![The glass effect: lens, light, clear or tinted: Glass](controls/liquidglass-glass.png) |
+
+```nim
+let area = place(0, dp(150))
+for i in 0 ..< area.w div dp(16) + 1:
+  fill(rect(area.x + i * dp(16), area.y, dp(8), area.h), if i mod 2 == 0:
+    color(230, 120, 60)
+  else:
+    color(60, 150, 220))
+let clearPane = rect(area.x + dp(14), area.y + dp(14), dp(160), dp(54))
+glassSurface(clearPane, float(clearPane.h) / 2, clear = true)
+text(clearPane.x + dp(20), clearPane.y + (clearPane.h - FontH) div 2, "Clear",
+     ui.theme.text, style(bold = true))
+let tinted = rect(area.x + dp(190), area.y + dp(14), dp(160), dp(54))
+glassSurface(tinted, float(tinted.h) / 2)
+text(tinted.x + dp(20), tinted.y + (tinted.h - FontH) div 2, "Regular",
+     ui.theme.text, style(bold = true))
+let card = rect(area.x + dp(14), area.y + dp(84), dp(336), dp(56))
+glassSurface(card, float(dp(20)))
+let inner = rect(card.x + dp(8), card.y + dp(8), dp(120), card.h - dp(16))
+roundRect(inner, concentric(float(dp(20)), dp(8)), withAlpha(accentColor(), 120))
+```
+
+**API**
+
+```nim
+proc glassParams*(): tuple[blur, alpha, lens: int]
+```
+
+How the glass effect's glass is drawn now, by `glassTint`: how far what is under it is
+blurred, how much of its own color is over it (of 255) and how far in its edge bends what
+is under it (`backdropBlur`'s `lens`). Clear: a light blur, little color, a deep lens;
+tinted: frosted, more color, a shallow lens.
+
+```nim
+proc concentric*(outer: float; inset: int; least = 0.0): float
+```
+
+The corner radius of a shape `inset` pixels inside one rounded `outer`, so their curves keep
+one center -- a card in a sheet, a button in a bar --, never less than `least`: the glass
+effect rounds things inside each other so.
+
+```nim
+proc scrollEdge*(r: Rect; top: bool)
+```
+
+The glass effect's soft edge in `r`, where content scrolls under a bar of glass: the
+window's color over it, strongest at the bar (`top`: the bar above `r`, else below it) and
+fading out across `r` -- words going under the bar fade before they meet it. A bar of the
+app's own over scrolling content draws it beside itself.
+
+```nim
+proc glassKnob*(k: Rect; down: bool; enabled = true)
+```
+
+The round knob of a slider or a switch in the Glass look: white; with the glass effect,
+held, it swells into a lens of clear glass over the track, what is under it showing bent
+through it -- as the glass effect's knobs do while they are dragged.
+
+```nim
+proc backdropBlur*(r: Rect; radius = 16; tint = Color(); corner = 0.0; lens = 0)
+```
+
+Frosted glass: what is drawn under `r` so far, blurred -- each color spread about `radius`
+logical pixels round it -- with `tint` over it (its alpha: how much of it; none when 0), in
+`r` with its corners rounded `corner` pixels (the edge smooth). What is drawn after it is
+drawn over it as it is. The same on the CPU and the GPU; while it is on the screen, a
+change under it or near it draws it again (what is under it read back, made smaller,
+blurred and put back: a little work, more the bigger it is). `lens`: its edge, that many
+logical pixels in, bends what is under it as a lens's thick rim does -- what lies just
+outside drawn in, squeezed, along its edge (the glass effect's).
 
 ### Forms and fields
 
@@ -1065,6 +1149,92 @@ a finger was lifted there).
 
 ## Buttons
 
+### helpText, What's This?
+
+What a control is for, a sentence or two, for the guide's context help: `helpText` after it. Shift+F1 (or `startHelpMode`, a Help menu's What's This? item) puts a question mark by the pointer: the next click on a control shows its help in a pop-up and works nothing; F1 with the focus on it shows it too. A control with only a `tooltip` shows its tooltip there. `helpMode` says whether the question mark is up.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![helpText, What's This?, normal](controls/whatsthis-normal.png) | ![helpText, What's This?, touch screen](controls/whatsthis-touch-screen.png) | ![helpText, What's This?, dark scheme](controls/whatsthis-dark-scheme.png) |
+
+```nim
+var helpAsked = false
+
+if not helpAsked:
+  startHelpMode()
+  helpAsked = true
+row:
+  if button("&Print"):
+    discard
+  helpText "Prints the document on the printer you chose."
+  if button("Pre&view"):
+    discard
+  tooltip "Shows the pages as they will print"
+```
+
+**API**
+
+```nim
+proc helpText*(text: string)
+```
+
+What the widget drawn last is for, a sentence or two ("Prints the document on the printer
+you chose"): shown in a pop-up by What's This? (`helpMode`) and by F1 while it has the
+focus -- the guide's context help. A widget with only a tooltip shows its tooltip there.
+
+```nim
+proc startHelpMode*()
+```
+
+Turns What's This? on (a Help menu's item, a dialog's "?" button): the next click on a
+control shows its `helpText` -- or its tooltip -- in a pop-up and works nothing.
+
+```nim
+proc helpMode*(): bool
+```
+
+What's This? is on: the pointer has a question mark, and the next click on a control shows
+what it is for instead of working it (Shift+F1, `startHelpMode`; Esc ends it).
+
+### ellipsize, ellipsizeMiddle, ellipsizePath
+
+Words cut short to fit: `ellipsize` at their end, `ellipsizeMiddle` in their middle (names whose ends tell them apart), `ellipsizePath` a path as the guide has it -- its first folder and its name kept, "..." for the folders between. Show the whole as the tooltip.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![ellipsize, ellipsizeMiddle, ellipsizePath, normal](controls/ellipsize-normal.png) | ![ellipsize, ellipsizeMiddle, ellipsizePath, touch screen](controls/ellipsize-touch-screen.png) | ![ellipsize, ellipsizeMiddle, ellipsizePath, dark scheme](controls/ellipsize-dark-scheme.png) |
+
+```nim
+label ellipsizePath("/home/sultan/Documents/Reports/2026/November/annual-report-final.pdf",
+                    dp(300))
+label ellipsizeMiddle("annual-report-final-version-three.pdf", dp(220))
+label ellipsize("A long title that does not fit in the room it has", dp(220))
+```
+
+**API**
+
+```nim
+proc ellipsize*(s: string; maxW: int; st = TextStyle()): string
+```
+
+`s`, cut short with "..." to fit `maxW` pixels.
+
+```nim
+proc ellipsizeMiddle*(s: string; maxW: int; st = TextStyle()): string
+```
+
+`s` cut short in its middle to fit `maxW` pixels -- its start and its end kept, "..."
+between ("Annual report 2026 \u2026 final.pdf"): for names whose ends tell them apart.
+
+```nim
+proc ellipsizePath*(path: string; maxW: int; st = TextStyle()): string
+```
+
+A path cut short to fit `maxW` pixels as the guide has it: its first folder and as many of
+its last parts as fit, "..." for the folders between ("/home/\u2026/2026/report.pdf",
+"C:\\\u2026\\Example"); the name itself cut in its middle when even that is too long. Show
+the whole path as its tooltip.
+
 ### button
 
 A push button: true in the frame it is clicked. `isDefault` gives it the 3.1 default ring, and Enter clicks it.
@@ -1119,6 +1289,71 @@ proc button*(label: string; glyph: string; look = blTextBeside; isDefault = fals
 
 `button` with a glyph of the icon font as its picture (`pxSave`,
 `nfCopy`...).
+
+### unfoldButton
+
+A button that shows more of a dialog -- "Options >>" folded, "Options <<" unfolded --: the choices most people never need, kept out of the way; the dialog grows by what the app draws while it is open.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![unfoldButton, normal](controls/unfold-normal.png) | ![unfoldButton, touch screen](controls/unfold-touch-screen.png) | ![unfoldButton, dark scheme](controls/unfold-dark-scheme.png) |
+
+```nim
+var moreOptions = true
+var matchCase = false
+
+unfoldButton("&Options", moreOptions)
+if moreOptions:
+  checkbox("Match &case", matchCase)
+```
+
+**API**
+
+```nim
+proc unfoldButton*(label: string; open: var bool; enabled = true): bool {.discardable.}
+```
+
+A button that shows more of a dialog: "Options >>" while folded, "Options <<" unfolded; the
+app draws the more while `open`, and the dialog grows by it -- for choices most people
+never need, kept out of the way (the guide's unfold button). True when it flipped.
+
+### glassButton
+
+A button of glass: a capsule with its label or an icon, `prominent` tinted in the highlight for the one action that matters on the screen, `clear` for one over a picture. Pressed it swells a little, the light where the finger is. Without the glass effect it is a usual button (the accent one when prominent).
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![glassButton, normal](controls/glassbutton-normal.png) | ![glassButton, touch screen](controls/glassbutton-touch-screen.png) | ![glassButton, dark scheme](controls/glassbutton-dark-scheme.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![glassButton: Gloss](controls/glassbutton-gloss.png) | ![glassButton: Glass](controls/glassbutton-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![glassButton: Matte](controls/glassbutton-matte.png) | ![glassButton: Gloss, dark](controls/glassbutton-gloss-dark.png) |
+
+```nim
+row:
+  glassButton("Cancel")
+  glassButton("Done", prominent = true)
+  glassButton("", glyph = nfShare)
+```
+
+**API**
+
+```nim
+proc glassButton*(label: string; prominent = false; clear = false; glyph = ""; w = 0;
+                  enabled = true): bool {.discardable.}
+```
+
+A button of glass: a capsule with its label (`glyph`: an icon before it, or alone when
+`label` is ""), true when clicked. `prominent`: tinted in the highlight -- the one action
+that matters on the screen (Done, Buy, Play) --; `clear`: clearer glass, for a button over a
+picture or a video. Pressed it swells a little and lights where the finger is. Without the
+glass effect, a usual `button` (`prominent`: the accent button).
 
 ### Buttons with a picture
 
@@ -1324,6 +1559,59 @@ proc checkbox*(label: string; v: var bool; enabled = true): bool {.discardable.}
 ```
 
 A check box bound to `v`; true when toggled.
+
+```nim
+proc checkbox*(label: string; v: var CheckState; enabled = true): bool {.discardable.}
+```
+
+A check box of three states bound to `v`: `csMixed` shows what is chosen together
+differs. Clicked (or Space) it goes on, then off; a box that was mixed goes back to mixed
+after off, so what was there can be kept -- as the guide asks. True when it changed.
+
+### checkbox of three states, mixedOf
+
+A check box bound to a `CheckState`: `csMixed` shows that what is chosen together differs (some bold, some not) -- 3.1 fills it with gray dots, the newer looks put a dash in it. Clicked it goes on, then off, and back to mixed when it began mixed. `mixedOf` gives the state of several values.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![checkbox of three states, mixedOf, normal](controls/checkbox3-normal.png) | ![checkbox of three states, mixedOf, touch screen](controls/checkbox3-touch-screen.png) | ![checkbox of three states, mixedOf, dark scheme](controls/checkbox3-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Pressed | Disabled |
+|---|---|---|
+| ![checkbox of three states, mixedOf, keyboard focus](controls/checkbox3-keyboard-focus.png) | ![checkbox of three states, mixedOf, pressed](controls/checkbox3-pressed.png) | ![checkbox of three states, mixedOf, disabled](controls/checkbox3-disabled.png) |
+
+```nim
+var boldState = csMixed
+var italicState = mixedOf([false, false])
+
+checkbox("&Bold", boldState)
+checkbox("&Italic", italicState)
+```
+
+**API**
+
+```nim
+proc checkbox*(label: string; v: var bool; enabled = true): bool {.discardable.}
+```
+
+A check box bound to `v`; true when toggled.
+
+```nim
+proc checkbox*(label: string; v: var CheckState; enabled = true): bool {.discardable.}
+```
+
+A check box of three states bound to `v`: `csMixed` shows what is chosen together
+differs. Clicked (or Space) it goes on, then off; a box that was mixed goes back to mixed
+after off, so what was there can be kept -- as the guide asks. True when it changed.
+
+```nim
+proc mixedOf*(values: openArray[bool]): CheckState
+```
+
+The state a three-state box shows for `values` chosen together: on when all are, off
+when none, mixed otherwise (`csOff` for none at all).
 
 ### radio
 
@@ -1553,7 +1841,7 @@ form 0:
 ```nim
 proc edit*(s: var string; w = 0; password = false;
            enabled = true; readOnly = false; invalid = false;
-           h = 0; style = TextStyle(); hint = ""): bool {.discardable.}
+           h = 0; style = TextStyle(); hint = ""; maxLen = 0; autoExit = false): bool {.discardable.}
 ```
 
 A one-line text box bound to `s`; true when the text changed.
@@ -1561,6 +1849,10 @@ A one-line text box bound to `s`; true when the text changed.
 typed is not right yet (a form says so as it is typed). `style`: its
 text's (large, bold, serif): the box grows with it; `h`: its height.
 `hint`: gray words in it while it is empty ("New task"), its name for screen readers.
+`maxLen`: at most that many characters (more typed or pasted are left out). `autoExit`
+with it: filled, the focus goes on to the next box by itself, with what was typed past its
+end -- for the parts of a fixed code (a card's groups of four, a date's day, month and
+year), sparingly, as the guide says.
 
 ```nim
 proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
@@ -1579,6 +1871,49 @@ Its menu (a right click, a long press): Cut, Copy, Paste, Delete,
 Select all. In a right-to-left interface its text keeps its own
 direction (a line of Arabic at the right, of Latin at the left, an
 empty box's caret at the right), not mirrored with the frame.
+
+### edit with maxLen, autoExit
+
+A box for a few characters (`maxLen`), and with `autoExit` the focus goes on to the next box by itself once it is full -- with what was typed past its end: the parts of a fixed code, a card's groups of four. Sparingly, as the guide says.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![edit with maxLen, autoExit, normal](controls/autoexit-normal.png) | ![edit with maxLen, autoExit, touch screen](controls/autoexit-touch-screen.png) | ![edit with maxLen, autoExit, dark scheme](controls/autoexit-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Disabled |
+|---|---|
+| ![edit with maxLen, autoExit, keyboard focus](controls/autoexit-keyboard-focus.png) | ![edit with maxLen, autoExit, disabled](controls/autoexit-disabled.png) |
+
+```nim
+var part1 = "4111"
+var part2 = "1111"
+var part3 = ""
+
+row:
+  edit(part1, w = dp(56), maxLen = 4, autoExit = true)
+  edit(part2, w = dp(56), maxLen = 4, autoExit = true)
+  edit(part3, w = dp(56), maxLen = 4)
+```
+
+**API**
+
+```nim
+proc edit*(s: var string; w = 0; password = false;
+           enabled = true; readOnly = false; invalid = false;
+           h = 0; style = TextStyle(); hint = ""; maxLen = 0; autoExit = false): bool {.discardable.}
+```
+
+A one-line text box bound to `s`; true when the text changed.
+`readOnly`: selected and copied, not changed. `invalid`: red, what is
+typed is not right yet (a form says so as it is typed). `style`: its
+text's (large, bold, serif): the box grows with it; `h`: its height.
+`hint`: gray words in it while it is empty ("New task"), its name for screen readers.
+`maxLen`: at most that many characters (more typed or pasted are left out). `autoExit`
+with it: filled, the focus goes on to the next box by itself, with what was typed past its
+end -- for the parts of a fixed code (a card's groups of four, a date's day, month and
+year), sparingly, as the guide says.
 
 ### editArea
 
@@ -2114,14 +2449,15 @@ form 0:
 
 ```nim
 proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
-           enabled = true; h = 0; style = TextStyle()): bool {.discardable.}
+           enabled = true; h = 0; style = TextStyle(); wrap = false): bool {.discardable.}
 ```
 
 A number box with up and down arrows bound to `v` in `lo..hi`: type a
 number (or a little sum: "1200/2", `evalNumber`), click or hold the arrows, or with the
 focus Up / Down (`step`), Page Up / Page Down (ten steps) and the wheel. `style`: its
 digits' (`style(size = 1.6, bold = true)`); the box and its arrows grow with
-them, or to `h`.
+them, or to `h`. `wrap`: stepping past an end goes round to the other (minutes, a
+month's days, degrees); typed, it stops at the end.
 
 ```nim
 proc intEdit*(v: var int; w = 80; lo = low(int); hi = high(int);
@@ -2155,6 +2491,62 @@ A number typed, or a little sum that makes one -- "1200/2", "40+15",
 "3*(8-2)", "-2.5" -- into `v` (as a photo editor's fields take them): + - * /,
 brackets, decimals, spaces; thousands separators (",") ignored. False (`v`
 left alone) when it is not one yet ("12*"), divides by nothing, or is too big.
+
+### numberSpin, spin with wrap
+
+`numberSpin` a number with decimals -- a type size in points, a length in millimeters -- with arrows, and with `sizes` a list of the usual ones beside it, as a font's size box has; it shows no more decimals than it needs. `wrap` (on `spin` too): stepping past an end goes round to the other, as a clock's minutes.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![numberSpin, spin with wrap, normal](controls/numberspin-normal.png) | ![numberSpin, spin with wrap, touch screen](controls/numberspin-touch-screen.png) | ![numberSpin, spin with wrap, dark scheme](controls/numberspin-dark-scheme.png) |
+
+More states:
+
+| Keyboard focus | Disabled |
+|---|---|
+| ![numberSpin, spin with wrap, keyboard focus](controls/numberspin-keyboard-focus.png) | ![numberSpin, spin with wrap, disabled](controls/numberspin-disabled.png) |
+
+```nim
+var typeSize = 12.0
+var minutes = 59
+
+form 0:
+  field "&Size:":
+    numberSpin(typeSize, 1, 999, step = 1, decimals = 1, w = dp(110),
+               sizes = [8.0, 9, 10, 11, 12, 14, 18, 24, 36, 48, 72],
+               )
+  field "&Minutes:":
+    spin(minutes, 0, 59, wrap = true)
+```
+
+**API**
+
+```nim
+proc numberSpin*(v: var float; lo, hi: float; step = 1.0; decimals = 1; w = 90;
+                 sizes: openArray[float] = []; enabled = true; wrap = false): bool {.discardable.}
+```
+
+A number box with up and down arrows for a number with decimals -- a type size in points, a
+length in millimeters -- and, with `sizes`, a list of the usual ones beside it, as a font's
+size box has (8, 9, 10, 12, 14, 18, 24...). Type a number (or a little sum: "12*1.5",
+`evalNumber`), click or hold the arrows (`step`), Up / Down with the focus (Page Up / Page
+Down: ten steps), the wheel, or pick one from the list (its arrow, Alt+Down, F4). It shows at
+most `decimals` places, none for a whole number ("12", "10.5"); true when `v` changed. It is
+known by its place among the number spins of its id scope (`pushId` tells them apart), so
+`v` may be a local made from the app's value each frame -- a size in points from pixels.
+`wrap`: stepping past an end goes round to the other (an angle: 359 -> 0).
+
+```nim
+proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
+           enabled = true; h = 0; style = TextStyle(); wrap = false): bool {.discardable.}
+```
+
+A number box with up and down arrows bound to `v` in `lo..hi`: type a
+number (or a little sum: "1200/2", `evalNumber`), click or hold the arrows, or with the
+focus Up / Down (`step`), Page Up / Page Down (ten steps) and the wheel. `style`: its
+digits' (`style(size = 1.6, bold = true)`); the box and its arrows grow with
+them, or to `h`. `wrap`: stepping past an end goes round to the other (minutes, a
+month's days, degrees); typed, it stops at the end.
 
 ### slider, progress
 
@@ -3812,6 +4204,14 @@ pageView(pageNav):
     paragraph "The new place by the harbour, at one?"
 ```
 
+**API**
+
+```nim
+proc pop*[T](v: PVec[T]): PVec[T]
+```
+
+A vector of `v`'s items but its last.
+
 ### listDetail
 
 A list beside the details of what is picked in it -- side by side where the window has room, the list alone on a phone and the details over it (with Back) once one is picked. The second picture is a phone's, a person picked.
@@ -3877,10 +4277,14 @@ A menu of the menu bar; `body` (its items) runs only while it is open.
 
 ```nim
 proc menuItem*(label: string; shortcut = ""; checked = false;
-               enabled = true): bool
+               enabled = true; hint = ""; isDefault = false): bool
 ```
 
-An item of the open menu; true when chosen.
+An item of the open menu; true when chosen. `hint`: a line saying what it does (or, grayed,
+why it can't now), shown in the status bar while it is lit (`menuHint`). `isDefault`: the
+item a double click does (Open in a file's menu), drawn bolder. In the Glass look the usual
+commands -- Cut, Copy, Paste, Undo, Redo, Delete, Find, Print, Save, Share... -- show their
+icon beside them by themselves.
 
 ```nim
 template submenu*(label: string; body: untyped)
@@ -3956,6 +4360,64 @@ proc changed*(b: Bitmap; r: Rect)
 
 Tell the screen that `r` (bitmap pixels) of `b.px` changed: only the
 part of the screen it is drawn on is drawn and sent again.
+
+### menuItem's hint and default, menuHint, the keys' sheet
+
+A menu item's `hint` -- what it does, or, grayed, why it can't now -- shows across the `statusbar` while it is lit (`menuHint`). `isDefault` draws the item a double click does bolder. With the glass effect the usual commands (Cut, Copy, Paste, Undo...) show their icons by themselves. Hold Ctrl (Command on a Mac) alone for a moment: a sheet of every key shortcut of the menus comes up, menu by menu (`shortcutSheet`).
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![menuItem's hint and default, menuHint, the keys' sheet, normal](controls/menuhints-normal.png) | ![menuItem's hint and default, menuHint, the keys' sheet, touch screen](controls/menuhints-touch-screen.png) | ![menuItem's hint and default, menuHint, the keys' sheet, dark scheme](controls/menuhints-dark-scheme.png) |
+
+More states:
+
+| Clicked / open |
+|---|
+| ![menuItem's hint and default, menuHint, the keys' sheet, clicked / open](controls/menuhints-clicked-open.png) |
+
+```nim
+menubar:
+  menu "&Edit":
+    if menuItem("&Copy", "Ctrl+C",
+                hint = "Copies the selection to the Clipboard"):
+      discard
+    if menuItem("&Paste", "Ctrl+V", enabled = false,
+                hint = "Nothing to paste: copy something first"):
+      discard
+    menuSeparator()
+    if menuItem("&Open", isDefault = true, hint = "Opens the file"):
+      discard
+label "A document"
+statusbar("Ready")
+hoverAfter = rect(dp(12), dp(34), dp(40), dp(2))
+```
+
+**API**
+
+```nim
+proc menuItem*(label: string; shortcut = ""; checked = false;
+               enabled = true; hint = ""; isDefault = false): bool
+```
+
+An item of the open menu; true when chosen. `hint`: a line saying what it does (or, grayed,
+why it can't now), shown in the status bar while it is lit (`menuHint`). `isDefault`: the
+item a double click does (Open in a file's menu), drawn bolder. In the Glass look the usual
+commands -- Cut, Copy, Paste, Undo, Redo, Delete, Find, Print, Save, Share... -- show their
+icon beside them by themselves.
+
+```nim
+proc menuHint*(): string
+```
+
+What the menu item lit now says of itself (its `hint`): `statusbar` shows it across the
+whole bar while a menu is open, as the guide asks ("Copies the selection to the
+Clipboard"; for one grayed, why). Empty when no menu is open or its item has none.
+
+```nim
+proc shortcutSheetShown*(): bool
+```
+
+The sheet of key shortcuts is up now (Ctrl held).
 
 ### contextMenu
 
@@ -4206,10 +4668,155 @@ button not Cancel, Close or OK: Yes and No, Abort, Retry and Ignore --
 has its close button grayed, as Windows has it (Esc still counts).
 
 ```nim
+proc msgBox*(open: var bool; title, msg: string; buttons: openArray[string]; icon: MsgIcon;
+             dontAsk: var bool; dontAskLabel = "Do&n't show this again"): int
+```
+
+A message box with a check box under its words -- "Don't show this again" -- bound to
+`dontAsk` (keep it with the app's settings). While `dontAsk` is true the box isn't shown:
+opened, it answers its first button at once. For a warning the user may well know by
+heart; never for one about losing work.
+
+```nim
 proc msgIcon*(kind: MsgIcon)
 ```
 
 A 32x32 message box icon (at 100%: it grows with the UI's size).
+
+### msgBox with Don't show this again
+
+A message box with a check box under its words bound to a `bool` the app keeps with its settings: while it is true the box isn't shown -- opened, it answers its first button at once. For a tip or a warning the user knows by heart; never for one about losing work.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![msgBox with Don't show this again, normal](controls/dontask-normal.png) | ![msgBox with Don't show this again, touch screen](controls/dontask-touch-screen.png) | ![msgBox with Don't show this again, dark scheme](controls/dontask-dark-scheme.png) |
+
+```nim
+var tipOpen = true
+var tipNoMore = false
+
+discard msgBox(tipOpen, "Retro Paint",
+               "Hold Shift while you draw for straight lines.", ["OK"], miInfo,
+               tipNoMore)
+```
+
+**API**
+
+```nim
+proc msgBox*(open: var bool; title, msg: string;
+             buttons: openArray[string] = ["OK"]; icon = miInfo): int
+```
+
+A message box while `open`. Returns the number of the button clicked
+(1 = first) once, closing it; Esc and the close button count as the
+last button. A question with no way out but its answers -- its last
+button not Cancel, Close or OK: Yes and No, Abort, Retry and Ignore --
+has its close button grayed, as Windows has it (Esc still counts).
+
+```nim
+proc msgBox*(open: var bool; title, msg: string; buttons: openArray[string]; icon: MsgIcon;
+             dontAsk: var bool; dontAskLabel = "Do&n't show this again"): int
+```
+
+A message box with a check box under its words -- "Don't show this again" -- bound to
+`dontAsk` (keep it with the app's settings). While `dontAsk` is true the box isn't shown:
+opened, it answers its first button at once. For a warning the user may well know by
+heart; never for one about losing work.
+
+### saveChangesBox, closeGuard
+
+The question before work is lost: Yes, No and Cancel in Classic; Save, Don't Save and Cancel with what is at stake under it in the newer looks. `closeGuard(dirty, name, save)` once a frame does it all: the window closed with changes asks first, Save calls `save` (closing when it saved), Don't Save closes, Cancel stays.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![saveChangesBox, closeGuard, normal](controls/savechanges-normal.png) | ![saveChangesBox, closeGuard, touch screen](controls/savechanges-touch-screen.png) | ![saveChangesBox, closeGuard, dark scheme](controls/savechanges-dark-scheme.png) |
+
+```nim
+var saveAskOpen = true
+
+discard saveChangesBox(saveAskOpen, "Report.txt")
+```
+
+**API**
+
+```nim
+proc saveChangesBox*(open: var bool; name: string): SaveChoice
+```
+
+The question before work is lost, while `open`: "Do you want to save the changes to
+“Report”?" -- Yes, No and Cancel in Classic; Save, Don't Save and Cancel, with what is at
+stake under it, in the newer looks. Esc is Cancel. Ask it when the document closes, the app
+quits or another document replaces it -- and only then: work saved by itself (on a phone)
+needs no question.
+
+```nim
+proc closeGuard*(dirty: bool; name: string; save: proc (): bool {.closure.} = nil): bool {.discardable.}
+```
+
+Call once a frame, after the window's content: when the user closes the window (its close
+button, Alt+F4, Exit) while `dirty`, the app asks `saveChangesBox` instead of closing. Save
+calls `save` -- true when it saved: the app closes; false (no file picked, the disk full):
+it stays --, Don't Save closes, Cancel stays. True in the frame the app is to close.
+
+### propertySheet
+
+The properties of something in pages of tabs, OK, Cancel and Apply under them, as the guide has it: title it "Name Properties"; draw the page of `page` with controls bound to copies of the values and set `changed` when one changes. `saOk` and `saApply`: put the copies in the real thing; `saCancel`: make them again from it. Apply is grayed until something changed; switching pages takes nothing; closed with changes not applied, it asks whether to apply them.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![propertySheet, normal](controls/propertysheet-normal.png) | ![propertySheet, touch screen](controls/propertysheet-touch-screen.png) | ![propertySheet, dark scheme](controls/propertysheet-dark-scheme.png) |
+
+```nim
+var sheetOpen = true
+var sheetPage = 0
+var sheetChanged = false
+var reportTitle = "Annual Report"
+var reportReadOnly = false
+
+discard propertySheet(sheetOpen, "Report Properties", sheetPage,
+                      ["General", "Summary"], 380, sheetChanged) do:
+  case sheetPage
+  of 0:
+    form 0:
+      field "&Title:":
+        if edit(reportTitle):
+          sheetChanged = true
+      field "":
+        if checkbox("&Read-only", reportReadOnly):
+          sheetChanged = true
+  else:
+    label "Pages: 12"
+```
+
+**API**
+
+```nim
+template propertySheet*(open: var bool; title: string; page: var int; pages: openArray[string];
+                        width: int; changed: var bool; body: untyped): SheetAction
+```
+
+A property sheet: the properties of something in pages of tabs (`pages`), OK, Cancel and
+Apply under them, as the guide has it. Title it "Name Properties". `body` draws the page of
+`page` (a `case page`) with controls bound to copies of the values -- set `changed` when
+one is changed --; on `saOk` and `saApply` put the copies into the real thing, on `saCancel`
+(and when it opens) make them again from it. Switching pages takes nothing; closing it with
+changes not applied asks whether to apply them. Returns what was pressed.
+
+```nim
+proc beginPropertySheet*(open: var bool; title: string; page: var int;
+                         pages: openArray[string]; width: int; changed = false): bool
+```
+
+Starts a property sheet (see `propertySheet`): true while it is `open`. `changed`: there
+are changes not applied -- closed by Esc or its close button, it stays to ask about them.
+
+```nim
+proc endPropertySheet*(open: var bool; changed: var bool): SheetAction
+```
+
+Ends a `beginPropertySheet`: the pages' tabs, then OK, Cancel and Apply under them (Apply
+grayed until something `changed`); what was pressed. `changed` goes back to false once
+the changes are taken or thrown away.
 
 ### inputBox
 
@@ -4616,7 +5223,9 @@ proc toolSeparator*(line = false)
 ```
 
 A gap between groups of tool buttons. `line`: an etched line in the
-gap, as the tool bars after 3.1 have between their groups.
+gap, as the tool bars after 3.1 have between their groups. With the glass effect each group
+is a capsule of glass of its own -- Undo and Redo in one, Bold, Italic and Underline in
+another --, a gap between them, no line.
 
 ```nim
 proc toolSpace*(w = 0)
@@ -5584,6 +6193,16 @@ discard fab(nfPlus, "New")
 **API**
 
 ```nim
+proc bottomNav*(items: openArray[(string, string)]; sel: var int;
+                badges: openArray[string]; search = -1): bool {.discardable.}
+```
+
+`bottomNav` with a badge on the places that have news: a number in a red capsule at the top
+of the glyph ("3" unread; "" none). Numbers only, as the guide says -- for what the user
+would like to know of but needn't see at once. `search`: the place that is search -- with
+the glass effect a round button of its own at the bar's end, apart from the others.
+
+```nim
 proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discardable.}
 ```
 
@@ -5599,6 +6218,47 @@ proc fab*(glyph: string; tip = ""; color = Color()): bool
 The round "floating action button" at the bottom right, over the
 content (the main action of a screen: new message, add item). Call it
 after the status or navigation bar and before the content.
+
+### bottomNav with badges and a search place
+
+`bottomNav(items, sel, badges, search)`: a number in a red capsule on the places that have news (numbers only), and the search place -- with the glass effect -- a round button of its own at the bar's end. `tabBarMinimizes`: the floating bar shrinks to the chosen place while the page scrolls down.
+
+| Gloss | Glass |
+|---|---|
+| ![bottomNav with badges and a search place: Gloss](controls/bottomnavbadges-gloss.png) | ![bottomNav with badges and a search place: Glass](controls/bottomnavbadges-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![bottomNav with badges and a search place: Matte](controls/bottomnavbadges-matte.png) | ![bottomNav with badges and a search place: Gloss, dark](controls/bottomnavbadges-gloss-dark.png) |
+
+```nim
+var navPlace = 0
+
+bottomNav([(nfHome, "Home"), (nfEnvelope, "Mail"), (nfCog, "Settings"),
+           (nfSearch, "Search")], navPlace, ["", "3", "", ""], search = 3)
+label "Inbox"
+```
+
+**API**
+
+```nim
+proc bottomNav*(items: openArray[(string, string)]; sel: var int;
+                badges: openArray[string]; search = -1): bool {.discardable.}
+```
+
+`bottomNav` with a badge on the places that have news: a number in a red capsule at the top
+of the glyph ("3" unread; "" none). Numbers only, as the guide says -- for what the user
+would like to know of but needn't see at once. `search`: the place that is search -- with
+the glass effect a round button of its own at the bar's end, apart from the others.
+
+```nim
+proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discardable.}
+```
+
+The navigation bar of a phone app at the bottom of the window: a glyph
+and a label per place (`[(nfHome, "Home"), (nfSearch, "Search")]`).
+Call it before the content (like `statusbar`). True when `sel` changed.
+While the on-screen keyboard is up it is left out, as phone apps leave it (`keyboardUp`).
 
 ### captionBar
 
@@ -5691,7 +6351,7 @@ tableGroup("Settings", "Kept as they are changed."):
 
 ```nim
 proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false;
-             menu = false): NavPick
+             menu = false; cancel = ""): NavPick
 ```
 
 A phone's navigation bar, the width of the row: the page's `title` in the middle, bold;
@@ -5701,7 +6361,19 @@ raised bar; Glass and Matte: the title bar's, its buttons' labels in the highlig
 the glossy blue-gray bar, white title, bordered buttons, Back with a point. `done`: the
 action is the one that finishes the page (Done, Save): blue in Gloss, filled in Matte.
 `menu` (with no `back`): the button at its start is three lines -- the app's `sideMenu` --
-and returns `npBack`. (With a `PageStack`, `pageHeader` says Back by itself.)
+and returns `npBack`. (With a `PageStack`, `pageHeader` says Back by itself.) `cancel` (with
+no `back`): a plain button at its start -- Cancel on a sheet that asks for something, with
+Done or Save as `action` -- returning `npBack`.
+
+```nim
+proc bottomNav*(items: openArray[(string, string)]; sel: var int;
+                badges: openArray[string]; search = -1): bool {.discardable.}
+```
+
+`bottomNav` with a badge on the places that have news: a number in a red capsule at the top
+of the glyph ("3" unread; "" none). Numbers only, as the guide says -- for what the user
+would like to know of but needn't see at once. `search`: the place that is search -- with
+the glass effect a round button of its own at the bar's end, apart from the others.
 
 ```nim
 proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discardable.}
@@ -5787,7 +6459,7 @@ of npNone:
 
 ```nim
 proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false;
-             menu = false): NavPick
+             menu = false; cancel = ""): NavPick
 ```
 
 A phone's navigation bar, the width of the row: the page's `title` in the middle, bold;
@@ -5797,7 +6469,9 @@ raised bar; Glass and Matte: the title bar's, its buttons' labels in the highlig
 the glossy blue-gray bar, white title, bordered buttons, Back with a point. `done`: the
 action is the one that finishes the page (Done, Save): blue in Gloss, filled in Matte.
 `menu` (with no `back`): the button at its start is three lines -- the app's `sideMenu` --
-and returns `npBack`. (With a `PageStack`, `pageHeader` says Back by itself.)
+and returns `npBack`. (With a `PageStack`, `pageHeader` says Back by itself.) `cancel` (with
+no `back`): a plain button at its start -- Cancel on a sheet that asks for something, with
+Done or Save as `action` -- returning `npBack`.
 
 ### wheelPicker
 
@@ -6145,7 +6819,7 @@ else:
 
 ```nim
 proc actionSheet*(open: var bool; title: string; actions: openArray[string]; destructive = -1;
-                  cancel = "Cancel"; message = ""): int
+                  cancel = "Cancel"; message = ""; anchor = Rect()): int
 ```
 
 A phone's action sheet, shown while `open`: what can be done to something, a button each
@@ -6154,7 +6828,9 @@ up from the bottom, elsewhere in the middle of the window; what is behind it dim
 the action picked (and closes); -1 meanwhile, or when it was cancelled -- Cancel, Esc,
 the phone's Back, a tap beside it. Up and Down go along its buttons. Gloss: white glossy
 buttons on a dark sheet; Glass: its actions in a rounded card, Cancel in its own; Matte:
-flat rows.
+flat rows. `anchor`: the control that opened it (its `ui.lastRect`) -- it comes out of it,
+in a popover pointing at it, with no Cancel (a tap beside it is Cancel) and nothing behind
+it dimmed, as a tablet's did and the glass effect's do everywhere.
 
 ### bottomSheet
 
@@ -6330,6 +7006,248 @@ proc tableButton*(title: string; destructive = false; enabled = true): bool
 
 A row of a `tableGroup` that does something at once (Sign Out, Reset): its title in the
 middle -- red when `destructive`. True when clicked.
+
+### editTableGroup, tableMoved
+
+A list an Edit button puts in edit mode: a red minus before each row -- tapped, a Delete button at its end, tapped, the row's `deleted` --, and a grip at its end to drag it to another place (`tableMoved` says from where to where). The bar's Edit becomes Done.
+
+| Gloss | Glass |
+|---|---|
+| ![editTableGroup, tableMoved: Gloss](controls/edittable-gloss.png) | ![editTableGroup, tableMoved: Glass](controls/edittable-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![editTableGroup, tableMoved: Matte](controls/edittable-matte.png) | ![editTableGroup, tableMoved: Gloss, dark](controls/edittable-gloss-dark.png) |
+
+```nim
+var groceries = @["Milk", "Bread", "Eggs"]
+var editingList = true
+
+if navBar("Groceries", action = if editingList:
+  "Done"
+else:
+  "Edit") ==
+    npAction:
+  editingList = not editingList
+editTableGroup("Today", editingList):
+  var gone = -1
+  for i, it in groceries:
+    if tableRow(it, accessory = taChevron).deleted:
+      gone = i
+  if gone >= 0:
+    groceries.delete(gone)
+```
+
+**API**
+
+```nim
+template editTableGroup*(header: string; editing: bool; body: untyped)
+```
+
+A group of rows that an Edit button puts in edit mode (`editing`): a red minus before each
+row -- tapped, a Delete button at its end; tapped, the row's `deleted` -- and a grip at
+each one's end to drag it to another place (`tableMoved` says where to). Out of edit mode
+it is a plain `tableGroup`. The navigation bar's Edit becomes Done while editing
+(`navBar(..., action = if editing: "Done" else: "Edit")`).
+
+```nim
+proc tableMoved*(): tuple[moved: bool; a, b: int]
+```
+
+The row dragged by its grip and let go of this frame in an `editTableGroup` ended before
+this: from row `a` to row `b` (0 the first) -- move the item in the app's list so.
+
+### scopeBar
+
+Under a `searchBar`: where to search, two to four scopes in a segmented control the width of the row.
+
+| Gloss | Glass |
+|---|---|
+| ![scopeBar: Gloss](controls/scopebar-gloss.png) | ![scopeBar: Glass](controls/scopebar-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![scopeBar: Matte](controls/scopebar-matte.png) | ![scopeBar: Gloss, dark](controls/scopebar-gloss-dark.png) |
+
+```nim
+var searchText = ""
+var searchScope = 0
+
+searchBar(searchText)
+scopeBar(["All", "Mail", "Contacts"], searchScope)
+```
+
+**API**
+
+```nim
+proc scopeBar*(scopes: openArray[string]; sel: var int): bool {.discardable.}
+```
+
+Under a `searchBar`: where to search -- All, Mail, Contacts -- two to four scopes in a
+segmented control the width of the row, as the guide has it. True when `sel` changed.
+
+### modalSheet
+
+A sheet for a task of its own -- a new event, a message --, Cancel and Done on a bar at its top: the whole screen on a phone, sliding up; a sheet in the middle of a tablet's or a desktop's window. A tap beside it doesn't close it; Esc and Back are Cancel, Enter is Done. Returns `shDone` or `shCancel` once, as it closes. `beginModalSheet` names the buttons and grays Done until the form is filled.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![modalSheet, normal](controls/modalsheet-normal.png) | ![modalSheet, touch screen](controls/modalsheet-touch-screen.png) | ![modalSheet, dark scheme](controls/modalsheet-dark-scheme.png) |
+
+In the newer looks:
+
+| Gloss | Glass |
+|---|---|
+| ![modalSheet: Gloss](controls/modalsheet-gloss.png) | ![modalSheet: Glass](controls/modalsheet-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![modalSheet: Matte](controls/modalsheet-matte.png) | ![modalSheet: Gloss, dark](controls/modalsheet-gloss-dark.png) |
+
+```nim
+var eventOpen = true
+var eventTitle = "Lunch with Sami"
+
+label "Calendar"
+discard modalSheet(eventOpen, "New Event") do:
+  edit(eventTitle, hint = "Title")
+```
+
+**API**
+
+```nim
+template modalSheet*(open: var bool; title: string; body: untyped): SheetAnswer
+```
+
+A sheet for a task of its own -- a new event, a message to write, an account to add --
+with Cancel and Done on a bar at its top, as the guide has it: the whole screen on a phone,
+sliding up from below; on a tablet or a desktop a sheet in the middle of the window, what is
+behind it dimmed. A tap beside it doesn't close it (the work in it would be lost); Esc and
+the phone's Back are Cancel, Enter is Done. Returns `shDone` (take what is in it) or
+`shCancel` once, as it closes. (`beginModalSheet` names the buttons -- "Save", "Add" -- and
+grays Done until the form is filled.)
+
+```nim
+proc beginModalSheet*(open: var bool; title: string; cancel = "Cancel"; done = "Done";
+                      doneEnabled = true; width = 540): bool
+```
+
+Starts a modal sheet (see `modalSheet`): true while it is `open`.
+
+```nim
+proc endModalSheet*(open: var bool): SheetAnswer
+```
+
+Ends a `beginModalSheet`: how it was left this frame (`open` false once it was).
+
+### largeTitle, skeletonRows, skeletonBlock
+
+A page's title in large letters at the top of its content: it scrolls with it, and once it has gone up under the bars the `navBar` of the same title shows its own (until then it leaves it out). Gray placeholders where content is still coming -- `skeletonRows` for a list, `skeletonBlock` for a picture --, a light sweeping over them: the page has its shape at once.
+
+| Gloss | Glass |
+|---|---|
+| ![largeTitle, skeletonRows, skeletonBlock: Gloss](controls/largetitle-gloss.png) | ![largeTitle, skeletonRows, skeletonBlock: Glass](controls/largetitle-glass.png) |
+
+| Matte | Gloss, dark |
+|---|---|
+| ![largeTitle, skeletonRows, skeletonBlock: Matte](controls/largetitle-matte.png) | ![largeTitle, skeletonRows, skeletonBlock: Gloss, dark](controls/largetitle-gloss-dark.png) |
+
+```nim
+discard navBar("Library")
+largeTitle("Library", "12 albums")
+skeletonRows(3)
+```
+
+**API**
+
+```nim
+proc largeTitle*(title: string; subtitle = "")
+```
+
+A page's title in large bold letters at the top of its content, as phones' pages have it
+(`subtitle`: a gray line under it -- a count, a date). It scrolls with the content; once it
+has gone up under the bars, the `navBar` of the same title shows its title, small, in its
+middle -- until then it leaves it out, the large one saying it. Put it first in the page's
+panel.
+
+```nim
+proc largeTitleShown*(title: string): bool
+```
+
+The `largeTitle` of these words is on the screen, out from under the bars (last frame): the
+bar's own title is left out meanwhile (`navBar` does it by itself).
+
+```nim
+proc skeletonRows*(count: int; lines = 2; picture = true)
+```
+
+`count` placeholder rows while a list loads -- a square for its picture (`picture`) and
+`lines` gray bars of words, the last shorter --, where the rows will be: the page has its
+shape at once, and nothing jumps when they come. Show it only while the content is late
+(not for what comes at once), and the real rows in its place.
+
+```nim
+proc skeletonBlock*(w, h: int; round = false)
+```
+
+A gray placeholder `w` x `h` where content is still coming (0 `w`: the row's width), a light
+sweeping over it: a picture, a paragraph, a button. `round`: a circle (a face).
+
+### liftMenu, growing
+
+A finger held on an item -- or a right click -- lifts it out of the page with its actions in a card under it, the rest dimmed and blurred (`liftMenu`: call it after the item). `growing(key, cardRect)` makes a page grow out of the card that opened it as it first shows.
+
+*It shows when a finger is held on the item: try it in examples/androidapis.nim or examples/music.nim.*
+
+```nim
+let song = place(0, dp(48), fill = true)
+roundRect(song, float(dp(10)), ui.theme.field)
+text(song.x + dp(14), song.y + (song.h - FontH) div 2, "Harbour Lights",
+     ui.theme.text)
+discard liftMenu(song, "song1", ["Play Next", "Add to Library", "Delete"],
+                 destructive = 2)
+```
+
+**API**
+
+```nim
+proc liftMenu*(r: Rect; key: string; actions: openArray[string]; destructive = -1): int
+```
+
+A menu for the item drawn at `r` (call it after the item; `key` tells the items apart): a
+finger held on it -- or a right click -- lifts it out of the page, a little bigger, with its
+shadow, the rest dimmed and blurred behind it, and its actions in a card of glass under it
+(over it, near the foot of the screen); the `destructive` one in red. Returns the action
+tapped, once (the menu closing); -1 meanwhile, or when a tap beside it closed it. The same
+actions as the item's swipe ones, first, as the guide asks.
+
+```nim
+proc liftedItem*(): string
+```
+
+The `key` of the item lifted with its menu now ("" none).
+
+```nim
+template growing*(key: string; src: Rect; body: untyped)
+```
+
+A page (or a panel) that grows out of the card that opened it, `src` -- the card's
+`ui.lastRect` kept when it was tapped -- to the whole window as it first shows, as a phone's
+album opens out of its cover. `key` tells pages apart (the album's id). Draw the page in
+`body` as always; with motion reduced it is simply there.
+
+```nim
+proc beginGrow*(key: string; src: Rect)
+```
+
+Starts what grows out of `src` (see `growing`).
+
+```nim
+proc endGrow*()
+```
+
+Ends a `beginGrow`: what was drawn since shows only inside a box growing from the card to
+the whole window over a quarter of a second, the first frames it is drawn.
 
 ### MobileStyle, withMobileStyle
 
@@ -6959,7 +7877,8 @@ check ticks it or not (`toggled`; Space with the focus), a tap on the rest of th
 `detailColor`: red when it is late), `subtitle` under the title, `flagged`: an orange flag
 before the end, `accessory` as `tableRow`'s. Gloss: the check a shining blue disc with a
 white tick, an empty ring before; Glass and Matte in the highlight; Classic 3.1's round
-check.
+check. In edit mode (`editTableGroup`) the row is edited as `tableRow`'s are: its minus in
+place of the check, its grip at its end (`deleted`, `tableMoved`).
 
 ### editRow
 
@@ -10085,6 +11004,73 @@ bytes at L, 2331 at M, 1663 at Q, 1273 at H; more digits).
 of their own, and `uiSound` plays the system's sounds for a message or an
 error. They have no picture.
 
+### qrRead, barcodeRead, barcodeBitmap, scannerView
+
+Codes read from a picture: `qrRead` the QR codes in it (turned, in perspective, a little damaged: mended by their error correction), `barcodeRead` barcodes -- EAN-13, UPC-A, EAN-8, Code 128, Code 39 -- across it, down it or upside down (`retroui/barcode`, which makes them too: `barcodeBitmap`). `scannerView` (`retroui/scanner`) is the camera with a guide, reading both a few times a second on a worker and handing back each code once.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![qrRead, barcodeRead, barcodeBitmap, scannerView, normal](controls/codesread-normal.png) | ![qrRead, barcodeRead, barcodeBitmap, scannerView, touch screen](controls/codesread-touch-screen.png) | ![qrRead, barcodeRead, barcodeBitmap, scannerView, dark scheme](controls/codesread-dark-scheme.png) |
+
+```nim
+let ean = barcodeBitmap(bcEan13, "4006381333931", module = 2, height = 60)
+
+drawBitmap(canvas(ean.w, ean.h), ean)
+label "Read: " & barcodeRead(ean)[0].text
+```
+
+**API**
+
+```nim
+proc qrRead*(b: Bitmap; most = 4): seq[QrRead]
+```
+
+The QR codes in the picture `b` -- a camera's, a screenshot, a scan -- read: what each says,
+where it is. Upright or turned any way, in perspective, a little damaged (as much as its
+level of error correction mends). At most `most` of them.
+
+```nim
+proc qrDecodeModules*(dark: openArray[bool]; size: int; mended: var int): tuple[ok: bool; text: string;
+                      version: int; ecc: QrEcc]
+```
+
+The text of a QR code's modules, `size` x `size`, row by row (true: dark) -- as `qrRead`
+reads them from a picture; `ok` false when they don't make a code (too damaged).
+
+```nim
+proc barcodeRead*(b: Bitmap; kinds: set[BarcodeKind] = {BarcodeKind.low .. BarcodeKind.high}): seq[BarcodeRead]
+```
+
+The barcodes in the picture `b` read: across it or down it (it is turned a quarter for
+those), either way round -- rows through its middle tried until one reads. Each found once.
+
+```nim
+proc barcodeBitmap*(kind: BarcodeKind; text: string; module = 3; height = 80; quiet = 10;
+                    dark = color(0, 0, 0); light = color(255, 255, 255)): Bitmap
+```
+
+A picture of the barcode of `text`, `module` pixels a module, `height` high, `quiet` modules
+of light either side (nil when `text` can't be written so).
+
+```nim
+proc barcodeModules*(kind: BarcodeKind; text: string): seq[bool]
+```
+
+The modules of the barcode of `text` (true: a bar), quiet zones not included; empty when
+`text` can't be written so. EAN and UPC take their digits without the check (it is added) or
+with it (it is checked).
+
+```nim
+proc scannerView*(key = ""; height = -1; qr = true;
+                  barcodes: set[BarcodeKind] = {BarcodeKind.low .. BarcodeKind.high};
+                  facing = cfBack; every = 250): ScanResult
+```
+
+The camera's picture (`cameraView`), `height` pixels high (-1: the room left), a guide in its
+middle; its frames read every `every` ms on a worker for QR codes (`qr`) and the `barcodes`
+asked. Returns a code the frame it is read -- once: the same code again only after three
+seconds away --, with a tap felt (`haptic`) and the guide lit green a moment.
+
 ### animation (animated GIFs)
 
 The frames of `loadGif` played round and round, each for its delay. The app wakes only when the next frame is due.
@@ -10561,6 +11547,24 @@ row:
 **API**
 
 ```nim
+proc share*(text = ""; url = ""; files: openArray[string] = []; title = ""): bool {.discardable.}
+```
+
+Offers `text`, a link (`url`) or `files` to the user's other apps:
+the share sheet of Android and iOS, macOS's share menu, the browser's
+(Web Share: phones, Safari, Chrome and Edge on Windows and macOS).
+False where the system has none (Windows and Linux desktops, Firefox):
+the app then offers Copy (`putClipboardText`) or Save As instead.
+
+```nim
+proc haptic*(kind = hTap): bool {.discardable.}
+```
+
+A tap the user feels (phones; Mac trackpads; a web page on a phone):
+after a button, a snap into place, a success or an error. False where
+nothing is felt -- nothing to do then.
+
+```nim
 proc vibrate*(ms = 50): bool {.discardable.}
 ```
 
@@ -10568,6 +11572,271 @@ Buzzes the phone for `ms` milliseconds (Android apps need
 `retroapk --permission:VIBRATE`; Termux uses Termux:API; iPhones buzz
 their standard short buzz; a web page buzzes the phone it runs on).
 False where nothing buzzes.
+
+```nim
+proc requestAttention*(): bool {.discardable.}
+```
+
+Asks the user to look at the app while it is behind others: the
+taskbar's button flashes (Windows), the Dock's icon bounces (macOS),
+the window manager marks it (X11), the tab's title blinks (a web page).
+Nothing when the app is in front already. False where the system has
+no such sign (Wayland, phones).
+
+### takeLink, askUnlock, motion, pictureInPicture, the store
+
+The device past the window (`retroui/device`): `takeLink` the link that opened the app (`retroapk --links:myapp`, `retroios --links`), `singleInstance` one copy at a time on desktops (another hands it what it was opened with), `registerLinks` on Linux and Windows; `askUnlock` and `unlockAnswer` the system's fingerprint, face or PIN sheet; `motion`, `shaken` and `glassTilt` the motion sensors; `pictureInPicture` (`retroapk --pip`); `dragToApps` and `droppedFromApps` drag and drop with the app beside it; `storeStart`, `storeProducts`, `storeBuy`, `storeEvent`, `storeFinish`, `storeOwned` purchases (Google Play's billing library the app brings, StoreKit). examples/androidapis.nim tries each.
+
+*The sheets are the system's own: a fingerprint, a face, the PIN; the rest has no picture.*
+
+```nim
+if button("Show the &Secret"):
+  discard askUnlock("To show the secret")
+if unlockAnswer() == laOk:
+  label "The secret: 42"
+```
+
+**API**
+
+```nim
+proc takeLink*(): string
+```
+
+A link the app was opened with -- or that came to it while it ran: a link of its scheme
+tapped in a message, a web page, another app (`myapp://song/12`) --, each once, the oldest
+first; "" when there is none. Ask each frame (it is cheap).
+
+```nim
+proc singleInstance*(id = ""): bool
+```
+
+Call it first thing on Linux, Windows or macOS: true when this is the only copy of the app
+running (keep going); false when another one runs -- what this one was opened with (a link,
+files) has been handed to it, and it is brought forward: quit then. Opening the app again
+brings its window back instead of a second one, as the guide asks. True on phones (one copy
+always). `id`: the app's own name for it (its data folder's).
+
+```nim
+proc registerLinks*(schemes: openArray[string]; app = ""): bool {.discardable.}
+```
+
+Makes this program the one the system opens links of these schemes with (`myapp`:
+myapp://anything) -- on Linux a desktop entry and xdg-mime, on Windows the user's classes
+in the registry. Once, at the first start, is enough. (Phones and Macs say it in the app's
+bundle: `retroapk --links`, `retroios --links`, RETRO_LINKS for tools/macapp.sh.)
+
+```nim
+proc askUnlock*(reason: string; title = "Confirm it is you"): bool {.discardable.}
+```
+
+Asks the device's owner to prove it is them, with the system's own sheet -- a fingerprint, a
+face, or the PIN or pattern of the screen lock -- before something private is shown or done
+(`reason` says what: "To show your saved passwords"). `unlockAnswer` tells how it went.
+False when it can't be asked here (Linux, Windows, no lock set): offer the app's own password.
+
+```nim
+proc unlockAnswer*(): LockAnswer
+```
+
+What the screen lock asked by `askUnlock` said: `laAsking` while its sheet is up, then
+`laOk` or `laFailed` (each frame until it is asked again).
+
+```nim
+proc canUnlock*(): bool
+```
+
+The device can ask its owner -- a screen lock is set (a fingerprint, a face, a PIN).
+
+```nim
+proc startMotion*(): bool {.discardable.}
+```
+
+Turns the motion sensors on (they use a little power: turn them off with `stopMotion` when
+the app no longer needs them); false when the device has none.
+
+```nim
+proc motion*(): Motion
+```
+
+How the device is held and pushed now (`startMotion` first). `ok` false where there is no
+way to tell (a desktop).
+
+```nim
+proc shaken*(): bool
+```
+
+The device was shaken since this was asked last -- shake to undo, as phones do (offer it
+with a question: "Undo Typing?"). Turns the sensors on the first time.
+
+```nim
+proc pictureInPicture*(): bool {.discardable.}
+```
+
+The app goes on in a small window over the others -- a video, a call, a timer keep showing
+while the user is elsewhere (Android 7 and later, an APK made with `retroapk --pip`). False
+where it can't: then `minimizeApp` is the nearest.
+
+```nim
+proc inPictureInPicture*(): bool
+```
+
+The app is in its small window over the others now: show its video alone, no controls.
+
+```nim
+proc dragToApps*(paths: openArray[string]; text = ""): bool {.discardable.}
+```
+
+Starts dragging `paths` (files of the app's) or `text` out to another app -- the one beside it
+in split screen, a small window --, from where the finger is (Android 7 and later; call it
+when a drag starts: `lifted`). On desktops a drag of the kit's (`startDrag` with `files`)
+already goes out of the window by itself.
+
+```nim
+proc droppedFromApps*(): AppDrop
+```
+
+What another app (beside it in split screen) dropped on this one this frame: files copied
+in, or text. (Desktops' file managers: `droppedFiles`.)
+
+```nim
+proc storeStart*(): StoreState {.discardable.}
+```
+
+Connects to the system's store (Google Play: the app brings the Play Billing library with
+`retroapk --java`, the kit reaches it by name; the App Store: StoreKit). Ask again until
+`ssReady`.
+
+```nim
+proc storeProducts*(ids: openArray[string]; subscriptions = false): bool {.discardable.}
+```
+
+Asks the store for the products `ids` (set up in its console): each comes as a `seProduct`
+event, its price in the user's money.
+
+```nim
+proc storeBuy*(id: string): bool {.discardable.}
+```
+
+Opens the store's own sheet to buy the product `id` (asked with `storeProducts`); the
+purchase comes as a `sePurchase` event.
+
+```nim
+proc storeEvent*(): StoreEvent
+```
+
+The next thing that came from the store (`seNone`: nothing): call it each frame while the
+store is in use.
+
+```nim
+proc storeFinish*(p: Purchase; consumable: bool): bool {.discardable.}
+```
+
+Tells the store what was bought was given: `consumable` (coins, credits: bought again
+later) or kept for good (a pro version). Unfinished purchases are refunded after a few days.
+
+```nim
+proc storeOwned*(subscriptions = false): bool {.discardable.}
+```
+
+Asks for what the user owns -- bought before, on another device --: each a `sePurchase`.
+
+### keepState, restoreState, NIF, persistent collections
+
+An app's state kept across its ends (`retroui/appstate`): `restoreState(name, default)` at the start, `keepState(name, v)` in the frame -- written as NIF when the app goes to the background or ends, so a phone that ended it meanwhile brings the user back where they were. `toNif`, `fromNif`, `saveNif`, `loadNif` (`retroui/nif`) write and read any value as NIF, Nim's own format. `PVec`, `PMap`, `PSet`, `Rope`, `Box` (`import retroui/persist`: not brought by `import retroui`): collections whose versions share what they didn't change -- undo steps, last frame's list -- and `diff` finds what changed in a few steps.
+
+*Saving and reading back have no picture.*
+
+```nim
+label "(nothing to see: the state is kept as NIF)"
+```
+
+**API**
+
+```nim
+template keepState*(name: string; v: untyped)
+```
+
+Keeps `v` as the state `name`: written as NIF as the app is paused or ends, when it changed
+(`restoreState` reads it back). Call it every frame or once: `v` is read only then.
+
+```nim
+proc restoreState*[T](name: string; default: T): T
+```
+
+The state `name` as it was kept (`keepState`) when the app was paused or ended last;
+`default` the first time, or when it can't be read.
+
+```nim
+proc writeStates*()
+```
+
+Writes every kept state that changed since it was written last (the kit does it as the app
+is paused and as it ends; call it after a change that must not be lost).
+
+```nim
+proc forgetState*(name: string)
+```
+
+The state `name` no longer kept, its file removed (signed out, a fresh start).
+
+```nim
+proc toNif*[T](v: T; header = true): string
+```
+
+`v` as NIF text, headed by `(.nif27)` (`header`).
+
+```nim
+proc fromNif*[T](s: string; t: typedesc[T]): T
+```
+
+The value of type `T` NIF text `s` was made from (`toNif`); `NifError` when it can't be.
+
+```nim
+proc saveNif*[T](path: string; v: T)
+```
+
+Writes `v` to the file `path` as NIF: whole to a new file beside it, then put in its place --
+a crash or a full disk leaves the old one as it was.
+
+```nim
+proc loadNif*[T](path: string; t: typedesc[T]; default: T = default(T)): T
+```
+
+The value kept in the NIF file `path` (`saveNif`); `default` when there is none, or it can't
+be read (an older app's that no longer fits).
+
+```nim
+proc parseNif*(s: string): NifNode
+```
+
+The tree of NIF text `s` (its `(.nif27)` header and other directives skipped): the first
+tree after them, or the one atom.
+
+```nim
+proc diff*[K, V](a, b: PMap[K, V]): seq[Change[K]]
+```
+
+What changed from `a` to `b`: the keys added, removed and those whose value changed. What the
+two share -- all but what was changed since one was made from the other -- is skipped
+without a look: a change of a few keys in a map of a million is found in a few steps.
+
+```nim
+proc diff*[K](a, b: PSet[K]): seq[Change[K]]
+```
+
+The keys added and removed from `a` to `b`.
+
+```nim
+proc vecBuilder*[T](cap = 0): VecBuilder[T]
+```
+
+A builder for a large vector made at once, without a vector made for each item.
+
+```nim
+proc mapBuilder*[K, V](): MapBuilder[K, V]
+```
+
+A builder for a map made at once.
 
 ### location, speak
 
@@ -10600,6 +11869,52 @@ if sysPlace:
     "No place on this device.")
 ```
 
+**API**
+
+```nim
+proc location*(precise = false): Place
+```
+
+Where the device is: asked the first time (the user is asked to allow
+it), then kept up to date while the app asks; `psWaiting` until the
+first fix comes. `precise` asks for the GPS (more battery; a phone
+outdoors) instead of the network's few hundred meters. Web pages
+(served over https), Android (the APK needs
+`retroapk --permission:ACCESS_COARSE_LOCATION`, or FINE for `precise`),
+iOS and macOS (the app's Info.plist says why:
+NSLocationWhenInUseUsageDescription), Termux (Termux:API);
+`psNone` on Windows and Linux desktops.
+
+```nim
+proc stopLocation*()
+```
+
+Stops keeping the place up to date (the battery thanks you); the next
+`location` starts again.
+
+```nim
+proc speak*(text: string; lang = ""; rate = 1.0): bool {.discardable.}
+```
+
+Says `text` aloud with the system's voice (`lang` "ar", "en-GB"...:
+a voice of that language where there is one; `rate` 1 is normal, 0.5
+slower, 2 faster). Speech that was going on carries on first. Web
+pages, Android, iOS, macOS, Windows (its voices, through PowerShell),
+Linux (speech-dispatcher's `spd-say`, or `espeak-ng`), Termux
+(Termux:API). False where there is no voice.
+
+```nim
+proc stopSpeaking*()
+```
+
+Stops what `speak` is saying (and what it was going to say).
+
+```nim
+proc speaking*(): bool
+```
+
+`speak` is still saying something.
+
 ### deviceInfo, setOpenAtLogin
 
 The device in one call (`deviceInfo`: its name, system, language, battery, dark look, network, cores), the app started with the computer (`setOpenAtLogin`: Windows' Run key, a launch agent, an autostart entry), `online`, `systemLanguage`, `battery`, `revealFile`.
@@ -10618,6 +11933,59 @@ var atLogin = openAtLogin("Shop")
 if toggle("Start with the &computer", atLogin):
   setOpenAtLogin(atLogin, "Shop")
 ```
+
+**API**
+
+```nim
+proc deviceInfo*(): DeviceInfo
+```
+
+The device in one call (the battery and the dark look asked again
+each time: cheap).
+
+```nim
+proc online*(): bool
+```
+
+The device has a network (as far as it can tell: a network can be
+there and the internet not). True when it cannot tell.
+
+```nim
+proc systemLanguage*(): string
+```
+
+The user's language, as a tag: "en-US", "ar-OM", "fr".
+
+```nim
+proc battery*(): Battery
+```
+
+The battery: its charge in percent (-1 when unknown) and whether it
+is charging (as far as the system tells).
+
+```nim
+proc revealFile*(path: string): bool {.discardable.}
+```
+
+Shows `path` in the system's file manager, selected (Explorer, the
+Finder, the desktop's file manager); in a web page and on phones, the
+file is handed over as `openFile` does.
+
+```nim
+proc setOpenAtLogin*(on: bool; app = ""; command = ""): bool {.discardable.}
+```
+
+Starts the app when the user logs in (`on`), or not any more. `app`
+is its name ("Retro Mail"; the program's name when ""), `command` what
+starts it (this program when ""). Windows (the Run key), macOS (a
+launch agent), Linux and the BSDs (an autostart entry, freedesktop's).
+False on phones and in web pages, where the system decides.
+
+```nim
+proc openAtLogin*(app = ""): bool
+```
+
+The app starts when the user logs in (`setOpenAtLogin`). Desktops.
 
 ### saveSecret, loadSecret
 

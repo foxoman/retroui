@@ -265,7 +265,7 @@ proc listsDialog() =
       if not any:
         row([210, -1]):
           label "Or the text set at, and over:"
-          let (minSet, ms) = cur().typeField(float32(listDlg.minSize), dp(70), "tocmin", 1, 2000)
+          let (minSet, ms) = cur().typeField(float32(listDlg.minSize), dp(70), "tocmin", 1, 2000, size = true)
           if minSet: listDlg.minSize = max(4, int(round(ms)))
         label("(the headings by their size)", color = ui.theme.gray)
       group("Page Number"):

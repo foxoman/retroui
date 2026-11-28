@@ -155,7 +155,7 @@ proc fontRows(compact: bool) =
     paragraph("Drawn in FreeSans: " & fp, color = color(176, 0, 0))
   row:
     label "Size:"
-    let (sizeSet, sz) = cur().typeField(s.size, dp(64), "charsize", 0.1, 5000)
+    let (sizeSet, sz) = cur().typeField(s.size, dp(64), "charsize", 0.1, 5000, size = true)
     if sizeSet:
       let v = max(1'f32, sz)
       applyChar("Font Size", proc (x: var CharStyle) = x.size = v)

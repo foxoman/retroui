@@ -895,6 +895,7 @@ type
     ## What the user set in the system for every app (`systemPrefs`).
     reduceMotion*: bool   ## less movement: no glides or animations
     highContrast*: bool   ## strong contrast
+    reduceTransparency*: bool  ## nothing seen through bars and menus (`glassSolid`)
     textScale*: float     ## text this much larger (1: as it is)
 
 var prefsCache: tuple[at: float; v: SystemPrefs] = (-100.0, SystemPrefs(textScale: 1.0))
@@ -935,6 +936,11 @@ proc systemPrefs*(): SystemPrefs =
           {.stdcall, dynlib: "user32", importc.}
         var anim: int32 = 1
         if SystemParametersInfoW(0x1042, 0, addr anim, 0) != 0: p.reduceMotion = anim == 0
+        var tr: uint32
+        var trSize = 4'u32
+        if RegGetValueW(0x80000001'u, newWideCString("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+                        newWideCString("EnableTransparency"), 0x10, nil, addr tr, addr trSize) == 0:
+          p.reduceTransparency = tr == 0
         var hc = HighContrast(size: uint32(sizeof(HighContrast)))
         if SystemParametersInfoW(0x0042, uint32(sizeof(HighContrast)), addr hc, 0) != 0:
           p.highContrast = (hc.flags and 1) != 0
@@ -946,14 +952,17 @@ proc systemPrefs*(): SystemPrefs =
       elif defined(ios):
         proc UIAccessibilityIsReduceMotionEnabled(): bool {.importc, cdecl.}
         proc UIAccessibilityDarkerSystemColorsEnabled(): bool {.importc, cdecl.}
+        proc UIAccessibilityIsReduceTransparencyEnabled(): bool {.importc, cdecl.}
         p.reduceMotion = UIAccessibilityIsReduceMotionEnabled()
         p.highContrast = UIAccessibilityDarkerSystemColorsEnabled()
+        p.reduceTransparency = UIAccessibilityIsReduceTransparencyEnabled()
       elif defined(macosx):
         autoreleasePool:
           let ws = objcSend(ObjcId, objcClass("NSWorkspace"), "sharedWorkspace")
           if ws != nil:
             p.reduceMotion = objcSend(bool, ws, "accessibilityDisplayShouldReduceMotion")
             p.highContrast = objcSend(bool, ws, "accessibilityDisplayShouldIncreaseContrast")
+            p.reduceTransparency = objcSend(bool, ws, "accessibilityDisplayShouldReduceTransparency")
       elif androidApp:
         if javaAvailable():
           let a = javaStatic("org.retro.RetroSystem", "prefs", jactivity()).split(' ')

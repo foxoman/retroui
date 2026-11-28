@@ -83,7 +83,7 @@ proc barType() =
   if fontStyleCombo(s.family, cpStyle, w = dp(96)):
     let st = cpStyle
     applyChar("Font Style", proc (x: var CharStyle) = x.style = st)
-  let (sizeSet, sz) = cur().typeField(s.size, dp(60), "barsize", 0.1, 5000)
+  let (sizeSet, sz) = cur().typeField(s.size, dp(60), "barsize", 0.1, 5000, size = true)
   if sizeSet:
     let v = max(1'f32, sz)
     applyChar("Font Size", proc (x: var CharStyle) = x.size = v)

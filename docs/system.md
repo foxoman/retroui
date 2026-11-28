@@ -131,6 +131,9 @@ required, so the app installs on a device without a camera or GPS.
 | the music on the phone (`askMusicAccess`) | ✓ (`READ_MEDIA_AUDIO`; `READ_EXTERNAL_STORAGE` up to Android 12) | `--permission:READ_MEDIA_AUDIO` |
 | Java of the app's own (a service, a receiver) | | `--java:DIR` (its classes.dex, its manifest.txt) |
 | installing an update's APK, or another app's (`installApk`) | | `--permission:REQUEST_INSTALL_PACKAGES` |
+| links that open the app (`takeLink`) | | `--links:myapp,https://example.com/app` |
+| picture in picture (`pictureInPicture`) | | `--pip` |
+| purchases (`storeStart`...) | | `--java:DIR` with Google's Play Billing library and `uses-permission android:name=com.android.vending.BILLING` |
 
 The window asks the user the first time a feature is used (never a
 background check); a "no" makes the call answer false or `psDenied`, and
@@ -138,7 +141,10 @@ the app goes on.
 
 **iOS and macOS**: the app's Info.plist says why it asks (`retroios` and
 `tools/macapp.sh` write them): `NSLocationWhenInUseUsageDescription`,
-`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`; and
+`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`,
+`NSFaceIDUsageDescription` (`askUnlock`), `NSMotionUsageDescription` (`motion`), the
+schemes of the links that open the app (`retroios --links:myapp`, `RETRO_LINKS=myapp` for
+`tools/macapp.sh`); and
 `UIBackgroundModes` audio when the app plays sounds with `audioView` (or `audioPlayer`)
 (`retroios` sees it in the compiled code), so they play on in the
 background. `retroios --cleartext` lets the app use plain `http://`
@@ -277,6 +283,35 @@ if d.battery.level >= 0: label "Battery " & $d.battery.level & "%" & (if d.batte
 if not online(): label "Offline: the changes are kept until the network is back"
 keepScreenOn(true)      # a presentation
 ```
+
+What an app reaches past its window -- links, one copy running, the screen lock, the motion
+sensors, picture in picture, drag and drop with the app beside it, purchases -- is in
+`retroui/device`:
+
+```nim
+import retroui, retroui/device
+if not singleInstance("shop"): quit 0    # Linux, Windows, macOS: the first copy comes forward
+app "Shop", 420, 300:
+  let link = takeLink()                  # "shop://order/1042" (each once, the oldest first)
+  if button("Show the &Cards"): askUnlock("To show your saved cards")
+  case unlockAnswer()
+  of laOk: showCards = true              # (each frame until it is asked again)
+  of laUnavailable: askPin = true        # no screen lock here: the app's own PIN
+  else: discard
+  let m = motion()                       # startMotion() once; m.ok false on desktops
+  if shaken(): undoAsked = true
+  if button("Picture in &Picture") and not pictureInPicture(): toast("Not on this device")
+```
+
+| | Linux | Windows | macOS | Android | iOS |
+|---|---|---|---|---|---|
+| `takeLink` | ✓ (`registerLinks`) | ✓ (`registerLinks`) | ✓ (`RETRO_LINKS`) | ✓ (`--links`) | ✓ (`--links`) |
+| `singleInstance`, `bringForward` | ✓ (X11) | ✓ | ✓ | – (one copy always) | – |
+| `askUnlock` | – | – | ✓ (Touch ID, the password) | ✓ (the screen lock) | ✓ (Face ID, Touch ID, the code) |
+| `motion`, `shaken` | – | – | – | ✓ | ✓ |
+| `pictureInPicture` | – | – | – | ✓ (Android 7+) | – |
+| `dragToApps`, `droppedFromApps` | – | – | – | ✓ (Android 7+) | – |
+| `storeStart`, `storeBuy` | – | – | – | ✓ (Play Billing) | ✓ (StoreKit) |
 
 ## The network, sleep, the user's settings
 

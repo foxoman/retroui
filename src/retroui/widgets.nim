@@ -31,6 +31,7 @@ var
   caretT: int      ## when the caret last moved; it blinks from there
   repeatAt: int    ## next auto-repeat of a held scroll arrow or spin button
   grab: int        ## where a dragged scroll thumb was taken hold of
+  grabFrom: int    ## (... and where the bar was then: dragged far off the bar, it goes back)
 
 # ---- look -------------------------------------------------------------------
 
@@ -900,14 +901,51 @@ proc frostAlpha(): uint8 = (if onDark(): 208 else: 196)
 proc glassFx*(): bool {.inline.} = uiLook == lookGlass and glassLook() and glassEffect
   ## The modern glass effect drawn now (`glassEffect`, in the Glass look).
 
+var glassLight* = 0.28
+  ## Where the light falls on the glass effect's glass, across its top: 0.0 its left end .. 1.0
+  ## its right (its glint at the foot across from it). The tilt of a phone moves it (`tilted`,
+  ## with the sensors on); a pointer or a finger on a pane of glass draws the glint to it.
+
+proc glassParams*(): tuple[blur, alpha, lens: int] =
+  ## How the glass effect's glass is drawn now, by `glassTint`: how far what is under it is
+  ## blurred, how much of its own color is over it (of 255) and how far in its edge bends what
+  ## is under it (`backdropBlur`'s `lens`). Clear: a light blur, little color, a deep lens;
+  ## tinted: frosted, more color, a shallow lens.
+  let t = clamp(glassTint, 0.0, 1.0)
+  let dark = onDark()
+  result.blur = dp(int(round(5.0 + 15.0 * t)))
+  result.alpha = int(round((if dark: 92.0 else: 70.0) + (if dark: 110.0 else: 120.0) * t))
+  result.lens = dp(int(round(14.0 - 7.0 * t)))
+
+proc concentric*(outer: float; inset: int; least = 0.0): float =
+  ## The corner radius of a shape `inset` pixels inside one rounded `outer`, so their curves keep
+  ## one center -- a card in a sheet, a button in a bar --, never less than `least`: the glass
+  ## effect rounds things inside each other so.
+  max(least, outer - float(inset))
+
 proc glassRim*(r: Rect; radius: float) =
   ## The lit edge of a pane of glass in `r` (`glassSurface`): a bright line round its top
   ## fading down its sides, a faint one at its foot where the light comes through, a second line
   ## of light just inside its top, and a faint dark hairline round it to set it off what is
-  ## behind.
+  ## behind. With the glass effect, a glint where the light falls (`glassLight`) -- under the
+  ## pointer or a finger when one is on it -- and a fainter one across at its foot.
   if r.w <= 2 or r.h <= 2: return
   let dark = onDark()
   let half = r.h div 2
+  if glassFx() and r.w >= dp(24):
+    let over = canHover() and mouseIn(r) or ui.mouseDown and mouseIn(r)
+    let f = if over: clamp((ui.mx - r.x) / max(1, r.w), 0.08, 0.92) else: glassLight
+    let lx = r.x + int(float(r.w) * f)
+    let rx = r.x + r.w - (lx - r.x)
+    let span = max(dp(18), r.w * 2 div 5)
+    for k in 1 .. 4:
+      let w = span * k div 4
+      pushClip(rect(lx - w div 2, r.y - 1, w, max(3, r.h div 3)))
+      roundFrame(r, radius, 1, withAlpha(white, if dark: 16 else: 30))
+      popClip()
+      pushClip(rect(rx - w div 2, r.y + r.h - max(3, r.h div 3), w, max(3, r.h div 3) + 1))
+      roundFrame(r, radius, 1, withAlpha(white, if dark: 9 else: 18))
+      popClip()
   roundFrame(inset(r, -1), radius + 1, 1, withAlpha(black, if dark: 90 else: 26))
   pushClip(rect(r.x - 1, r.y - 1, r.w + 2, half + 1))
   roundFrame(r, radius, 1, withAlpha(white, if dark: 92 else: 220))
@@ -929,19 +967,46 @@ proc glassSheen(r: Rect; radius: float) =
       let a = top * (n - k) div n
       if a > 0: hline(r.x, r.y + k, r.w, withAlpha(white, a))
 
-proc glassSurface*(r: Rect; radius: float; tint = Color(); lift = 4) =
+proc glassSurface*(r: Rect; radius: float; tint = Color(); lift = 4; clear = false) =
   ## A pane of the modern glass (`glassEffect`) in `r`, its corners rounded `radius`: a soft
-  ## shadow under it (`lift`), what is under it blurred and seen through it, `tint` over that a
-  ## little (the field's color when none), a sheen of light down from its top and its edges lit
-  ## (`glassRim`). What goes in it is drawn after it. The floating tab bar, the bars' buttons, a
-  ## toast; menus, dialogs, sheets and alerts through `frostedFace`.
+  ## shadow under it (`lift`), what is under it blurred and seen through it -- bent at its edge
+  ## as through a lens --, `tint` over that a little (the field's color when none), a sheen of
+  ## light down from its top and its edges lit (`glassRim`), as `glassTint` sets it from clear
+  ## to tinted. `clear`: clearer still, for glass over pictures and video (a knob held, a
+  ## player's buttons). What goes in it is drawn after it. The floating tab bar, the bars'
+  ## buttons, a toast; menus, dialogs, sheets and alerts through `frostedFace`. With
+  ## `glassSolid` (reduce transparency) nothing shows through it.
   if r.w <= 0 or r.h <= 0: return
-  let dark = onDark()
   if lift > 0: softShadow(r, radius, lift)
   let base = if tint.a == 0: th.field else: Color(r: tint.r, g: tint.g, b: tint.b, a: 255)
-  backdropBlur(r, dp(18), withAlpha(base, if dark: 150 else: 118), radius)
+  if glassSolid:
+    roundRect(r, radius, base)
+  else:
+    var g = glassParams()
+    if clear:
+      g.blur = max(dp(2), g.blur div 3)
+      g.alpha = g.alpha div 3
+      g.lens = g.lens + dp(4)
+    backdropBlur(r, g.blur, withAlpha(base, g.alpha), radius, lens = g.lens)
   glassSheen(r, radius)
   glassRim(r, radius)
+
+proc glassKnob*(k: Rect; down: bool; enabled = true) =
+  ## The round knob of a slider or a switch in the Glass look: white; with the glass effect,
+  ## held, it swells into a lens of clear glass over the track, what is under it showing bent
+  ## through it -- as the glass effect's knobs do while they are dragged.
+  let kd = min(k.w, k.h)
+  let cx = float(k.x) + float(k.w) / 2
+  let cy = float(k.y) + float(k.h) / 2
+  if down and enabled and glassFx() and not glassSolid:
+    let w = int(float(k.w) * 1.7)
+    let h = int(float(k.h) * 1.3)
+    let g = rect(int(cx) - w div 2, int(cy) - h div 2, w, h)
+    glassSurface(g, float(h) / 2, th.field, lift = 3, clear = true)
+    return
+  roundRect(rect(k.x, k.y + 1, k.w, k.h), float(kd) / 2, withAlpha(color(0, 0, 0), 60))
+  disc(cx, cy, float(kd) / 2 - 0.5,
+       if enabled: (if down: color(232, 234, 238) else: color(255, 255, 255)) else: mixColor(th.face, th.gray, 0.3))
 
 var glassBand*: tuple[r: Rect; frame: int]
   ## (the glass effect's bars at the top of the window -- `navBar`, a `searchBar` under it --
@@ -968,6 +1033,18 @@ proc glassUnderNow(x: int) =
     else: inc i
   glassUnders.add (x, ui.frameNo)
 
+proc scrollEdge*(r: Rect; top: bool) =
+  ## The glass effect's soft edge in `r`, where content scrolls under a bar of glass: the
+  ## window's color over it, strongest at the bar (`top`: the bar above `r`, else below it) and
+  ## fading out across `r` -- words going under the bar fade before they meet it. A bar of the
+  ## app's own over scrolling content draws it beside itself.
+  if r.w <= 0 or r.h <= 0: return
+  let a0 = if onDark(): 150 else: 170
+  for k in 0 ..< r.h:
+    let t = 1.0 - (float(k) + 0.5) / float(r.h)
+    let a = int(float(a0) * t * t)
+    if a > 0: hline(r.x, (if top: r.y + k else: r.y + r.h - 1 - k), r.w, withAlpha(th.window, a))
+
 proc glassBandAbove*(r: Rect): int =
   ## How far above `r` the glass effect's bars at the top of the window start when `r` is right
   ## under them (0 when it isn't): a view there runs on up under them, clipped to that much more
@@ -978,11 +1055,14 @@ proc glassBandAbove*(r: Rect): int =
   result = r.y - b.y
   if glassEdges.frame != ui.frameNo: glassEdges = (ui.frameNo, @[])
   if b.x notin glassEdges.xs and glassUnder(b.x):
-    # (something under the glass: a hairline at its foot, once, over the bars)
+    # (something under the glass: a hairline at its foot, once, over the bars; the glass
+    # effect's soft edge instead -- what scrolls up fading into the bars, the window's color
+    # coming up over it a little way under them)
     glassEdges.xs.add b.x
     let was = layer()
     setLayer(LayerDialog)
-    hline(b.x, b.y + b.h - 1, b.w, withAlpha(th.text, if onDark(): 44 else: 32))
+    if glassFx(): scrollEdge(rect(b.x, b.y + b.h, b.w, dp(16)), true)
+    else: hline(b.x, b.y + b.h - 1, b.w, withAlpha(th.text, if onDark(): 44 else: 32))
     setLayer(was)
 
 proc glassBandFace*(r: Rect) =
@@ -990,7 +1070,11 @@ proc glassBandFace*(r: Rect) =
   ## `searchBar`): the window's own face while nothing is under it; what has scrolled up under
   ## it blurred and seen through it, as through a menu's glass (a hairline at its foot: the view
   ## under it draws it, `glassBandAbove`).
-  if glassUnder(r.x): backdropBlur(r, dp(18), withAlpha(th.window, if onDark(): 176 else: 156), 0)
+  if glassUnder(r.x) and glassFx() and not glassSolid:
+    let g = glassParams()
+    backdropBlur(r, g.blur, withAlpha(th.window, min(230, g.alpha + 40)), 0)
+  elif glassUnder(r.x) and not glassSolid:
+    backdropBlur(r, dp(18), withAlpha(th.window, if onDark(): 176 else: 156), 0)
   else: fill(r, th.window)
 
 proc frostedFace*(r: Rect; back: Color; corner = 0.0): bool {.discardable.} =
@@ -1000,7 +1084,12 @@ proc frostedFace*(r: Rect; back: Color; corner = 0.0): bool {.discardable.} =
   ## shows, a sheen of light down from its top and its edges lit (`glassSurface`).
   if not frosted(): return false
   if glassFx():
-    backdropBlur(r, dp(18), withAlpha(back, (if onDark(): 172 else: 150)), corner)
+    # (menus, dialogs, sheets: the glass, a little more of its color than the bars' for their
+    # words -- solid when transparency is reduced)
+    if glassSolid: roundRect(r, corner, back)
+    else:
+      let g = glassParams()
+      backdropBlur(r, g.blur, withAlpha(back, min(235, g.alpha + 40)), corner, lens = g.lens div 2)
     glassSheen(r, corner)
     glassRim(r, corner)
     return true
@@ -1455,12 +1544,21 @@ template boxH*: int =
   ## finger-sized row around the same 13-pixel box.
   (if fingers(): CtrlH else: max(dp(13), FontH))
 
-proc checkBox*(b: Rect; checked, down, enabled: bool; hot = false) =
+proc checkBox*(b: Rect; checked, down, enabled: bool; hot = false; mixed = false) =
   ## The square of a check box (pixel exact at 100%, drawn smooth when
   ## scaled). (Glass: rounded; ticked, the highlight with a white check mark.) `hot`: under
-  ## the mouse -- the newer looks light it (3.1 did not).
+  ## the mouse -- the newer looks light it (3.1 did not). `mixed`: neither on nor off (things
+  ## chosen together that differ): 3.1 fills the square with a gray check of dots, the newer
+  ## looks put a dash in it.
   if glassLook():
     let rad = if matteLook(): float(max(1, dp(2))) else: max(2.0, float(b.w) / 4)
+    if mixed:
+      if enabled: glassAccent(b, rad) else: glassWell(b, rad, th.field)
+      let t = max(1.6, float(b.w) / 7)
+      let y = float(b.y) + float(b.h) / 2
+      thickLine(float(b.x) + float(b.w) * 0.26, y, float(b.x) + float(b.w) * 0.74, y, t,
+                if enabled: accentInk() else: th.gray)
+      return
     if checked and enabled:
       glassAccent(b, rad)
       if hot and not down and not glossLook(): roundRect(b, rad, withAlpha(white, 46))
@@ -1484,6 +1582,13 @@ proc checkBox*(b: Rect; checked, down, enabled: bool; hot = false) =
   fill(b, th.field)
   box(b, if enabled: th.edge else: th.gray)
   if down: box(inset(b, 1), th.edge)
+  if mixed:
+    # (3.1's third state: the square filled with dots of gray, a check of them)
+    let ib = inset(b, if down: 2 else: 1)
+    for y in ib.y ..< ib.y + ib.h:
+      for x in ib.x ..< ib.x + ib.w:
+        if ((x - ib.x) + (y - ib.y)) mod 2 == 0: fill(x, y, 1, 1, th.gray)
+    return
   if not checked: return
   let c = if enabled: th.fieldText else: th.gray
   if b.w == 13 and not hdDetail():
@@ -1595,6 +1700,7 @@ proc tooltip*(text: string) =
   ## Show `text` when the mouse rests on the widget drawn last (never after
   ## a finger was lifted there).
   if text.len > 0 and canInput() and canHover() and mouseIn(ui.lastRect): ui.tip = text
+  if text.len > 0: noteTipHelp(text)
 
 # ---- static widgets ---------------------------------------------------------
 
@@ -1859,6 +1965,42 @@ proc ellipsize*(s: string; maxW: int; st = TextStyle()): string =
     else: hi = mid - 1
   result = s.runeSubStr(0, lo) & ell
 
+proc ellipsizeMiddle*(s: string; maxW: int; st = TextStyle()): string =
+  ## `s` cut short in its middle to fit `maxW` pixels -- its start and its end kept, "..."
+  ## between ("Annual report 2026 \u2026 final.pdf"): for names whose ends tell them apart.
+  if textWidth(s, st) <= maxW: return s
+  let ell = "\u2026"
+  let n = s.runeLen
+  var lo = 0
+  var hi = n - 1
+  while lo < hi:
+    let mid = (lo + hi + 1) div 2
+    let a = (mid + 1) div 2
+    if textWidth(s.runeSubStr(0, a) & ell & s.runeSubStr(n - (mid - a)), st) <= maxW: lo = mid
+    else: hi = mid - 1
+  let a = (lo + 1) div 2
+  result = s.runeSubStr(0, a) & ell & s.runeSubStr(n - (lo - a))
+
+proc ellipsizePath*(path: string; maxW: int; st = TextStyle()): string =
+  ## A path cut short to fit `maxW` pixels as the guide has it: its first folder and as many of
+  ## its last parts as fit, "..." for the folders between ("/home/\u2026/2026/report.pdf",
+  ## "C:\\\u2026\\Example"); the name itself cut in its middle when even that is too long. Show
+  ## the whole path as its tooltip.
+  if textWidth(path, st) <= maxW: return path
+  let sep = if '\\' in path and '/' notin path: '\\' else: '/'
+  let parts = path.split(sep)
+  let first = if parts[0].len == 0 and parts.len > 1: 1 else: 0   # (/home: its first folder)
+  if parts.len < first + 3: return ellipsizeMiddle(path, maxW, st)
+  let head = parts[0 .. first].join($sep) & $sep & "\u2026"
+  var tail = ""
+  for i in countdown(parts.high, first + 1):
+    let t = $sep & parts[i] & tail
+    if tail.len > 0 and textWidth(head & t, st) > maxW: break
+    tail = t
+    if textWidth(head & tail, st) > maxW: break
+  result = head & tail
+  if textWidth(result, st) > maxW: result = ellipsizeMiddle(result, maxW, st)
+
 proc paragraph*(s: string; w = 0; color = Color()) =
   ## Word-wrapped text as wide as the space it is in (or `w`), in the UI font's cut for
   ## reading (Suhar App Read: `TextStyle.read`); a right-to-left paragraph (Arabic) set from the
@@ -1967,6 +2109,55 @@ proc button*(label: string; isDefault = false; enabled = true;
   dressed(accent, style):
     result = pushButton(label, isDefault, enabled, w, h, uiFontH)
 
+proc unfoldButton*(label: string; open: var bool; enabled = true): bool {.discardable.} =
+  ## A button that shows more of a dialog: "Options >>" while folded, "Options <<" unfolded; the
+  ## app draws the more while `open`, and the dialog grows by it -- for choices most people
+  ## never need, kept out of the way (the guide's unfold button). True when it flipped.
+  if button(label & (if open: " <<" else: " >>"), enabled = enabled):
+    open = not open
+    result = true
+
+proc glassButton*(label: string; prominent = false; clear = false; glyph = ""; w = 0;
+                  enabled = true): bool {.discardable.} =
+  ## A button of glass: a capsule with its label (`glyph`: an icon before it, or alone when
+  ## `label` is ""), true when clicked. `prominent`: tinted in the highlight -- the one action
+  ## that matters on the screen (Done, Buy, Play) --; `clear`: clearer glass, for a button over a
+  ## picture or a video. Pressed it swells a little and lights where the finger is. Without the
+  ## glass effect, a usual `button` (`prominent`: the accent button).
+  if not glassFx():
+    let t = if glyph.len > 0 and label.len > 0: glyph & "  " & label elif glyph.len > 0: glyph else: label
+    return button(t, accent = prominent, enabled = enabled, w = w)
+  let st = style(bold = prominent)
+  let gw = if glyph.len > 0: textWidth(glyph, st) else: 0
+  let lw = if label.len > 0: labelWidth(label, prominent) else: 0
+  let h = if fingers(): dp(44) else: max(CtrlH + dp(4), dp(30))
+  let natural = if lw == 0: h else: gw + (if gw > 0: dp(8) else: 0) + lw + dp(36)
+  let r = place(if w > 0: w else: natural, h)
+  let id = idOf("glassbtn:" & label & glyph)
+  var hit = interact(id, r, enabled = enabled)
+  if enabled:
+    spaceKey(id, hit)
+    if mnemonicHit(label): hit.clicked = true
+  # (pressed: a little bigger, as the glass effect's buttons swell under a finger)
+  let g = if hit.down: inset(r, -dp(2)) else: r
+  let rad = float(g.h) / 2
+  glassSurface(g, rad, th.field, lift = (if hit.down: 6 else: 3), clear = clear)
+  if prominent and enabled:
+    roundRect(g, rad, withAlpha(accentColor(), if glassSolid: 255 else: 190))
+    glassRim(g, rad)
+  elif hit.down: roundRect(g, rad, withAlpha(th.text, 16))
+  let ink = if not enabled: th.gray elif prominent: accentInk() else: th.text
+  var x = r.x + (r.w - (gw + (if gw > 0 and lw > 0: dp(8) else: 0) + lw)) div 2
+  let ty = r.y + (r.h - FontH) div 2
+  if gw > 0:
+    text(x, ty, glyph, ink, st)
+    x += gw + (if lw > 0: dp(8) else: 0)
+  if lw > 0: drawLabel(x, ty, label, ink, prominent)
+  if hit.focused: focusDots(inset(r, dp(3)))
+  if accessOn:
+    accessNode(arButton, (if label.len > 0: label else: glyph), id = id, r = r, states = offWhen(enabled))
+  hit.clicked
+
 proc buttonAt*(key: string; r: Rect; label: string; st = TextStyle(); enabled = true;
                down = false): bool {.discardable.} =
   ## A push button at `r` (for bars and overlays laid out by hand); true
@@ -2009,6 +2200,52 @@ proc checkbox*(label: string; v: var bool; enabled = true): bool {.discardable.}
   if accessOn:
     accessNode(arCheckBox, label, id = id, r = r,
                states = (if v: {asChecked} else: {}) + offWhen(enabled))
+
+type CheckState* = enum
+  ## A check box's three states (`checkbox` with a `var CheckState`): off, on, and mixed --
+  ## neither, for things chosen together that differ (some bold, some not).
+  csOff, csOn, csMixed
+
+var mixedFrom: seq[Id]                 # (three-state boxes that started mixed: they cycle back to it)
+
+proc checkbox*(label: string; v: var CheckState; enabled = true): bool {.discardable.} =
+  ## A check box of three states bound to `v`: `csMixed` shows what is chosen together
+  ## differs. Clicked (or Space) it goes on, then off; a box that was mixed goes back to mixed
+  ## after off, so what was there can be kept -- as the guide asks. True when it changed.
+  let id = idOf(v, label)
+  let tw = labelWidth(label)
+  let r = place(dp(19) + tw + 2, boxH)
+  var hit = interact(id, r, enabled = enabled)
+  if enabled:
+    spaceKey(id, hit)
+    if mnemonicHit(label): hit.clicked = true
+  if v == csMixed and id notin mixedFrom: mixedFrom.add id
+  if hit.clicked:
+    v = case v
+        of csMixed: csOn
+        of csOn: csOff
+        of csOff: (if id in mixedFrom: csMixed else: csOn)
+    result = true
+  let bs = dp(13)
+  let b = rect(r.x, r.y + (r.h - bs) div 2, bs, bs)
+  checkBox(b, v == csOn, hit.down, enabled, hot = enabled and hit.showsHover, mixed = v == csMixed)
+  let y0 = r.y + (r.h - FontH) div 2
+  drawLabel(r.x + bs + dp(6), y0, label, if enabled: th.text else: th.gray)
+  if hit.focused: focusDots(rect(r.x + bs + dp(4), y0 - 1, tw + 4, FontH + 2))
+  if accessOn:
+    accessNode(arCheckBox, label, id = id, r = r,
+               states = (case v
+                         of csOn: {asChecked}
+                         of csMixed: {asMixed}
+                         of csOff: {}) + offWhen(enabled))
+
+proc mixedOf*(values: openArray[bool]): CheckState =
+  ## The state a three-state box shows for `values` chosen together: on when all are, off
+  ## when none, mixed otherwise (`csOff` for none at all).
+  var on, off = false
+  for b in values:
+    if b: on = true else: off = true
+  if on and off: csMixed elif on: csOn else: csOff
 
 type RadioGroup = object
   key: uint                            # the variable the options share
@@ -2137,6 +2374,7 @@ proc scrollbarAt*(id: Id; r: Rect; vert: bool; v: var int; lo, hi, page: int;
         ui.dragsActive = true
         if i == 4:
           grab = (if vert: ui.my - thumb.y else: ui.mx - thumb.x)
+          grabFrom = v
         else:
           nv += steps[i]
           repeatAt = ui.now + 400
@@ -2149,6 +2387,10 @@ proc scrollbarAt*(id: Id; r: Rect; vert: bool; v: var int; lo, hi, page: int;
     if ui.active == ids[4] and ui.mouseDown and track > a:
       let m = (if vert: ui.my - r.y else: ui.mx - r.x) - grab - a
       nv = lo + (m * span + (track - a) div 2) div (track - a)
+      # (the mouse taken far off to the side of the bar: back where the drag began, as Windows
+      # does -- a drag gone wrong let go of; back near the bar, it follows again)
+      let off = if vert: max(r.x - ui.mx, ui.mx - (r.x + r.w)) else: max(r.y - ui.my, ui.my - (r.y + r.h))
+      if not ui.touch and off > max(dp(100), 6 * (if vert: r.w else: r.h)): nv = grabFrom
   nv = clamp(nv, lo, max(lo, hi))
   if nv != v:
     v = nv
@@ -2648,7 +2890,8 @@ proc openPopupMenu*(key: string; x, y: int)
 proc beginPopupMenuFor*(key: string): bool
   ## The menu `key` opened with `openPopupMenu` (see `popupMenu`): true while
   ## it is open.
-proc menuItem*(label: string; shortcut = ""; checked = false; enabled = true): bool
+proc menuItem*(label: string; shortcut = ""; checked = false; enabled = true;
+               hint = ""; isDefault = false): bool
   ## An item of the open menu; true when chosen.
 proc menuSeparator*()
   ## A line between groups of menu items.
@@ -3051,18 +3294,34 @@ proc editAt*(id: Id; s: var string; r: Rect; multi, pass, enabled: bool;
 
 proc edit*(s: var string; w = 0; password = false;
            enabled = true; readOnly = false; invalid = false;
-           h = 0; style = TextStyle(); hint = ""): bool {.discardable.} =
+           h = 0; style = TextStyle(); hint = ""; maxLen = 0; autoExit = false): bool {.discardable.} =
   ## A one-line text box bound to `s`; true when the text changed.
   ## `readOnly`: selected and copied, not changed. `invalid`: red, what is
   ## typed is not right yet (a form says so as it is typed). `style`: its
   ## text's (large, bold, serif): the box grows with it; `h`: its height.
   ## `hint`: gray words in it while it is empty ("New task"), its name for screen readers.
+  ## `maxLen`: at most that many characters (more typed or pasted are left out). `autoExit`
+  ## with it: filled, the focus goes on to the next box by itself, with what was typed past its
+  ## end -- for the parts of a fixed code (a card's groups of four, a date's day, month and
+  ## year), sparingly, as the guide says.
   let uiFontH = FontH
   withTextStyle(style):
     let r = place(if w > 0: w else: 0, styledH(h, EditH, uiFontH), fill = w <= 0)
     if hint.len > 0 and accessOn: accessNameOr(tr(hint))
-    result = editAt(idOf(s, "edit"), s, r, false, password, enabled, readOnly = readOnly,
+    let id = idOf(s, "edit")
+    result = editAt(id, s, r, false, password, enabled, readOnly = readOnly,
                     invalid = invalid)
+    if result and maxLen > 0:
+      var over = ""
+      if s.runeLen > maxLen:
+        over = s.runeSubStr(maxLen)
+        s = s.runeSubStr(0, maxLen)
+      if autoExit and ui.focus == id and s.runeLen == maxLen:
+        # (on to the next box, what was typed past the end with it: "12345" fills "1234" and
+        # starts the next with "5")
+        focusNext()
+        ui.typed = over
+      elif over.len > 0 or s.runeLen == maxLen: ui.typed.setLen(0)
     if hint.len > 0 and s.len == 0:
       pushClip(inset(r, 2))
       text(r.x + dp(4), r.y + (r.h - FontH) div 2, tr(hint), th.gray)
@@ -3653,7 +3912,8 @@ proc slider*(v: var int; lo, hi: int; w = 0; ticks = 10;
     if enabled and cx > chan.x: glassAccent(rect(chan.x, chan.y, cx - chan.x + tr.h div 2, tr.h), float(tr.h) / 2)
     let kd = min(tht, tw + dp(6))
     let knob = rect(cx - kd div 2, r.y + (tht - kd) div 2, kd, kd)
-    glassFace(knob, hit.down, enabled and hovered(thumb), radius = float(kd) / 2)
+    if glassFx() and ui.active == id and ui.mouseDown: glassKnob(knob, true, enabled)
+    else: glassFace(knob, hit.down, enabled and hovered(thumb), radius = float(kd) / 2)
   else:
     sunken(chan)
     hline(chan.x + 1, chan.y + 1, chan.w - 2, th.frame)
@@ -3794,7 +4054,8 @@ proc evalNumber*(s: string; v: var float): bool =
 const NumberSumChars* = {'0'..'9', '-', '+', '*', '/', '(', ')', ' '}
   ## (what a number box takes: digits and a little sum's signs)
 
-proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int): bool =
+proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int;
+             wrap = false): bool =
   let r = place(w, styledH(h, EditH, uiFontH))
   let id = idOf(v, "spin")
   var st: WState
@@ -3814,6 +4075,7 @@ proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int): 
              enabled, NumberSumChars):
     var x: float
     if evalNumber(st.buf, x) and abs(x) < 1e15: nv = int(round(x))
+  let typedV = nv
   if enabled and canInput():
     if ui.focus == editId:
       if keyHit(KeyUp): nv += step
@@ -3834,6 +4096,10 @@ proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int): 
           if mouseIn(b): nv += (if i == 0: step else: -step)
           repeatAt = ui.now + 50
         wakeIn(repeatAt - ui.now)
+  if wrap and nv != typedV:
+    # (stepped past an end: round to the other, as a clock's minutes do)
+    if nv > hi: nv = lo
+    elif nv < lo: nv = hi
   nv = clamp(nv, lo, hi)
   if nv != v:
     v = nv
@@ -3877,16 +4143,157 @@ proc spinBox(v: var int; lo, hi, w, step: int; enabled: bool; h, uiFontH: int): 
   ui.lastRect = r
 
 proc spin*(v: var int; lo, hi: int; w = 80; step = 1;
-           enabled = true; h = 0; style = TextStyle()): bool {.discardable.} =
+           enabled = true; h = 0; style = TextStyle(); wrap = false): bool {.discardable.} =
   ## A number box with up and down arrows bound to `v` in `lo..hi`: type a
   ## number (or a little sum: "1200/2", `evalNumber`), click or hold the arrows, or with the
   ## focus Up / Down (`step`), Page Up / Page Down (ten steps) and the wheel. `style`: its
   ## digits' (`style(size = 1.6, bold = true)`); the box and its arrows grow with
-  ## them, or to `h`.
+  ## them, or to `h`. `wrap`: stepping past an end goes round to the other (minutes, a
+  ## month's days, degrees); typed, it stops at the end.
   let uiFontH = FontH
   if not ui.nextKeyboard.set: textKeyboard(if lo < 0: kbDecimal else: kbNumber)   # (digits)
   withTextStyle(style):
-    result = spinBox(v, lo, hi, w, step, enabled, h, uiFontH)
+    result = spinBox(v, lo, hi, w, step, enabled, h, uiFontH, wrap)
+
+proc numberText(v: float; decimals: int): string =
+  ## (a number shown with at most `decimals` places, none when it is whole: "12", "10.5")
+  let d = clamp(decimals, 0, 6)
+  result = formatFloat(v, ffDecimal, d)
+  if '.' in result:
+    result = result.strip(leading = false, chars = {'0'})
+    if result.endsWith("."): result.setLen(result.len - 1)
+  if result == "-0": result = "0"
+
+proc numberSpin*(v: var float; lo, hi: float; step = 1.0; decimals = 1; w = 90;
+                 sizes: openArray[float] = []; enabled = true; wrap = false): bool {.discardable.} =
+  ## A number box with up and down arrows for a number with decimals -- a type size in points, a
+  ## length in millimeters -- and, with `sizes`, a list of the usual ones beside it, as a font's
+  ## size box has (8, 9, 10, 12, 14, 18, 24...). Type a number (or a little sum: "12*1.5",
+  ## `evalNumber`), click or hold the arrows (`step`), Up / Down with the focus (Page Up / Page
+  ## Down: ten steps), the wheel, or pick one from the list (its arrow, Alt+Down, F4). It shows at
+  ## most `decimals` places, none for a whole number ("12", "10.5"); true when `v` changed. It is
+  ## known by its place among the number spins of its id scope (`pushId` tells them apart), so
+  ## `v` may be a local made from the app's value each frame -- a size in points from pixels.
+  ## `wrap`: stepping past an end goes round to the other (an angle: 359 -> 0).
+  let r = place(w, EditH)
+  let id = idOfLabel("numspin", "")
+  let editId = id + 31
+  let listId = id + 50
+  var st: WState
+  swap(st, state(id))
+  if ui.focus != editId:
+    let t = numberText(v, decimals)
+    if st.buf != t: st.buf = t
+  var nv = v
+  let aw = max(if fingers(): dp(26) else: dp(16), r.h * 2 div 3)
+  let lw = if sizes.len > 0: SbW else: 0
+  let ups = rect(r.x + r.w - aw, r.y, aw, r.h div 2 + 1)
+  let downs = rect(r.x + r.w - aw, r.y + r.h div 2, aw, r.h - r.h div 2)
+  let lb = rect(r.x + r.w - aw - lw, r.y, lw, r.h)
+  let field = rect(r.x, r.y, r.w - aw - lw + 1, r.h)
+  if not ui.nextKeyboard.set: textKeyboard(kbDecimal)
+  if editAt(editId, st.buf, field, false, false, enabled, NumberSumChars + {'.', ','}):
+    var x: float
+    if evalNumber(st.buf.replace(',', '.'), x) and abs(x) < 1e15: nv = x
+  let typedV = nv
+  let open = ui.popup == listId
+  if enabled and canInput():
+    if ui.focus == editId:
+      if keyHit(KeyUp): nv += step
+      if keyHit(KeyDown): nv -= step
+      if keyHit(KeyPageUp): nv += step * 10
+      if keyHit(KeyPageDown): nv -= step * 10
+      if sizes.len > 0 and not open and dropKey():
+        ui.popup = listId
+        ui.menuOpen = false
+        ui.redraw = true
+      if mouseIn(r) and ui.wheel != 0 and not ui.wheelUsed:
+        ui.wheelUsed = true
+        nv += float(ui.wheel) * step
+    for i, b in [ups, downs]:
+      let bid = id + 40 + i.uint32
+      if hover(b) and takePress():
+        ui.active = bid
+        nv += (if i == 0: step else: -step)
+        repeatAt = ui.now + 400
+      elif ui.active == bid and ui.mouseDown:
+        if ui.now >= repeatAt:
+          if mouseIn(b): nv += (if i == 0: step else: -step)
+          repeatAt = ui.now + 50
+        wakeIn(repeatAt - ui.now)
+    if sizes.len > 0 and hover(lb) and takePress():
+      ui.popup = if open: 0 else: listId
+      ui.menuOpen = false
+      ui.redraw = true
+  if sizes.len > 0 and ui.popup == listId:
+    var names: seq[string]
+    var pick = -1
+    for i, s in sizes:
+      names.add numberText(s, decimals)
+      if abs(s - v) < 1e-6: pick = i
+    let lh = min(sizes.len, 8) * ItemH
+    var pr = rect(r.x, r.y + r.h - 1, r.w, lh)
+    if pr.y + pr.h > ui.h: pr.y = max(0, r.y - lh + 1)
+    var sel = pick
+    if popupList(listId, pr, names, sel) and sel >= 0:
+      nv = sizes[sel]
+      ui.popup = 0
+  if wrap and nv != typedV:
+    if nv > hi + 1e-9: nv = lo
+    elif nv < lo - 1e-9: nv = hi
+  nv = clamp(nv, lo, hi)
+  if abs(nv - v) > 1e-9:
+    v = nv
+    st.buf = numberText(v, decimals)
+    result = true
+  swap(state(id), st)
+  if accessOn:
+    var nm = ""
+    if accessTree.len > 0 and accessTree[^1].id == uint32(editId):
+      nm = accessTree[^1].name
+      accessTree.setLen(accessTree.len - 1)
+    let k = accessNode(arSpinButton, nm, value = numberText(v, decimals), id = editId, r = r,
+                       states = offWhen(enabled))
+    accessRange(k, lo, hi, v, step)
+  if lw > 0:
+    let pr = ui.popup == listId
+    if glassLook():
+      let cx = float(lb.x + lb.w div 2)
+      let cy = float(lb.y + lb.h div 2)
+      let k = float(max(3, lb.w div 5))
+      let ink = if enabled: mixColor(th.text, th.face, 0.2) else: th.gray
+      if pr or (enabled and hovered(lb)): roundRect(inset(lb, 2), float(dp(4)), withAlpha(th.text, if pr: 30 else: 14))
+      thickLine(cx - k, cy - k / 2, cx, cy + k / 2, 1.5, ink)
+      thickLine(cx, cy + k / 2, cx + k, cy - k / 2, 1.5, ink)
+    else:
+      buttonFace(lb, pr, rounded = false, bevel = 1, hot = enabled and hovered(lb))
+      let o = if pr: 1 else: 0
+      arrow(lb.x + lb.w div 2 + o, lb.y + lb.h div 2 - 1 + o, dDown, if enabled: th.frame else: th.gray)
+  if glassLook():
+    let sr = rect(ups.x + dp(2), r.y, aw - dp(2), r.h)
+    glassFace(sr, false, enabled and hovered(sr), radius = float(min(dp(7), sr.w div 2)), shadow = false)
+    for i, b in [ups, downs]:
+      let half = if i == 0: rect(sr.x + 1, sr.y + 1, sr.w - 2, sr.h div 2 - 1)
+                 else: rect(sr.x + 1, sr.y + sr.h div 2, sr.w - 2, sr.h - sr.h div 2 - 1)
+      if ui.active == id + 40 + i.uint32 and ui.mouseDown and mouseIn(b):
+        fill(half, withAlpha(color(0, 0, 0), if onDark(): 50 else: 22))
+      let cx = float(half.x + half.w div 2)
+      let cy = float(half.y + half.h div 2)
+      let k = float(max(2, min(half.w, half.h * 2) div 6))
+      let ink = if enabled: mixColor(th.text, th.face, 0.2) else: th.gray
+      let d = if i == 0: -1.0 else: 1.0
+      thickLine(cx - k, cy - d * k / 2, cx, cy + d * k / 2, 1.5, ink)
+      thickLine(cx, cy + d * k / 2, cx + k, cy - d * k / 2, 1.5, ink)
+    hline(sr.x + dp(3), sr.y + sr.h div 2, sr.w - 2 * dp(3), glassHair())
+  else:
+    for i, b in [ups, downs]:
+      let pr = ui.active == id + 40 + i.uint32 and ui.mouseDown and mouseIn(b)
+      buttonFace(b, pr, rounded = false, bevel = 1)
+      let o = if pr: 1 else: 0
+      arrow(b.x + b.w div 2 + o, b.y + b.h div 2 + o, if i == 0: dUp else: dDown,
+            if enabled: th.frame else: th.gray, max(3, b.h div 4))
+  ui.lastId = editId
+  ui.lastRect = r
 
 proc popupSlider*(v: var int; lo, hi: int; w = 0; unit = "%";
                   enabled = true): bool {.discardable.} =
@@ -5010,6 +5417,7 @@ proc endPanel*() =
                    y, maxY, max(ItemH, inner.h - ItemH), ItemH)
   if underBand and y > 0: glassUnderNow(underX)     # (the bars' glass shows it)
   let over = ord(maxY > 0)
+  if y != st.scrollY: noteMainScroll(inner, st.scrollY, y)
   if y != st.scrollY or over != st.aux:
     st.scrollY = y
     st.aux = over
@@ -5234,8 +5642,22 @@ proc walkItem(label, shortcut: string; checked, enabled: bool): bool =
     result = true
   menuWalked.add (path, shortcut, enabled, checked)
 
+var
+  menuBarElsewhere*: proc (): bool {.nimcall.}
+    ## (the menu bar's menus shown by the system -- a Mac's menu bar at the top of the screen,
+    ## retroui/macmenu --: true while they are, and the window draws no bar of its own)
+  barElsewhere: bool                # (this frame's menu bar is so)
+
 proc beginMenubar*() =
   ## Starts the menu bar (see `menubar`).
+  barElsewhere = menuBarElsewhere != nil and menuBarElsewhere()
+  if barElsewhere:
+    # (the system shows its menus: walked, not drawn, no room taken in the window)
+    pushLayer(LayerBase)
+    walkDepth = 0
+    walkPath.setLen(0)
+    if menubarHooks.before != nil: menubarHooks.before()
+    return
   pushLayer(LayerBase)              # above the scrolled content, unclipped
   # (as many rows as its menus took last frame: on a phone they wrap)
   let barRows = barRowsOf[inWindow()]
@@ -5260,6 +5682,12 @@ proc beginMenubar*() =
 
 proc endMenubar*() =
   ## Ends the menu bar: F10 opens its first menu; Left / Right go along it.
+  if barElsewhere:
+    popLayer()
+    walkDepth = 0
+    if menubarHooks.after != nil: menubarHooks.after()
+    barElsewhere = false
+    return
   if accessOn: accessEnd()
   popLayer()
   walkDepth = 0
@@ -5304,6 +5732,8 @@ proc menuCols(st: WState; y: int; fixedTop: bool): int =
   ## it is taller than the room it has)
   let room = if fixedTop: ui.h - dp(6) - y else: ui.h - dp(8)
   if st.caret == 0 or st.caret <= room: 1 else: max(1, st.anchor)
+
+var menuSeen: Table[Id, tuple[frame, at: int]]   # (menus drawn: the frame last, when they opened)
 
 proc beginPopupMenu(id: Id; x, y: int; level = 0; fixedTop = false; arrowAt = -1): bool =
   ## (`fixedTop`: a menu bar's menu, which hangs from its title; `arrowAt`: Gloss's arrow
@@ -5397,7 +5827,13 @@ proc endMenu*() =
         patchRoundRect(m.shade + k, rect(r.x - g + 1, r.y - g + 3, r.w + 2 * g - 2, r.h + 2 * g - 2),
                        rad + float(g), withAlpha(color(0, 0, 0), if onDark(): 34 - 5 * k else: 12 - 2 * k),
                        width = float(g + 3))
-    if frosted(): patchBlur(m.bg, r, dp(16), withAlpha(th.window, int(frostAlpha())), rad)
+    if glassFx() and frosted() and not glassSolid:
+      # (the glass effect: its glass, as the bars' and the sheets')
+      let g = glassParams()
+      patchBlur(m.bg, r, g.blur, withAlpha(th.window, min(235, g.alpha + 50)), rad, lens = g.lens div 2)
+      glassSheen(r, rad)
+      glassRim(r, rad)
+    elif frosted() and not glassSolid: patchBlur(m.bg, r, dp(16), withAlpha(th.window, int(frostAlpha())), rad)
     else: patchRoundRect(m.bg, r, rad, th.window)
     roundFrame(r, rad, 1, glassHair())
   else:
@@ -5418,6 +5854,23 @@ proc endMenu*() =
     ui.popupRect2Now = rect(x0, y0, max(o.x + o.w, pr.x + pr.w + 3) - x0, max(o.y + o.h, pr.y + pr.h + 3) - y0)
   # (the lines between columns)
   for c in 1 ..< m.cols: vline(m.x + c * m.w, m.y + 2, r.h - 4, th.shadow)
+  if glassFx() and smoothScrolling:
+    # (the glass effect: a menu grows out of where it hangs from as it opens, in a sixth of a
+    # second -- its button turning into it)
+    let seen = menuSeen.getOrDefault(m.id, (-10, 0))
+    let at = if seen.frame < ui.frameNo - 1: ui.now else: seen.at
+    menuSeen[m.id] = (ui.frameNo, at)
+    let t = float(ui.now - at) / 170.0
+    if t < 1:
+      let e = 1 - (1 - t) * (1 - t) * (1 - t)
+      let w0 = min(r.w, dp(90))
+      let h0 = min(r.h, MenuRowH + dp(6))
+      let gw = int(float(w0) + float(r.w - w0) * e)
+      let gh = int(float(h0) + float(r.h - h0) * e)
+      let gx = if ui.rtl: r.x + r.w - gw else: r.x
+      clipSpan(m.mark, cmdMark(), rect(gx - dp(8), r.y - dp(8), gw + dp(16), gh + dp(16)))
+      wakeIn(16)
+    if menuSeen.len > 64: menuSeen.clear()
   let lv = clamp(m.level, 0, MenuDepth - 1)
   if m.level >= 1:
     # (a submenu: where it is, for the menu it opened from)
@@ -5480,6 +5933,13 @@ var boldMenus* = true
 proc beginMenu*(title: string): bool =
   ## A menu of the menu bar (see `menu`): true while it is open (draw its
   ## items, then `endMenu`).
+  if barElsewhere:
+    # (the system shows the menus: this one only walked, when they are)
+    if not menuWalk: return false
+    walkDepth = 1
+    walkPath = @[splitMnemonic(title).text]
+    menuWalked.add (walkPath & "\x01", "", true, false)    # (where a menu starts)
+    return true
   let id = idOfLabel("menu:", title)
   let tw = labelWidth(title, boldMenus) + dp(16)
   if barX + tw > ui.winX + ui.w - ui.safe.right and barX > ui.winX + ui.safe.left:
@@ -5605,8 +6065,38 @@ proc menuSlot(h: int): Rect =
   if pm.cy + h > pm.bottom and pm.cy > pm.y + 3 + h: newMenuColumn()
   rect(pm.colX + 1, pm.cy, pm.w - 2, h)
 
+var
+  menuHintText: string            # (the lit item's hint, `menuHint`)
+  menuHintAt = -5                 # (... the frame it was lit in)
+
+proc stdMenuGlyph(label: string): string =
+  ## (the icon of a usual command, by its words: the Glass look shows it beside the item)
+  let t = splitMnemonic(label).text.toLowerAscii.strip(chars = {'.', ' ', '\xE2', '\x80', '\xA6'})
+  case t
+  of "cut": nfCut
+  of "copy": nfCopy
+  of "paste": nfPaste
+  of "undo": nfUndo
+  of "redo": nfRedo
+  of "delete": nfTrash
+  of "select all": nfSelectAll
+  of "find", "search": nfSearch
+  of "print": nfPrint
+  of "save": nfSave
+  of "share": nfShare
+  of "new": nfPlus
+  of "open": nfFolderOpen
+  of "rename", "edit": nfPencil
+  of "refresh", "reload": nfRefresh
+  of "properties", "settings", "preferences", "options": nfCog
+  of "close": nfWindowClose
+  of "help": nfHelpCircle
+  of "info", "get info", "about": nfInfoOutline
+  of "export": nfFileExport
+  else: ""
+
 proc itemRow(label, shortcut: string; checked, enabled, arrowRight: bool;
-             i: int): Rect =
+             i: int; isDefault = false): Rect =
   ## Lays out and draws one row of the open menu (its shortcut in this
   ## system's words: Cmd+S on a Mac for Ctrl+S).
   let shortcut = shortcutText(shortcut)
@@ -5635,7 +6125,14 @@ proc itemRow(label, shortcut: string; checked, enabled, arrowRight: bool;
     thickLine(cx - k, cy, cx - k / 3, cy + k * 0.7, w, ck)
     thickLine(cx - k / 3, cy + k * 0.7, cx + k, cy - k * 0.8, w, ck)
   elif checked: pattern(r.x + dp(7), r.y + (r.h - 7) div 2, checkMark, "k", [c])
-  drawLabel(r.x + dp(22), ty, label, c, boldMenus)
+  elif glassFx() and not arrowRight:
+    let g = stdMenuGlyph(label)
+    if g.len > 0:
+      let k = dp(14)
+      image(r.x + dp(4), r.y + (r.h - k) div 2, glyphIcon(g, c, k))
+  drawLabel(r.x + dp(22), ty, label, c, boldMenus or isDefault)
+  if isDefault and boldMenus:
+    drawLabel(r.x + dp(22) + 1, ty, label, c, true)   # (all are bold: this one bolder)
   if shortcut.len > 0:
     text(r.x + r.w - dp(14) - textWidth(shortcut, boldMenus), ty, shortcut, c, boldMenus)
   if arrowRight: arrow(r.x + r.w - dp(10), r.y + r.h div 2, dRight, c)
@@ -5726,9 +6223,19 @@ proc menuLetter(label: string; enabled: bool; i, level: int): bool =
       break
   ui.redraw = true
 
+proc menuHint*(): string =
+  ## What the menu item lit now says of itself (its `hint`): `statusbar` shows it across the
+  ## whole bar while a menu is open, as the guide asks ("Copies the selection to the
+  ## Clipboard"; for one grayed, why). Empty when no menu is open or its item has none.
+  if menuHintAt >= ui.frameNo - 1 and (ui.menuOpen or ui.popup != 0): menuHintText else: ""
+
 proc menuItem*(label: string; shortcut = ""; checked = false;
-               enabled = true): bool =
-  ## An item of the open menu; true when chosen.
+               enabled = true; hint = ""; isDefault = false): bool =
+  ## An item of the open menu; true when chosen. `hint`: a line saying what it does (or, grayed,
+  ## why it can't now), shown in the status bar while it is lit (`menuHint`). `isDefault`: the
+  ## item a double click does (Open in a file's menu), drawn bolder. In the Glass look the usual
+  ## commands -- Cut, Copy, Paste, Undo, Redo, Delete, Find, Print, Save, Share... -- show their
+  ## icon beside them by themselves.
   if walkDepth > 0: return walkItem(label, shortcut, checked, enabled)
   let i = pm.n
   inc pm.n
@@ -5760,7 +6267,11 @@ proc menuItem*(label: string; shortcut = ""; checked = false;
     ui.menuOpen = false
     closeSubs(0)
     ui.redraw = true
-  discard itemRow(label, shortcut, checked, enabled, false, i)
+  discard itemRow(label, shortcut, checked, enabled, false, i, isDefault)
+  if hint.len > 0 and hiOf(level) == i:
+    if menuHintText != hint or menuHintAt < ui.frameNo - 1: ui.redraw = true
+    menuHintText = hint
+    menuHintAt = ui.frameNo
   if accessOn:
     let k = accessNode(arMenuItem, label, id = itemId, r = r,
                        states = offWhen(enabled) + (if checked: {asChecked} else: {}))
@@ -5775,6 +6286,7 @@ proc beginSubmenu*(label: string; enabled = true): bool =
     if not enabled: return false
     inc walkDepth
     walkPath.add splitMnemonic(label).text
+    if barElsewhere: menuWalked.add (walkPath & "\x01", "", true, false)   # (a submenu starts)
     return true
   let i = pm.n
   inc pm.n
@@ -5831,7 +6343,9 @@ template submenu*(label: string; body: untyped) =
 
 proc menuSeparator*() =
   ## A line between groups of menu items (none at the top of a column).
-  if walkDepth > 0: return
+  if walkDepth > 0:
+    if barElsewhere: menuWalked.add (walkPath & "-", "", false, false)   # (a line, for the system's menu)
+    return
   pm.natural += dp(9)
   if pm.cy + dp(9) + MenuRowH > pm.bottom and pm.cy > pm.y + 3 + MenuRowH:
     newMenuColumn()                      # (the next row starts a column: no line)
@@ -5932,7 +6446,8 @@ template ToolH: int =
 
 var tbar: tuple[on, full: bool; y, h: int; chosen: string;
                 items: seq[tuple[key, label: string; enabled, down: bool]];
-                tailId: Id; sprung, jumped, again: bool]
+                tailId: Id; sprung, jumped, again: bool;
+                groupX, groupSlot, groupLayer: int]
   ## The tool bar being drawn: buttons that do not fit go into its "more"
   ## menu (`chosen`: the one picked there, which clicks next frame).
   ## `toolSpace()`: what follows it is at the bar's right end (`sprung`),
@@ -6030,6 +6545,31 @@ proc runKeys(id: Id; hit: var Hit) =
   ui.takesEnter = true
   if keyHit(KeyEnter): hit.clicked = true
 
+proc toolGroupOpen() =
+  ## (the glass effect: a group of tool buttons begins -- room kept under them for its capsule
+  ## of glass, its size known when it ends)
+  tbar.groupSlot = -1
+  if not glassFx(): return
+  tbar.groupX = layoutX()
+  tbar.groupLayer = layer()
+  tbar.groupSlot = reserveFill()
+
+proc toolGroupClose() =
+  ## (... it ends: its capsule of glass under its buttons, their edges lit over them -- the
+  ## glass effect's tool bar, its buttons grouped by what they do, as the guide has it)
+  if tbar.groupSlot < 0: return
+  let x1 = layoutX()
+  let slot = tbar.groupSlot
+  tbar.groupSlot = -1
+  if x1 - tbar.groupX < dp(8) or layer() != tbar.groupLayer: return
+  let gh = tbar.h - dp(8)
+  let g = rect(tbar.groupX - dp(4), tbar.y + (tbar.h - gh) div 2, x1 - tbar.groupX + dp(4), gh)
+  if glassSolid: patchFill(slot, g, th.field)
+  else:
+    let p = glassParams()
+    patchBlur(slot, g, p.blur, withAlpha(th.field, p.alpha), float(gh) / 2, lens = p.lens div 2)
+  glassRim(g, float(gh) / 2)
+
 proc beginToolbar*() =
   ## Starts the tool bar (see `toolbar`).
   pushLayer(LayerBase)
@@ -6053,6 +6593,7 @@ proc beginToolbar*() =
   tbar.sprung = false
   tbar.jumped = false
   tbar.again = false
+  toolGroupOpen()
 
 proc overflowsNow(w: int): bool {.inline.} =
   # (what was put at the bar's right end fits there as measured: no room kept for "more")
@@ -6075,6 +6616,7 @@ proc overflowItem(key, label: string; enabled, down: bool; clicked: var bool): b
 
 proc endToolbar*() =
   ## Ends the tool bar: the buttons that did not fit go into its "more" menu.
+  toolGroupClose()
   if tbar.sprung:
     # (how wide what followed `toolSpace()` is, for the next frame to put it at the
     # right end: kept as it was where the bar is too narrow to tell)
@@ -6128,6 +6670,16 @@ proc grayed(ic: Icon): Icon =
   for p in result.px.mitems:
     if (p shr 24) != 0: p = 0xFF808080'u32
 
+proc toolFace(r: Rect; pressed, hot: bool) =
+  ## (a tool button's face: 3.1's raised one; with the glass effect, in the tool bar, none --
+  ## its group's capsule is its glass --, a pill of the highlight pressed, a faint one under the
+  ## mouse)
+  if tbar.on and glassFx():
+    let pr = rect(r.x + dp(1), r.y + dp(1), r.w - dp(2), r.h - dp(2))
+    if pressed: roundRect(pr, float(pr.h) / 2, withAlpha(accentColor(), 70))
+    elif hot: roundRect(pr, float(pr.h) / 2, withAlpha(th.text, 20))
+  else: buttonFace(r, pressed, bevel = 1, hot = hot)
+
 proc toolButton*(ic: Icon; tip = ""; down = false;
                  enabled = true): bool {.discardable.} =
   ## A tool bar button with a 16x16 icon. `down` shows it pressed in.
@@ -6142,7 +6694,7 @@ proc toolButton*(ic: Icon; tip = ""; down = false;
     runNode(accessNode(if down: arToggleButton else: arButton, tip,
                        states = offWhen(enabled) + (if down: {asPressed} else: {})), lit)
   let pr = hit.down or down
-  buttonFace(r, pr, bevel = 1, hot = enabled and hovered(r))
+  toolFace(r, pr, enabled and hovered(r))
   if down and not hit.down: checker(inset(r, 2), th.light)   # a switched-on button: dithered
   let o = if pr: 1 else: 0
   # (the icon itself, not a copy of it, when it is not grayed)
@@ -6171,7 +6723,7 @@ proc toolButton*(caption: string; tip = ""; down = false; bold = false;
     runNode(accessNode(if down: arToggleButton else: arButton, (if tip.len > 0: tip else: caption),
                        states = offWhen(enabled) + (if down: {asPressed} else: {})), lit)
   let pr = hit.down or down
-  buttonFace(r, pr, bevel = 1, hot = enabled and hovered(r))
+  toolFace(r, pr, enabled and hovered(r))
   if down and not hit.down: checker(inset(r, 2), th.light)   # a switched-on button: dithered
   let o = if pr: 1 else: 0
   text(r.x + (r.w - tw) div 2 + o, r.y + (r.h - lineHeight(st)) div 2 + o, shown,
@@ -6299,7 +6851,7 @@ proc barButton*(pic: ButtonPic; label: string; tip = ""; down = false; enabled =
     runNode(accessNode(if down: arToggleButton else: arButton, (if label.len > 0: label else: tip),
                        states = offWhen(enabled) + (if down: {asPressed} else: {}), help = tip), lit)
   let pr = hit.down or down
-  buttonFace(r, pr, bevel = 1, hot = enabled and hovered(r))
+  toolFace(r, pr, enabled and hovered(r))
   if down and not hit.down: checker(inset(r, 2), th.light)   # a switched-on button: dithered
   drawLabeled(inset(r, 1), pic, label, lk, enabled, pr)
   if lit: focusDots(inset(r, 3))
@@ -6338,8 +6890,15 @@ proc buttonAt*(key: string; r: Rect; label: string; glyph: string; look = blText
 
 proc toolSeparator*(line = false) =
   ## A gap between groups of tool buttons. `line`: an etched line in the
-  ## gap, as the tool bars after 3.1 have between their groups.
+  ## gap, as the tool bars after 3.1 have between their groups. With the glass effect each group
+  ## is a capsule of glass of its own -- Undo and Redo in one, Bold, Italic and Underline in
+  ## another --, a gap between them, no line.
   if tbar.on and tbar.full: return
+  if tbar.on and glassFx():
+    toolGroupClose()
+    space(dp(10))
+    toolGroupOpen()
+    return
   if not line:
     space(8)
     return
@@ -6355,6 +6914,7 @@ proc toolSpace*(w = 0) =
   ## has left, so what comes after it is at the bar's right end (a search
   ## box, a Help button).
   if tbar.on and tbar.full: return
+  if tbar.on and glassFx(): toolGroupClose()
   if w > 0: space(w)
   elif not tbar.on: spring()
   else:
@@ -6362,6 +6922,7 @@ proc toolSpace*(w = 0) =
     tbar.sprung = true
     tbar.jumped = tail > 0 and available() >= tail
     barSpring(if tbar.jumped: tail else: 0)
+  if tbar.on and glassFx(): toolGroupOpen()
 
 proc statusbar*(parts: varargs[string]) =
   ## The status bar at the bottom of the window: the first part takes the
@@ -6380,6 +6941,15 @@ proc statusbar*(parts: varargs[string]) =
   let ty = r.y + 1 + (h - 1 - FontH) div 2
   let grip = sizeGrip()
   var x = r.x + r.w - 6 - ui.safe.right - (if grip.y >= r.y: grip.w else: 0)
+  let hint = menuHint()
+  if hint.len > 0:
+    # (a menu open: what its lit item does, across the whole bar)
+    let x0 = r.x + 6 + ui.safe.left
+    pushClip(rect(x0, r.y + 2, max(0, x - x0 - 4), h - 3))
+    text(x0, ty, tr(hint), th.text)
+    popClip()
+    if accessOn: accessNode(arStatusBar, tr(hint), id = 0, r = r)
+    return
   for i in countdown(parts.high, 1):
     let part = tr(parts[i])
     let w = textWidth(part) + 14
@@ -6815,6 +7385,11 @@ proc msgIcon*(kind: MsgIcon) =
     let tw = textWidth(g, true, 2)
     text(r.x + (32 - tw) div 2 + 1, r.y + 4, g, gc, true, 2)
 
+proc msgBoxOf(open: var bool; title, msg: string; buttons: openArray[string]; icon: MsgIcon;
+              dontAsk: ptr bool; dontAskLabel: string): int
+
+var dontAskShown: seq[tuple[key: uint32; frame: int]]   # (boxes with "Don't show this again" up)
+
 proc msgBox*(open: var bool; title, msg: string;
              buttons: openArray[string] = ["OK"]; icon = miInfo): int =
   ## A message box while `open`. Returns the number of the button clicked
@@ -6822,6 +7397,31 @@ proc msgBox*(open: var bool; title, msg: string;
   ## last button. A question with no way out but its answers -- its last
   ## button not Cancel, Close or OK: Yes and No, Abort, Retry and Ignore --
   ## has its close button grayed, as Windows has it (Esc still counts).
+  msgBoxOf(open, title, msg, buttons, icon, nil, "")
+
+proc msgBox*(open: var bool; title, msg: string; buttons: openArray[string]; icon: MsgIcon;
+             dontAsk: var bool; dontAskLabel = "Do&n't show this again"): int =
+  ## A message box with a check box under its words -- "Don't show this again" -- bound to
+  ## `dontAsk` (keep it with the app's settings). While `dontAsk` is true the box isn't shown:
+  ## opened, it answers its first button at once. For a warning the user may well know by
+  ## heart; never for one about losing work.
+  let key = fnv(title & "\x1F" & msg)
+  var shown = -5
+  for (k, f) in dontAskShown:
+    if k == key: shown = f
+  if open and dontAsk and shown < ui.frameNo - 1:
+    # (opened now, and the user said not to ask: its first answer)
+    open = false
+    return 1
+  var i = 0
+  while i < dontAskShown.len:
+    if dontAskShown[i].key == key or dontAskShown[i].frame < ui.frameNo - 1: dontAskShown.del(i)
+    else: inc i
+  if open: dontAskShown.add (key, ui.frameNo)
+  msgBoxOf(open, title, msg, buttons, icon, addr dontAsk, dontAskLabel)
+
+proc msgBoxOf(open: var bool; title, msg: string; buttons: openArray[string]; icon: MsgIcon;
+              dontAsk: ptr bool; dontAskLabel: string): int =
   var tw = 0
   # (the sizes grow with the UI's: at 300% a message wrapped at 360
   # pixels broke after every word or two, beside a tiny icon)
@@ -6839,6 +7439,9 @@ proc msgBox*(open: var bool; title, msg: string;
       col:
         space(if msg.contains('\n') or tw > dp(300): dp(2) else: dp(9))
         paragraph(msg, min(tw + 2, available()))
+        if dontAsk != nil:
+          space(4)
+          checkbox(dontAskLabel, dontAsk[])
     space(4)
     beginRow()
     space(max(0, (available() - bw) div 2))

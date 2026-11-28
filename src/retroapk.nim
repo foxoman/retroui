@@ -73,6 +73,12 @@ Options:
                      for files the system has no kind for, as IDML often is):
                      the file comes as sharedIn() does, with its document to
                      write back to when the other app allows it
+  --links:LINKS      the app opens these links (comma separated): a scheme of
+                     its own (myapp: myapp://song/12 opens it) or a web
+                     address's start (https://foxoman.net/app); the link it
+                     was opened with is retroui/device's takeLink()
+  --pip              the app can go on in a small window over the others
+                     (picture in picture: retroui/device's pictureInPicture)
   --widget           the app has a widget for the home screen: its icon, a
                      title, a line and two buttons, which the app sets
                      (retroui/system's homeWidget)
@@ -1448,7 +1454,8 @@ proc main() =
     nimFlags: seq[string]
     javaDirs, manifestFiles: seq[string]
     debuggable, install, runIt, storage, background, clean, aab, cleartext, widget = false
-    shareTypes, openTypes: seq[string]
+    shareTypes, openTypes, linkSchemes: seq[string]
+    pip = false
     signer = "auto"
     workDir = ""
     toolchain = getEnv("RETRO_ANDROID_TOOLCHAIN", "auto").toLowerAscii
@@ -1477,6 +1484,10 @@ proc main() =
       of "opens":
         for t in val.split(','):
           if t.strip.len > 0: openTypes.add t.strip
+      of "links":
+        for t in val.split(','):
+          if t.strip.len > 0: linkSchemes.add t.strip
+      of "pip": pip = true
       of "java": javaDirs.add val
       of "manifest": manifestFiles.add val
       of "minsdk": minSdk = parseInt(val)
@@ -1660,6 +1671,27 @@ proc main() =
         f.kids.add XNode(name: "data", attrs: @[sAttr("mimeType", 0x01010026, t)])
         any = true
       if any: activity.kids.add f
+  if linkSchemes.len > 0:
+    # (links that open the app: a scheme of its own, or a web address's start -- retroui/device's
+    # takeLink)
+    var f = XNode(name: "intent-filter", kids: @[
+      XNode(name: "action", attrs: @[sAttr("name", 0x01010003, "android.intent.action.VIEW")]),
+      XNode(name: "category", attrs: @[sAttr("name", 0x01010003, "android.intent.category.DEFAULT")]),
+      XNode(name: "category", attrs: @[sAttr("name", 0x01010003, "android.intent.category.BROWSABLE")])])
+    for l in linkSchemes:
+      let k = l.find("://")
+      if k < 0:
+        f.kids.add XNode(name: "data", attrs: @[sAttr("scheme", 0x01010027, l.strip(chars = {':', '/'}))])
+      else:
+        let rest = l[k + 3 .. ^1]
+        let slash = rest.find('/')
+        let host = if slash < 0: rest else: rest[0 ..< slash]
+        var attrs = @[sAttr("scheme", 0x01010027, l[0 ..< k]), sAttr("host", 0x01010028, host)]
+        if slash >= 0 and slash < rest.high: attrs.add sAttr("pathPrefix", 0x0101002b, rest[slash .. ^1])
+        f.kids.add XNode(name: "data", attrs: attrs)
+    activity.kids.add f
+  if pip:
+    activity.attrs.add bAttr("supportsPictureInPicture", 0x010104f7, true)
   if openTypes.len > 0:
     # (in a file manager's "Open with" for these kinds: the file opened -- a copy, written back
     # when the other app let it be written: retroui/system's sharedIn)

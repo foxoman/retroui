@@ -31,6 +31,9 @@ Options:
   --device:NAME      device to install on with --run (devicectl)
   --run              install and start it
   --nim:FLAG         pass a flag to the Nim compiler (repeatable)
+  --links:SCHEMES    the app opens links of these schemes of its own (comma
+                     separated: myapp opens myapp://song/12); the link is
+                     retroui/device's takeLink()
   --cleartext        the app may use plain http:// addresses (App Transport
                      Security's NSAllowsArbitraryLoads: a browser, a podcast
                      player)
@@ -58,12 +61,21 @@ proc xmlEscape(s: string): string =
   s.multiReplace(("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("\"", "&quot;"))
 
 proc infoPlist(name, id, exe, version, code, minIos: string; simulator: bool;
-               audio = false; cleartext = false): string =
+               audio = false; cleartext = false; links: seq[string] = @[]): string =
   let platform = if simulator: "iPhoneSimulator" else: "iPhoneOS"
   # (a sound of audioView plays on in the background)
   var modes = if audio: "  <key>UIBackgroundModes</key><array><string>audio</string></array>\n" else: ""
   if cleartext:
     modes.add "  <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>\n"
+  if links.len > 0:
+    # (the schemes of the links that open the app: retroui/device's takeLink)
+    modes.add "  <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>" & xmlEscape(id) &
+              "</string><key>CFBundleURLSchemes</key><array>"
+    for l in links: modes.add "<string>" & xmlEscape(l.split(':')[0]) & "</string>"
+    modes.add "</array></dict></array>\n"
+  # (what the app asks for: a reason the system shows -- the screen lock's Face ID, the motion)
+  modes.add "  <key>NSFaceIDUsageDescription</key><string>To make sure it is you</string>\n"
+  modes.add "  <key>NSMotionUsageDescription</key><string>To follow how the device is held</string>\n"
   """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -120,6 +132,7 @@ proc main() =
     code = "1"
     minIos = "14.0"
     simulator, runIt, makeIpa, cleartext = false
+    links: seq[string]
     nimFlags: seq[string]
   for kind, key, val in getopt(commandLineParams()):
     case kind
@@ -141,6 +154,9 @@ proc main() =
       of "nim": nimFlags.add val
       of "o", "out", "output": outDir = val
       of "ipa": makeIpa = true
+      of "links":
+        for t in val.split(','):
+          if t.strip.len > 0: links.add t.strip
       of "cleartext": cleartext = true
       of "verbose", "v": verbose = true
       of "help", "h": echo Usage; quit 0
@@ -192,7 +208,7 @@ proc main() =
     let c = readFile(f)
     if "audioView__" in c or "audioPlayer__" in c: audio = true
   writeFile(outDir / "Info.plist",
-            infoPlist(name, id, exe, version, code, minIos, simulator, audio, cleartext))
+            infoPlist(name, id, exe, version, code, minIos, simulator, audio, cleartext, links))
   writeFile(outDir / "PkgInfo", "APPL????")
   # icons: a given 1024 px PNG is copied for every size (iOS scales it)
   for (file, px) in [("AppIcon60x60@2x.png", 120), ("AppIcon60x60@3x.png", 180),

@@ -67,7 +67,9 @@ nim c -d:release -d:useMalloc -d:mingw --cpu:amd64 --app:gui --passL:build/myapp
 
 **macOS:** `xcode-select --install` gives the compiler. `sh
 tools/macapp.sh program "My App" 1.0 icon.png com.me.myapp out.zip` (in a
-clone) makes the `.app` with its icon and zips it.
+clone) makes the `.app` with its icon and zips it; `RETRO_LINKS=myapp` before
+it makes links of that scheme open the app (`takeLink` in `retroui/device`).
+On Linux and Windows the app says so itself, once: `registerLinks(["myapp"])`.
 
 **Linux:** gcc or clang; no `-dev` packages (libX11 is loaded when the
 app starts; Wayland is spoken by the kit itself). `nim c -r tools/appimage.nim program "My App" 1.0
@@ -603,7 +605,10 @@ same, with the document to write back to when that app allows it), and
 `--widget` gives it a widget for the home screen: its icon, a title, a
 line and two buttons, which the app sets with `homeWidget` (its buttons
 come as `notificationActions()` with the tag "widget"). Retro DNS and
-Retro Podcast have one.
+Retro Podcast have one. `--links:myapp,https://foxoman.net/app` makes those
+links open the app -- a scheme of its own, or a web address's start -- (the
+link comes as `takeLink()`, `retroui/device`), and `--pip` lets it go on in a
+small window over the others (`pictureInPicture()`).
 
 `--aab` makes an Android App Bundle for Google Play instead (below).
 `retroapk --help` lists every option. The examples have tasks:
@@ -634,7 +639,16 @@ retroapk app.nim --aab --name:"My App" --id:com.me.myapp --version:1.2 --code:3 
 
 In Play Console, let Google keep the app's signing key (Play App
 Signing) and upload `app.aab`; register `upload.der` as the upload key the
-first time. To try a bundle before uploading it, Google's bundletool makes
+first time.
+
+**Purchases in the app** (`storeStart`, `storeBuy`... in `retroui/device`)
+go through Google's Play Billing library, which the app brings itself --
+the kit reaches it by name, so nothing of Google's is in the kit: its
+`classes.dex` (made with d8 from the library's `classes.jar`) in a folder
+with a `manifest.txt` of one line, `uses-permission
+android:name=com.android.vending.BILLING`, given as `--java:DIR`. The
+products are set up in Play Console; on iOS they are StoreKit's, set up in
+App Store Connect. To try a bundle before uploading it, Google's bundletool makes
 the APKs a phone gets: `java -jar bundletool.jar build-apks
 --bundle=app.aab --output=app.apks --mode=universal`.
 
@@ -815,7 +829,11 @@ an upload to App Store Connect is not yet among the verified steps below.)
 
 `retroios --help`: `--name`, `--id`, `--version`, `--code`, `--icon`
 (1024x1024 PNG), `--min-ios` (default 14.0), `--simulator`, `--sign`,
-`--profile`, `--device`, `--run`, `--ipa`, `--nim:FLAG`, `-o:Dir.app`, `--verbose`.
+`--profile`, `--device`, `--run`, `--ipa`, `--links:myapp` (the schemes of
+the links that open the app: `takeLink()`), `--nim:FLAG`, `-o:Dir.app`, `--verbose`.
+The app's Info.plist says why it asks for Face ID and the motion sensors
+(`askUnlock`, `motion` in `retroui/device`); purchases are StoreKit's, set
+up in App Store Connect.
 Without a Mac, `retroios app.nim --sdk:iPhoneOS.sdk` (an iOS SDK copied
 from a Mac, and LLVM's `lld`) links an unsigned bundle -- to check that
 the app compiles for iOS.

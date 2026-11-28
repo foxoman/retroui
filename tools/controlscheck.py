@@ -22,7 +22,7 @@ MODULES = [
     "toolcustom", "dock", "textwidgets", "filewidgets", "charts", "planning",
     "mapview", "view3d", "htmlview", "markdown", "richedit", "media",
     "qrcode", "canvas2d", "report", "pdfview", "board", "tilemap",
-    "capture", "mediasession", "mobile",
+    "capture", "mediasession", "mobile", "modern", "barcode", "scanner",
 ]
 # Not in the list: calendar (there is no calendar.nim: `calendar` is in
 # business), photowidgets (Retro Atelier's own panels, not for other apps),

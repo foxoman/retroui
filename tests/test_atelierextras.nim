@@ -74,6 +74,35 @@ proc boxShape(d: Doc; r: Rect; c: uint32; name = "box"): Layer =
                                        fill: solidPaint(c)), name)
   d.markAll()
 
+block typeSizeBox:
+  # the Type tool's size box in the options bar: in points, its arrows step a point, its list the
+  # usual sizes (on a 72 ppi page: points and pixels alike)
+  let savedType = (typeStyle, viewPrefs.typeUnit)
+  typeStyle.size = 18
+  viewPrefs.typeUnit = tuPoints
+  discard fresh(400, 300, 0xFFFFFFFF'u32, "sizes")
+  tool = tType
+  accessKeep = true
+  run(3)
+  var n = -1
+  for i, nd in accessLast:
+    if nd.role == arSpinButton and nd.value == "18": n = i
+  check n >= 0, "the Type tool's size box: 18 (points)"
+  let r = nodeRect(accessLast[n])
+  let aw = max(if fingers(): dp(26) else: dp(16), r.h * 2 div 3)
+  click(rect(r.x + r.w - aw, r.y, aw, r.h div 2), dx = aw div 2, dy = r.h div 4)
+  run(2)
+  check abs(typeStyle.size - 19) < 0.01, "its up arrow: 19 pt (" & $typeStyle.size & ")"
+  click(rect(r.x + r.w - aw - SbW, r.y, SbW, r.h), dx = SbW div 2)
+  run(2)
+  check ui.popup != 0, "its arrow: the usual sizes listed"
+  click(rect(r.x, r.y + r.h - 1 + 3 * ItemH, r.w, ItemH), dx = dp(12))
+  run(2)
+  check abs(typeStyle.size - 9) < 0.01 and ui.popup == 0, "9 picked in the list: 9 pt (" & $typeStyle.size & ")"
+  accessKeep = false
+  tool = tMove
+  (typeStyle, viewPrefs.typeUnit) = savedType
+
 block hdrAndMasks:
   let (d, _) = fresh()
   runCommand("SDR to HDR...")

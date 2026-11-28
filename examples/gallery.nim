@@ -1627,6 +1627,96 @@ proc motionPage() =
           if travelPick != i and interact(idOf("travel" & n), at, focusable = false).clicked: travelPick = i
         label("Click a row: it flies into the box; another sends it back.", color = ui.theme.gray)
 
+var
+  # (the Guidelines page: the parts docs/hig.md asks for)
+  gBold = csMixed
+  gMinutes = 58
+  gSize = 12.0
+  gCode = ["", "", "", ""]
+  gMore = false
+  gCase = false
+  gSheet = false
+  gSheetPage = 0
+  gSheetChanged = false
+  gTitle = "Annual Report"
+  gTitleCopy = ""
+  gTipOpen = false
+  gTipDone = false
+  gSaveAsk = false
+  gEditing = false
+  gGroceries = @["Milk", "Bread", "Eggs", "Coffee"]
+  gQuery = ""
+  gScope = 0
+  gAddOpen = false
+  gNewItem = ""
+
+proc guidelinesTab() =
+  ## The parts the interface guidelines ask for (docs/hig.md): Retro Report and Retro Groceries
+  ## (examples/higdesk.nim, examples/higphone.nim) use them all.
+  adaptive(320):
+    group "The desktop's":
+      checkbox("&Bold (some of the text is)", gBold)
+      helpText "Mixed: part of what is chosen is bold. A click makes all of it bold, another none."
+      row([90, -1]):
+        label "&Minutes:"
+        spin(gMinutes, 0, 59, w = 70, wrap = true)
+        label "Type si&ze:"
+        numberSpin(gSize, 1, 400, sizes = [8.0, 9, 10, 12, 14, 18, 24, 36, 48, 72])
+      label "A code in four boxes (each goes on to the next when full):"
+      row:
+        for i in 0 ..< 4: edit(gCode[i], w = 56, maxLen = 4, autoExit = true)
+      unfoldButton("&Options", gMore)
+      if gMore: checkbox("Match &case", gCase)
+      label ellipsizePath("/home/sultan/Documents/Reports/2026/November/annual-report.pdf", dp(260))
+      row:
+        if button("P&roperties..."):
+          gTitleCopy = gTitle
+          gSheetChanged = false
+          gSheet = true
+        if button("&Tip"): gTipOpen = true
+        if button("Clo&se..."): gSaveAsk = true
+        if button("Wh&at's This?"): startHelpMode()
+        helpText "The next click on a control shows what it is for (Shift+F1 too)."
+    group "The phone's":
+      if navBar("Groceries", action = if gEditing: "Done" else: "Edit", done = gEditing) == npAction:
+        gEditing = not gEditing
+      searchBar(gQuery)
+      scopeBar(["All", "To Buy", "Bought"], gScope)
+      var gone = -1
+      editTableGroup("Today", gEditing):
+        for i, it in gGroceries:
+          if gQuery.len > 0 and gQuery.toLowerAscii notin it.toLowerAscii: continue
+          if tableRow(it, accessory = taChevron, key = it).deleted: gone = i
+      if gone >= 0: gGroceries.delete(gone)
+      let m = tableMoved()
+      if m.moved and m.a < gGroceries.len and m.b < gGroceries.len:
+        let it = gGroceries[m.a]
+        gGroceries.delete(m.a)
+        gGroceries.insert(it, m.b)
+      tableGroup(""):
+        if tableButton("Add Item"):
+          gNewItem = ""
+          gAddOpen = true
+          focusFirstText(inDialog = true)
+      row:
+        glassButton("Regular")
+        glassButton("Prominent", prominent = true)
+  let answer = propertySheet(gSheet, gTitle & " Properties", gSheetPage, ["General", "Summary"], 380,
+                             gSheetChanged):
+    case gSheetPage
+    of 0:
+      form 70:
+        field "&Title:":
+          if edit(gTitleCopy): gSheetChanged = true
+    else: label "Pages: 12"
+  if answer in {saOk, saApply}: gTitle = gTitleCopy
+  discard msgBox(gTipOpen, "Gallery", "Hold Shift while you drag for a straight line.", ["OK"], miInfo,
+                 gTipDone)
+  discard saveChangesBox(gSaveAsk, gTitle)
+  if beginModalSheet(gAddOpen, "New Item", done = "Add", doneEnabled = gNewItem.len > 0):
+    edit(gNewItem, hint = "Name")
+    if endModalSheet(gAddOpen) == shDone: gGroceries.add gNewItem
+
 proc kitTab() =
   tabs kTab, ["F&orms", "Co&de", "&Pages", "&Jobs", "Mo&tion", "&Graph", "Te&rminal", "&Surfaces",
               "Pho&ne"]:
@@ -1852,12 +1942,13 @@ app "Control Gallery", 760, 540, look = "retro-gallery":
     if fab(nfPlus, "New item"): toast("New item", glyph = nfPlus)
 
   # (the tabs: Ctrl+Tab and Ctrl+Shift+Tab, or the arrows on the strip --
-  # eighteen of them would take most letters, and Alt + a letter is the
+  # twenty of them would take most letters, and Alt + a letter is the
   # menus' (F, E, V, I, W, H) and the controls' of each page)
   tabs(tab, ["Controls", "Lists", "Business", "Charts", "Drawing", "Scrolling",
              "More", "Markdown", "Apps", "Files", "Records", "Windows", "Planning",
-             "Map && 3D", "Canvas", "HTML", "Reports", "System", "Forms && Code"]):
+             "Map && 3D", "Canvas", "HTML", "Reports", "System", "Forms && Code", "Guidelines"]):
     case tab
+    of 19: guidelinesTab()
     of 18: kitTab()
     of 14: canvasTab()
     of 15: htmlTab()

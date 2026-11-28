@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.83.1"
+const RetroVersion* = "0.84.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -1429,6 +1429,16 @@ var glassEffect* = true
   ## standing on a band of its own. The user's choice ("Glass effect" in `appearanceSettings`) is
   ## kept with the look and wins.
 
+var glassTint* = 0.5
+  ## The glass effect's glass from clear to tinted, 0.0 .. 1.0: clear lets what is under it show
+  ## the most -- sharper, bent at its edges as through a lens --; tinted is frosted, the easiest
+  ## to read over busy pictures. The user's "Glass" slider (`appearanceSettings`) wins.
+
+var glassSolid* = false
+  ## Reduce transparency: the glass effect's surfaces solid -- the bars, menus, sheets and
+  ## buttons keep their shapes, edges and light, and nothing shows through them. Follows the
+  ## system's setting ("Reduce transparency", "Transparency effects" off) when the app starts.
+
 var frostedGlass* = true
   ## In the Glass look, menus, dialogs and the lists a combo box drops down show what is under
   ## them blurred through their faces, as frosted glass (`backdropBlur`); false: their faces
@@ -1545,6 +1555,17 @@ proc scrollCaught*(): bool = flingCaught
 proc scrolling*(id: Id): bool = scrollAnims.hasKey(uint32(id))
   ## The scroller `id` is gliding, flying on after a flick or under a finger.
 
+var pauseHooks*: seq[proc () {.nimcall.}]
+  ## Called as the app goes to the background (a phone's Home, another app over it): what must be
+  ## kept is written now -- the system may end it there without a word (`keepState`).
+
+var
+  helpModeOn: bool                                  # (What's This?: the next click asks)
+  helpTips: seq[tuple[r: Rect; text: string; own: bool]]   # (this frame's helps, `helpText`)
+  helpPress: tuple[on: bool; x, y: int]              # (... the click that asked)
+  helpUp: bool                                      # (its release: taken too)
+  helpCard: tuple[on: bool; text: string; at: Rect]  # (the help shown, under `at`)
+
 proc scrollTarget*(id: Id; v: int): int =
   ## Where the scroller `id` is going (`v` itself when it is not gliding).
   let k = uint32(id)
@@ -1623,6 +1644,35 @@ proc noteWheel*(id: Id; sideways = false) =
   wheelX = ui.mx
   wheelY = ui.my
 
+var scrollTopAt = -5   # (the frame a tap on the status bar or a bar's title asked for the top)
+
+proc askScrollTop*() =
+  ## Scroll the window's big views back to their top, gliding -- what a tap on a phone's status
+  ## bar does, and the kit's `navBar` does for a tap on its title. The page and the views that
+  ## start near the window's top and fill a good part of it go; lists inside them stay.
+  scrollTopAt = ui.frameNo
+  ui.redraw = true
+
+var mainScroll*: tuple[frame, dir, y: int]
+  ## (the window's big view scrolled this `frame`: `dir` 1 down the content, -1 back up; `y` where
+  ## it is -- the floating tab bar shrinks and grows by it, `tabBarMinimizes`)
+
+proc tapIn*(r: Rect): bool =
+  ## A tap or a click let go of in `r` this frame that no widget took -- it went down in `r` too,
+  ## and the finger didn't scroll: for a place that answers taps without being a control (a
+  ## bar's title), never taking them from the controls over it.
+  ui.released and ui.active == 0 and not ui.panning and canInput() and
+    r.contains(point(ui.pressX, ui.pressY)) and r.contains(point(ui.mx, ui.my))
+
+proc noteMainScroll*(area: Rect; was, now: int) =
+  ## (a view scrolled from `was` to `now`: kept when it is a big one near the window's top)
+  if now != was and area.y <= ui.barY + dp(160) and area.h >= ui.h div 3:
+    mainScroll = (ui.frameNo, (if now > was: 1 else: -1), now)
+
+proc scrollTopAsked(area: Rect): bool =
+  ## (this scroller is to go to its top now: a big one near the window's top)
+  scrollTopAt >= ui.frameNo - 1 and area.y <= ui.barY + dp(160) and area.h >= ui.h div 3
+
 proc scrollWheel*(id: Id; v: var int; hi: int; area: Rect; step: int;
                   sideways = false): bool {.discardable.} =
   ## The wheel over `area` scrolls `v` (0 .. `hi`) by `step` pixels a notch,
@@ -1631,6 +1681,24 @@ proc scrollWheel*(id: Id; v: var int; hi: int; area: Rect; step: int;
   ## the wheel to what is around it -- a list at its bottom, the page goes
   ## on -- but notches that keep coming stay with the scroller they began
   ## in (`wheelLatched`). True when it took the wheel.
+  ## While something is dragged (`startDrag`) over the band at its top or bottom edge it scrolls
+  ## by itself that way, the faster the nearer the edge -- to drop it on what is out of view.
+  ## `askScrollTop` (a tap on a phone's status bar) takes a big one near the window's top back
+  ## to its top.
+  if not sideways and v > 0 and scrollTopAsked(area): scrollTo(id, v, 0, hi)
+  if ui.drag.active and hi > 0 and not sideways and ui.mx >= area.x and ui.mx < area.x + area.w and
+     ui.my >= area.y and ui.my < area.y + area.h and clipRect().contains(point(ui.mx, ui.my)):
+    let band = clamp(area.h div 6, dp(12), dp(32))
+    var d = 0
+    if ui.my < area.y + band: d = -(band - (ui.my - area.y))
+    elif ui.my >= area.y + area.h - band: d = band - (area.y + area.h - 1 - ui.my)
+    if d != 0:
+      scrollStop(id)
+      let nv = clamp(v + d div 2 + (if d > 0: 1 else: -1), 0, hi)
+      if nv != v:
+        v = nv
+        ui.redraw = true
+        wakeIn(16)
   if ui.wheel == 0 or ui.wheelUsed or hi <= 0 or not canInput() or not mouseIn(area):
     return false
   if sideways != (ShiftPressed in ui.mods): return false
@@ -2430,6 +2498,10 @@ proc systemDrag(paths: seq[string]; move, back: bool): DragOutResult =
   outResult = result
   ui.redraw = true
 
+var fingerDragOut* = false
+  ## (a finger may drag files out to another app: Android's split screen -- retroui/device sets
+  ## it, with the system's drag)
+
 proc dragFilesOut*(paths: seq[string]; move = false): bool {.discardable.} =
   ## Drags the files `paths` out of the window now, while the left button is
   ## down: to the system's file manager, a browser's upload box, a mail being
@@ -2439,7 +2511,7 @@ proc dragFilesOut*(paths: seq[string]; move = false): bool {.discardable.} =
   ## what it began clicks nothing; a drag of the toolkit's in progress ends.
   ## False with no paths, the button up, a finger's press, or where the
   ## platform cannot (`canDragFilesOut`: Windows, X11 and macOS can).
-  if paths.len == 0 or not ui.mouseDown or ui.fingerDown or not canDragFilesOut():
+  if paths.len == 0 or not ui.mouseDown or (ui.fingerDown and not fingerDragOut) or not canDragFilesOut():
     outResult = drNone
     return false
   if ui.drag.active: cancelDrag()
@@ -2454,7 +2526,7 @@ proc fileDragSource*(r: Rect; paths: proc (): seq[string]; move = false): bool {
   ## (`lastDragOut`: copied or moved). Nothing for a finger on a touch
   ## screen, or where the platform cannot (`canDragFilesOut`); call it every
   ## frame, after drawing what is in `r` (`ui.lastRect`).
-  if not canDragFilesOut() or ui.fingerDown: return false
+  if not canDragFilesOut() or (ui.fingerDown and not fingerDragOut): return false
   if ui.pressed:
     if hover(r): outArm = (true, r, ui.mx, ui.my)
     return false
@@ -2463,7 +2535,9 @@ proc fileDragSource*(r: Rect; paths: proc (): seq[string]; move = false): bool {
     outArm.on = false
     return false
   let d = max(3, dp(4))
-  if abs(ui.mx - outArm.x) < d and abs(ui.my - outArm.y) < d: return false
+  if ui.fingerDown:
+    if not ui.lift: return false        # (a finger: held still, then moved -- as phones lift things)
+  elif abs(ui.mx - outArm.x) < d and abs(ui.my - outArm.y) < d: return false
   outArm.on = false
   let ps = paths()
   if ps.len == 0: return false
@@ -3058,6 +3132,9 @@ proc layoutOrigin*(): (int, int) =
 
 proc layoutY*(): int = top().cy
   ## Where the current column's next cell starts (in a row: its line's top).
+
+proc layoutX*(): int = top().cx
+  ## Where the current row's next cell starts (in a column: its left).
 
 proc layoutWidth*(): int = top().w
   ## The current column's (or row's) width.
@@ -3786,6 +3863,7 @@ proc applyEvent(e: Event): bool =
     applyLayout(l)
   of AppPauseEvent:
     ui.paused = true
+    for hook in pauseHooks: hook()
   of AppResumeEvent:
     ui.paused = false
     ui.force = true
@@ -3813,6 +3891,15 @@ proc applyEvent(e: Event): bool =
     ui.active31 = true
     ui.fingerDown = ui.touch and not e.fromMouse
     if e.fromMouse: ui.hovering = true
+    if helpCard.on:
+      helpCard.on = false
+      ui.redraw = true
+    if e.button == LeftButton and helpModeOn:
+      # (What's This?: the click asks what is under it, and works nothing)
+      helpPress = (true, ui.mx, ui.my)
+      helpUp = true
+      ui.redraw = true
+      return true
     if e.button == LeftButton:
       ui.mouseDown = true
       ui.pressed = true
@@ -3841,6 +3928,9 @@ proc applyEvent(e: Event): bool =
     ui.rawMx = ui.mx
     ui.rawMy = ui.my
     penFrom(e)
+    if e.button == LeftButton and helpUp:
+      helpUp = false
+      return true
     if e.button == LeftButton:
       ui.mouseDown = false
       ui.released = true
@@ -3852,6 +3942,18 @@ proc applyEvent(e: Event): bool =
       return true
   of KeyDownEvent:
     dropKeyText = false
+    if helpCard.on:
+      helpCard.on = false
+      ui.redraw = true
+    if e.key == KeyF1 and ShiftPressed in e.mods and CtrlPressed notin e.mods and AltPressed notin e.mods:
+      # (Shift+F1: What's This? on, or off again)
+      helpModeOn = not helpModeOn
+      ui.redraw = true
+      return true
+    if e.key == KeyEsc and helpModeOn:
+      helpModeOn = false
+      ui.redraw = true
+      return true
     ui.key = e.key
     ui.mods = e.mods
     # (the arrows on a control that is no text box -- a list clicked, then
@@ -3966,6 +4068,7 @@ proc busyPump(boxShown: bool) =
         else: deferred.add e
     of AppPauseEvent:
       ui.paused = true
+      for hook in pauseHooks: hook()
       deferred.add e
     of AppResumeEvent:
       ui.paused = false
@@ -5042,6 +5145,92 @@ proc invalidate*() =
   ## Redraw the whole window on the next frame, and run that frame now.
   ui.force = true
 
+proc helpMode*(): bool = helpModeOn
+  ## What's This? is on: the pointer has a question mark, and the next click on a control shows
+  ## what it is for instead of working it (Shift+F1, `startHelpMode`; Esc ends it).
+
+proc startHelpMode*() =
+  ## Turns What's This? on (a Help menu's item, a dialog's "?" button): the next click on a
+  ## control shows its `helpText` -- or its tooltip -- in a pop-up and works nothing.
+  helpModeOn = true
+  helpCard.on = false
+  ui.redraw = true
+
+proc noteHelp(text: string; own: bool) =
+  if helpModeOn or helpPress.on or ui.key == KeyF1:
+    let r = intersect(ui.lastRect, clipRect())
+    if r.w > 0 and r.h > 0: helpTips.add (r, text, own)
+
+proc helpText*(text: string) =
+  ## What the widget drawn last is for, a sentence or two ("Prints the document on the printer
+  ## you chose"): shown in a pop-up by What's This? (`helpMode`) and by F1 while it has the
+  ## focus -- the guide's context help. A widget with only a tooltip shows its tooltip there.
+  noteHelp(text, true)
+
+proc noteTipHelp*(text: string) = noteHelp(text, false)
+  ## (a tooltip offered to What's This? -- `tooltip` calls it)
+
+proc finishHelp() =
+  ## (the click or F1 that asked for help: its card; the question mark by the pointer)
+  proc pick(p: Point): int =
+    result = -1
+    for i, h in helpTips:
+      if h.r.contains(p):
+        if result < 0: result = i
+        else:
+          let b = helpTips[result]
+          if h.r.w * h.r.h < b.r.w * b.r.h or (h.r == b.r and h.own and not b.own): result = i
+  if helpPress.on:
+    helpPress.on = false
+    helpModeOn = false
+    let i = pick(point(helpPress.x, helpPress.y))
+    helpCard = if i >= 0: (true, helpTips[i].text, helpTips[i].r) else: (false, "", Rect())
+    ui.redraw = true
+  elif ui.key == KeyF1 and not ui.keyUsed and ui.mods == {} and ui.focus != 0 and
+       ui.focusRect.w > 0:
+    let i = pick(point(ui.focusRect.x + ui.focusRect.w div 2, ui.focusRect.y + ui.focusRect.h div 2))
+    if i >= 0:
+      ui.keyUsed = true
+      helpCard = (true, helpTips[i].text, helpTips[i].r)
+      ui.redraw = true
+  helpTips.setLen(0)
+  if helpModeOn:
+    # (a question mark by the pointer)
+    pushLayer(LayerTip)
+    let k = max(FontH + 2, dp(16))
+    let q = rect(ui.mx + dp(12), ui.my + dp(14), k, k)
+    fill(q, ui.theme.tip)
+    box(q, ui.theme.edge)
+    text(q.x + (k - textWidth("?", true)) div 2, q.y + (k - FontH) div 2, "?", ui.theme.tipText, true)
+    popLayer()
+  if helpCard.on:
+    pushLayer(LayerTip)
+    let maxW = dp(300)
+    var lines: seq[string]
+    for para in tr(helpCard.text).split('\n'):
+      var cur = ""
+      for word in para.split(' '):
+        let t = if cur.len == 0: word else: cur & " " & word
+        if cur.len > 0 and textWidth(t) > maxW:
+          lines.add cur
+          cur = word
+        else: cur = t
+      lines.add cur
+    var w = 0
+    for l in lines: w = max(w, textWidth(l))
+    w += dp(12)
+    let h = lines.len * FontH + dp(10)
+    var x = helpCard.at.x + min(dp(16), helpCard.at.w div 2)
+    var y = helpCard.at.y + helpCard.at.h + dp(4)
+    if y + h > ui.h: y = max(0, helpCard.at.y - h - dp(4))
+    x = clamp(x, 0, max(0, ui.w - w))
+    let r = rect(x, y, w, h)
+    fill(rect(r.x + 3, r.y + 3, r.w, r.h), Color(r: 0, g: 0, b: 0, a: 60))
+    fill(r, ui.theme.tip)
+    box(r, ui.theme.edge)
+    for i, l in lines: text(r.x + dp(6), r.y + dp(5) + i * FontH, l, ui.theme.tipText)
+    popLayer()
+
 var shownTip: string      # (the tooltip the last frame showed: `tipShown`)
 
 proc drawTip() =
@@ -5139,6 +5328,7 @@ proc endPage() =
   const pageIdY = Id(0x9a6e5c90'u32)
   const pageIdX = Id(0x9a6e5c91'u32)
   let hiY = if ui.pageOn: ui.pageMax else: 0
+  if y > 0 and scrollTopAt >= ui.frameNo - 1: scrollTo(pageIdY, y, 0, hiY)   # (`askScrollTop`)
   if (ui.pageOn or ui.pageMaxX > 0) and ui.inputLayer == LayerBase and ui.popup == 0:
     let m = point(ui.mx, ui.my)
     if ui.wheel != 0 and not ui.wheelUsed and view.contains(m):
@@ -5194,6 +5384,7 @@ proc endPage() =
         fill(rect(bar.x + bar.w, bar.y, SbW - 1, SbW), ui.theme.face)
     popLayer()
   if y != ui.pageY or ui.pageOn != was or x != ui.pageX or (ui.pageMaxX > 0) != wasX:
+    noteMainScroll(view, ui.pageY, y)
     ui.pageY = y
     ui.pageX = x
     ui.redraw = true
@@ -5317,6 +5508,14 @@ proc frameFinish(main: bool) =
      dropFiles.len > 0:
     ui.inputOnly = not ui.redraw and main
     ui.redraw = true
+  if ui.released and ui.safe.top > 0 and ui.pressY < ui.safe.top and ui.my < ui.safe.top and
+     abs(ui.mx - ui.pressX) < dp(12) and not ui.panning:
+    askScrollTop()                         # (a tap on the status bar: the page back to its top)
+  if ui.drag.active and ui.key == KeyEsc and not ui.keyUsed and not ui.dragDropping:
+    # (Esc: the drag ends where it is, nothing dropped -- as the guide has it)
+    ui.keyUsed = true
+    ui.drag = DragInfo()
+    ui.redraw = true
   if ui.drag.active:
     if ui.dragDropping:
       ui.drag = DragInfo()
@@ -5404,6 +5603,7 @@ proc frameFinish(main: bool) =
   if ui.cursor != ui.shownCursor and not ui.touch:
     ui.shownCursor = ui.cursor
     setCursor(ui.cursor)
+  finishHelp()
   drawTip()
   ui.prevTakesEnter = ui.takesEnter
   # (a finger that came down on nothing while a text box had the keys: the keyboard goes, as on

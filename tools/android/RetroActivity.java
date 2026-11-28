@@ -88,6 +88,7 @@ public class RetroActivity extends NativeActivity {
     pictureInView();
     takeShared(getIntent());
     takeAction(getIntent());
+    RetroDevice.takeLink(getIntent());
     getWindow().getDecorView().setOnApplyWindowInsetsListener(
         new View.OnApplyWindowInsetsListener() {
           public WindowInsets onApplyWindowInsets(View v, WindowInsets in) {
@@ -121,6 +122,7 @@ public class RetroActivity extends NativeActivity {
         return;
       }
       surface = sv;
+      RetroDevice.listenDrops(this, sv);        // (what other apps drop on it)
       // (its place in the window after every layout: a title bar over it, the bars beside it)
       sv.getViewTreeObserver().addOnGlobalLayoutListener(
           new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
@@ -532,6 +534,7 @@ public class RetroActivity extends NativeActivity {
     setIntent(i);
     takeShared(i);
     takeAction(i);
+    RetroDevice.takeLink(i);
   }
 
   // A notification's button pressed (retroui/notify's actions): "tag\taction",
@@ -863,8 +866,9 @@ public class RetroActivity extends NativeActivity {
 
   @Override
   protected void onActivityResult(int request, int result, Intent data) {
-    // (a page's file picker)
+    // (a page's file picker; the screen lock asked)
     if (RetroWeb.onResult(request, result, data)) return;
+    if (RetroDevice.onResult(request, result)) return;
     if (request == PICK_TREE) {
       String r = "\u0001";
       if (result == RESULT_OK && data != null && data.getData() != null) {

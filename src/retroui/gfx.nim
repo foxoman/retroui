@@ -404,6 +404,23 @@ proc reorderSpans*(spans: openArray[tuple[a, b: int]]; order: openArray[int]) =
   if outCmds.len != b1 - a0: return               # (an order that drops or repeats)
   for i in 0 ..< outCmds.len: L[][a0 + i] = outCmds[i]
 
+proc clipSpan*(a, b: int; r: Rect) =
+  ## The commands `a ..< b` of the current layer (`cmdMark`) kept inside `r` as well: a part of
+  ## the frame drawn in full, shown only as far as `r` reaches -- a menu growing out of its
+  ## button as it opens.
+  let L = addr layers[curLayer]
+  if a < 0 or b > L[].len or a >= b: return
+  var cr = r
+  if mirrorW > 0: cr.x = mirrorW - cr.x - cr.w
+  for i in a ..< b:
+    if L[][i].kind == ckFill:
+      # (a fill is cut to its clip as it is made: the rectangle itself)
+      let r2 = intersect(L[][i].r, cr)
+      L[][i].r = if r2.w > 0 and r2.h > 0: r2 else: Rect()
+    else: L[][i].clip = intersect(L[][i].clip, cr)
+    L[][i].h = cmdHash(L[][i])
+    mix(frameHash, L[][i].h)
+
 proc noteState*(v: uint64) =
   ## Mixes `v` into what tells this frame from the last (a change that is
   ## not in the drawing commands themselves, such as their order).
@@ -1608,25 +1625,29 @@ proc checkerAt*(dev: Rect; cell, ox, oy: int; c0, c1: Color) =
 proc cornerOf(r: Rect; corner: float): float32 {.inline.} =
   float32(clamp(corner, 0.0, float(max(0, min(r.w, r.h))) / 2))
 
-proc backdropBlur*(r: Rect; radius = 16; tint = Color(); corner = 0.0) =
+proc backdropBlur*(r: Rect; radius = 16; tint = Color(); corner = 0.0; lens = 0) =
   ## Frosted glass: what is drawn under `r` so far, blurred -- each color spread about `radius`
   ## logical pixels round it -- with `tint` over it (its alpha: how much of it; none when 0), in
   ## `r` with its corners rounded `corner` pixels (the edge smooth). What is drawn after it is
   ## drawn over it as it is. The same on the CPU and the GPU; while it is on the screen, a
   ## change under it or near it draws it again (what is under it read back, made smaller,
-  ## blurred and put back: a little work, more the bigger it is).
+  ## blurred and put back: a little work, more the bigger it is). `lens`: its edge, that many
+  ## logical pixels in, bends what is under it as a lens's thick rim does -- what lies just
+  ## outside drawn in, squeezed, along its edge (the glass effect's).
   if r.w <= 0 or r.h <= 0 or radius <= 0 or intersect(r, curClip).w <= 0: return
   add Cmd(kind: ckBlur, r: r, clip: curClip, mag: int32(clamp(radius, 1, 64)),
-          color: pack(tint) or (uint32(tint.a) shl 24), size: cornerOf(r, corner))
+          color: pack(tint) or (uint32(tint.a) shl 24), size: cornerOf(r, corner),
+          flags: uint16(clamp(lens, 0, 255)))
 
-proc patchBlur*(i: int; r: Rect; radius = 16; tint = Color(); corner = 0.0) =
+proc patchBlur*(i: int; r: Rect; radius = 16; tint = Color(); corner = 0.0; lens = 0) =
   ## The fill `i` from `reserveFill` made a `backdropBlur` of `r` instead: a surface whose size
   ## is known only once what is in it is drawn (a menu), blurred under it all the same.
   if i < 0 or i >= layers[curLayer].len: return
   var c = Cmd(kind: ckFill)
   if r.w > 0 and r.h > 0 and radius > 0 and intersect(r, curClip).w > 0:
     c = Cmd(kind: ckBlur, r: r, clip: curClip, mag: int32(clamp(radius, 1, 64)),
-            color: pack(tint) or (uint32(tint.a) shl 24), size: cornerOf(r, corner))
+            color: pack(tint) or (uint32(tint.a) shl 24), size: cornerOf(r, corner),
+            flags: uint16(clamp(lens, 0, 255)))
     if mirrorW > 0: mirrorCmd(c)
   c.h = cmdHash(c)
   layers[curLayer][i] = c
@@ -2736,8 +2757,56 @@ proc blurredAt(k: BlurKept; x, y: int; tint: uint32): uint32 =
   let ta = tint shr 24
   if ta > 0: result = blend(result, tint and 0xFFFFFF'u32, ta)
 
-proc blurKey(c: Cmd): uint64 {.inline.} = uint64(cast[uint32](c.a)) or (uint64(cast[uint32](c.b)) shl 32)
-  ## (what was under a blur, hashed by `tileRuns`)
+proc blurKey(c: Cmd): uint64 {.inline.} =
+  ## (what was under a blur, hashed by `tileRuns`; its lens and its corners with it)
+  (uint64(cast[uint32](c.a)) or (uint64(cast[uint32](c.b)) shl 32)) xor
+    (uint64(c.flags) * 0x9E3779B97F4A7C15'u64) xor (uint64(cast[uint32](c.size)) shl 17)
+
+proc lensWarp(k: var BlurKept; dr: Rect; rad: float32; band: int) =
+  ## (a blur bent by a lens's rim, `band` device pixels in from the edge of `dr` -- rounded
+  ## `rad`: each small pixel there shows what lies further out, the more the nearer the edge,
+  ## so what is just outside comes in squeezed along it; deeper in, as it is)
+  if band <= 0 or k.sw < 2 or k.sh < 2 or dr.w <= 0 or dr.h <= 0: return
+  let f = float32(k.f)
+  let cx = float32(dr.x) + float32(dr.w) / 2
+  let cy = float32(dr.y) + float32(dr.h) / 2
+  let rr = min(rad, min(float32(dr.w), float32(dr.h)) / 2)
+  let hx = float32(dr.w) / 2 - rr
+  let hy = float32(dr.h) / 2 - rr
+  let bandF = min(float32(band), min(float32(dr.w), float32(dr.h)) / 2)
+  let src = k.px
+  template at(x, y: int): uint32 = src[clamp(y, 0, k.sh - 1) * k.sw + clamp(x, 0, k.sw - 1)]
+  for j in 0 ..< k.sh:
+    let py = float32(k.src.y) + (float32(j) + 0.5) * f
+    let dy = py - cy
+    let qy = abs(dy) - hy
+    for i in 0 ..< k.sw:
+      let px = float32(k.src.x) + (float32(i) + 0.5) * f
+      let dx = px - cx
+      let qx = abs(dx) - hx
+      var d, nx, ny: float32
+      if qx > 0 and qy > 0:
+        let l = sqrt(qx * qx + qy * qy)
+        d = l - rr
+        nx = (if dx >= 0: qx else: -qx) / l
+        ny = (if dy >= 0: qy else: -qy) / l
+      elif qx > qy:
+        d = qx - rr
+        nx = (if dx >= 0: 1'f32 else: -1'f32)
+      else:
+        d = qy - rr
+        ny = (if dy >= 0: 1'f32 else: -1'f32)
+      if d >= 0 or d <= -bandF: continue
+      let t = 1 + d / bandF                     # (1 at the edge, 0 a band in)
+      let amt = bandF * 0.9 * t * t
+      let u = (px + nx * amt - float32(k.src.x)) / f - 0.5
+      let v = (py + ny * amt - float32(k.src.y)) / f - 0.5
+      let i0 = int(floor(u))
+      let j0 = int(floor(v))
+      let tx = uint32(clamp(int((u - float32(i0)) * 256), 0, 256))
+      let ty = uint32(clamp(int((v - float32(j0)) * 256), 0, 256))
+      k.px[j * k.sw + i] = mixPx(mixPx(at(i0, j0), at(i0 + 1, j0), tx),
+                                 mixPx(at(i0, j0 + 1), at(i0 + 1, j0 + 1), tx), ty)
 
 var
   phaseHi: uint32 = high(uint32)  ## (the phase drawn now: the commands before this one)
@@ -2852,6 +2921,7 @@ proc cpuBarrier(c: Cmd; d: Rect) =
       # (what is under it changed: all it reads was drawn again, up to it)
       var k = BlurKept(src: src, used: frameNo)
       shrinkBlur(fbMem, fbW, src, blurReach(c), k)
+      if c.flags > 0: lensWarp(k, dr, rad, int(c.flags) * s)
       blurKept[key] = move k
     let k = addr blurKept[key]
     template sm: untyped = k.px
@@ -3023,7 +3093,7 @@ proc tileRuns(force: var bool; result: var seq[Rect]) =
           if layers[l][i].kind == ckBitmap: mix(h, frameBitmaps[layers[l][i].a].stamp)
     c.a = cast[int32](uint32(h and 0xFFFFFFFF'u64))
     c.b = cast[int32](uint32(h shr 32))
-    blurKept.withValue(h, k): k.used = frameNo
+    blurKept.withValue(blurKey(c), k): k.used = frameNo     # (its lens and corners in its key)
   tileWant.setLen(n)
   for t in 0 ..< n: tileWant[t] = force or tileHash[t] != shownTiles[t]
   if not force and barriers.len > 0:

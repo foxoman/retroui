@@ -31,7 +31,8 @@ import controlscheck as cc  # noqa: E402
 
 OUT = os.path.join(ROOT, "src", "retrodesigner", "registry.nim")
 EXTRA = ["textwidgets", "richedit", "qrcode", "pdfview",    # not in `import retroui`
-         "tilemap", "gltf", "capture", "mediasession", "forcegraph"]
+         "tilemap", "gltf", "capture", "mediasession", "forcegraph", "barcode", "scanner",
+         "device"]
 # Layout from core that the designer offers (the rest of core is the frame
 # loop, input, ids).
 CORE = {"row", "col", "rowPx", "spring", "space", "withId", "adaptive",
@@ -363,7 +364,8 @@ def clean_code(code):
     lines = []
     for l in code.split("\n"):
         st = l.strip()
-        if st in ("aim()", "aimed = true") or st.startswith("target = ") or st.startswith("aimAt("):
+        if st in ("aim()", "aimed = true") or st.startswith("target = ") or st.startswith("aimAt(") or \
+           st.startswith("hoverAfter = "):
             continue
         if re.match(r"^if .*: aim(At\(.*\))?(\(\))?$", st):
             continue                     # (where the mouse goes for the guide's picture: not the designer's)

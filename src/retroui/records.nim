@@ -1321,3 +1321,91 @@ template wizard*(open: var bool; title: string; step: var int;
     elif wasOpen and not open:
       act = waCancel                       # Esc, or the control-menu box
     act
+
+# ---- property sheets: OK, Cancel and Apply ------------------------------------------------------
+
+type SheetAction* = enum
+  ## What a `propertySheet`'s buttons did this frame.
+  saNone,        ## nothing
+  saOk,          ## OK: take the changes, the sheet closed
+  saApply,       ## Apply: take the changes, the sheet stays open
+  saCancel       ## Cancel (Esc, its close button): throw the changes away, the sheet closed
+
+var
+  sheetTitles: seq[string]         # (the sheets begun, innermost last)
+  sheetAsking: string              # (the sheet whose close is being asked about)
+  sheetAskOpen: bool
+
+proc beginPropertySheet*(open: var bool; title: string; page: var int;
+                         pages: openArray[string]; width: int; changed = false): bool =
+  ## Starts a property sheet (see `propertySheet`): true while it is `open`. `changed`: there
+  ## are changes not applied -- closed by Esc or its close button, it stays to ask about them.
+  let was = open
+  if not beginDialog(open, title, width):
+    if not (was and not open and changed and sheetAsking.len == 0): return false
+    # (closed by Esc or its close button with changes not applied: it stays, to ask)
+    open = true
+    sheetAsking = title
+    sheetAskOpen = true
+    if not beginDialog(open, title, width): return false
+  sheetTitles.add title
+  beginTabs(page, pages, sameHeight = true)
+  true
+
+proc endPropertySheet*(open: var bool; changed: var bool): SheetAction =
+  ## Ends a `beginPropertySheet`: the pages' tabs, then OK, Cancel and Apply under them (Apply
+  ## grayed until something `changed`); what was pressed. `changed` goes back to false once
+  ## the changes are taken or thrown away.
+  let title = if sheetTitles.len > 0: sheetTitles.pop() else: ""
+  endTabs()
+  row:
+    spring()
+    if button("OK", isDefault = true): result = saOk
+    if button("Cancel"): result = saCancel
+    if button("&Apply", enabled = changed): result = saApply
+  endDialog()
+  if result == saNone and not open:
+    # (closed by Esc or its close button: Cancel -- but changes not applied are asked about,
+    # since the close button isn't Cancel to everyone)
+    if changed and sheetAsking.len == 0:
+      open = true
+      sheetAsking = title
+      sheetAskOpen = true
+    elif not changed: result = saCancel
+  if sheetAsking == title and title.len > 0:
+    if not sheetAskOpen: sheetAskOpen = true
+    let n = msgBox(sheetAskOpen, title, "Do you want to apply the changes you made?",
+                   ["&Yes", "&No", "Cancel"], miWarning)
+    if n != 0:
+      sheetAsking = ""
+      case n
+      of 1: result = saOk
+      of 2: result = saCancel
+      else: open = true
+  case result
+  of saOk:
+    open = false
+    changed = false
+  of saCancel:
+    open = false
+    changed = false
+  of saApply: changed = false
+  of saNone: discard
+
+template propertySheet*(open: var bool; title: string; page: var int; pages: openArray[string];
+                        width: int; changed: var bool; body: untyped): SheetAction =
+  ## A property sheet: the properties of something in pages of tabs (`pages`), OK, Cancel and
+  ## Apply under them, as the guide has it. Title it "Name Properties". `body` draws the page of
+  ## `page` (a `case page`) with controls bound to copies of the values -- set `changed` when
+  ## one is changed --; on `saOk` and `saApply` put the copies into the real thing, on `saCancel`
+  ## (and when it opens) make them again from it. Switching pages takes nothing; closing it with
+  ## changes not applied asks whether to apply them. Returns what was pressed.
+  block:
+    var act = saNone
+    let wasOpen = open
+    if open and beginPropertySheet(open, title, page, pages, width, changed):
+      body
+      act = endPropertySheet(open, changed)
+    elif wasOpen and not open:
+      act = saCancel
+    act

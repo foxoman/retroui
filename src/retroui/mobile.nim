@@ -25,7 +25,7 @@
 import std/[tables, math, unicode, algorithm]
 from std/strutils import nil
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
-import gfx, core, widgets, business, desktop, extras, platform, nerdicons
+import gfx, core, widgets, business, desktop, extras, platform, nerdicons, modern
 import uirelays/input
 from typeset import textIsRtl
 
@@ -156,7 +156,7 @@ proc navButton(id: Id; r: Rect; label: string; back, primary: bool; bg: Color; e
   hit.clicked
 
 proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false;
-             menu = false): NavPick =
+             menu = false; cancel = ""): NavPick =
   ## A phone's navigation bar, the width of the row: the page's `title` in the middle, bold;
   ## a Back button before it (`back`: its label, a chevron before it; "" for none) and a
   ## button after it (`action`). Returns what was pressed. Alt+Left is Back too. Classic: a
@@ -164,7 +164,9 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   ## the glossy blue-gray bar, white title, bordered buttons, Back with a point. `done`: the
   ## action is the one that finishes the page (Done, Save): blue in Gloss, filled in Matte.
   ## `menu` (with no `back`): the button at its start is three lines -- the app's `sideMenu` --
-  ## and returns `npBack`. (With a `PageStack`, `pageHeader` says Back by itself.)
+  ## and returns `npBack`. (With a `PageStack`, `pageHeader` says Back by itself.) `cancel` (with
+  ## no `back`): a plain button at its start -- Cancel on a sheet that asks for something, with
+  ## Done or Save as `action` -- returning `npBack`.
   let h = if fingers(): dp(44) else: max(dp(32), CtrlH + dp(8))
   let cell = place(0, h, fill = true)
   let full = bleed(cell)
@@ -182,7 +184,9 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   let fxBar = glassFx() and not own and layer() == LayerBase
   var band = full
   if fxBar:
-    if full.y <= ui.barY + 1: band = rect(full.x, ui.winY, full.w, full.y + full.h - ui.winY)
+    # (up to the window's top -- under the kit's own title bar when it draws one)
+    let top = if ui.winY == 0: ui.captionH else: ui.winY
+    if full.y <= ui.barY + 1: band = rect(full.x, top, full.w, full.y + full.h - top)
     setLayer(LayerDialog)
     inputAs = LayerBase
     glassBandFace(band)
@@ -206,7 +210,11 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   let gloss = glossLook()
   let bst = glossButtonStyle()
   let glassPill = if fingers(): dp(34) else: CtrlH        # (Glass: its round buttons)
-  let leftW = if back.len == 0: (if menu: (if gloss: dp(40) elif modernGlass(): glassPill else: dp(36)) else: 0)
+  let leftW = if back.len == 0 and cancel.len > 0:
+                (if gloss: max(dp(32), labelWidth(cancel, bst)) + dp(20)
+                 elif modernGlass(): max(dp(40), labelWidth(cancel, true) + dp(28))
+                 else: labelWidth(cancel) + dp(18))
+              elif back.len == 0: (if menu: (if gloss: dp(40) elif modernGlass(): glassPill else: dp(36)) else: 0)
               elif gloss: min(bh div 2, dp(13)) + max(dp(24), labelWidth(back, bst)) + dp(10)
               else: labelWidth(back) + dp(11) + dp(18)
   let rightW = if action.len == 0: 0
@@ -218,7 +226,10 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   if back.len > 0 and navButton(idOf(key & ":back"), rect(r.x + edge, r.y + (h - backH) div 2, leftW, backH),
                                 back, true, false, bg, enabled):
     result = npBack
-  if back.len == 0 and menu:
+  if back.len == 0 and cancel.len > 0 and
+     navButton(idOf(key & ":cancel"), rect(r.x + edge, by, leftW, bh), cancel, false, false, bg, enabled):
+    result = npBack
+  if back.len == 0 and cancel.len == 0 and menu:
     # (the side menu's button: three lines on a bar button)
     let mr = if modernGlass(): rect(r.x + edge, r.y + (h - glassPill) div 2, glassPill, glassPill)
              else: rect(r.x + edge, by, leftW, bh)
@@ -255,7 +266,9 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   let st = if glossLook(): style(bold = true, size = if fingers(): 1.333 else: 1.2)
            elif modernGlass(): style(bold = true, size = if fingers(): 1.2 else: 1.1)
            else: style(bold = true)
-  let t = ellipsize(tr(title), max(dp(24), r.w - 2 * (max(leftW, rightW) + dp(12))), st)
+  # (a large title of the page's on the screen says it: the bar's own left out, `largeTitle`)
+  let t = if largeTitleShown(title): ""
+          else: ellipsize(tr(title), max(dp(24), r.w - 2 * (max(leftW, rightW) + dp(12))), st)
   let tw = textWidth(t, st)
   let tx = r.x + (r.w - tw) div 2
   let ty = r.y + (h - lineHeight(st)) div 2
@@ -265,6 +278,9 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
      ui.popup == 0 and hotkeyPressed("Alt+Left"):
     ui.keyUsed = true
     result = npBack
+  # (a tap on its title: the page back to its top, as a tap on the status bar)
+  let titleArea = rect(r.x + edge + leftW, r.y, max(0, r.w - 2 * edge - leftW - rightW), h)
+  if tapIn(titleArea): askScrollTop()
   if accessOn: accessNode(arHeading, title, r = r)
   if fxBar:
     inputAs = -1
@@ -1027,7 +1043,7 @@ proc swipeRow*(title: string; actions: openArray[string]; detail = ""; glyph = "
 
 # ---- sheets: an action sheet, a bottom sheet, a popover ----------------------------------------
 
-type SheetKind = enum skBottom, skMiddle, skPopover, skSide
+type SheetKind = enum skBottom, skMiddle, skPopover, skSide, skForm
 
 var
   sheetSeen: Table[Id, int]                            # (the frame each was drawn last: one just opened slides in)
@@ -1070,16 +1086,24 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
   ui.curDialog = id
   ui.dialogTopNow = id
   pushLayer(LayerDialog)
-  let room = rect(ui.winX, ui.winY, ui.w, ui.h - ui.winY)
+  let top0 = if ui.winY == 0: ui.captionH else: ui.winY     # (under the kit's own title bar)
+  let room = rect(ui.winX, top0, ui.w, ui.h - top0)
   let handleH = if handle: dp(18) else: 0
   let titleH = if title.len > 0: FontH + dp(12) else: 0
   let below = if kind == skBottom: ui.safe.bottom else: 0
   # (Gloss's popover: a dark frame round its white inside, as tablets had it then)
   let edge = if glossLook() and kind == skPopover and drawFace: dp(7) else: 0
-  let w = if kind == skBottom and sizeClass() == scCompact: room.w
+  let fullForm = kind == skForm and (sizeClass() == scCompact or room.w < dp(width) + 2 * dp(24))
+  # (the glass effect's bottom sheet: in from the screen's edges, the page showing round it)
+  let floatSheet = kind == skBottom and glassFx() and not glassSolid
+  let w = if floatSheet and sizeClass() == scCompact: room.w - 2 * dp(8)
+          elif kind == skBottom and sizeClass() == scCompact: room.w
+          elif fullForm: room.w
+          elif kind == skForm: min(dp(width), room.w - 2 * dp(24))
           elif kind == skSide: min(dp(width), room.w - dp(56))
           else: min(dp(width), room.w - 2 * dp(8))
-  let h = if kind == skSide: room.h
+  let h = if kind == skSide or fullForm: room.h
+          elif kind == skForm: min(st.aux + Pad, room.h - dp(48))
           else: min(handleH + titleH + st.aux + 2 * Pad + below + 2 * edge, room.h - dp(24))
   var x = room.x + (room.w - w) div 2
   var y = room.y + (room.h - h) div 2
@@ -1087,13 +1111,21 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
   var ax = 0
   case kind
   of skBottom:
-    y = room.y + room.h - h + st.scrollY
+    y = room.y + room.h - h + st.scrollY - (if floatSheet: dp(8) else: 0)
     if smoothScrolling and ui.now - st.aux2 < 240:
       # (sliding up from below)
       let t = 1.0 - (ui.now - st.aux2) / 240
       y += int(float(h) * t * t * t)
       wakeIn(16)
   of skMiddle: discard
+  of skForm:
+    # (a phone's: the whole screen; a tablet's and a desktop's: a sheet in the middle -- both
+    # sliding up from below)
+    if fullForm: y = room.y
+    if smoothScrolling and ui.now - st.aux2 < 260:
+      let t = 1.0 - (ui.now - st.aux2) / 260
+      y += int(float(room.y + room.h - y) * t * t * t)
+      wakeIn(16)
   of skSide:
     # (from the left edge -- the right one in a right-to-left interface -- sliding in)
     y = room.y
@@ -1145,10 +1177,11 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
     return false
   # its face: 3.1's frame with a shadow; the newer looks' rounded, a soft shadow under it (a
   # bottom one's corners rounded at its top only)
-  let rad = if kind == skSide: 0.0
+  let rad = if kind == skSide or fullForm: 0.0
             elif matteLook(): float(dp(2))
+            elif floatSheet: float(dp(28))
             elif glassLook(): float(if kind == skPopover: dp(10) else: dp(14)) else: 0.0
-  let fr = if kind == skBottom: rect(r.x, r.y, r.w, r.h + int(rad)) else: r
+  let fr = if kind == skBottom and not floatSheet: rect(r.x, r.y, r.w, r.h + int(rad)) else: r
   sheetRect = r
   let navy = (glossTone(0.385, 0.41), glossTone(0.65, 0.13))
   if not drawFace: discard
@@ -1173,9 +1206,12 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
     hline(fr.x + int(rad), fr.y + 1, fr.w - 2 * int(rad), withAlpha(white, 70))
     let inner = inset(fr, edge)
     roundRect(inner, max(0.0, rad - float(edge) + 2), th.field)
+  elif fullForm:
+    fill(fr, th.window)                 # (the whole screen: the page's own face, no frame)
   elif glassLook():
     softShadow(fr, rad, 6)
-    if not frostedFace(fr, th.window, rad): roundRect(fr, rad, th.window)
+    # (a form's sheet holds content: solid; the others glass)
+    if kind == skForm or not frostedFace(fr, th.window, rad): roundRect(fr, rad, th.window)
     roundFrame(fr, rad, 1, glassHair())
   else:
     fill(rect(fr.x + 3, fr.y + 3, fr.w, fr.h), withAlpha(black, 70))
@@ -1210,6 +1246,9 @@ proc beginSheet(open: var bool; id: Id; title: string; kind: SheetKind; width: i
   elif kind == skSide:
     # (its items from one side to the other, under the status bar: the whole height, for a panel)
     pushFrame(rect(r.x, r.y + ui.safe.top, r.w, r.h - ui.safe.top - ui.safe.bottom))
+  elif kind == skForm:
+    # (its bar from one side to the other, under the status bar on a phone's whole screen)
+    pushFrame(rect(r.x, r.y + (if fullForm: max(0, ui.safe.top - r.y) else: 0), r.w, 0))
   else:
     pushFrame(rect(r.x + Pad + edge, r.y + handleH + titleH + Pad + edge, r.w - 2 * Pad - 2 * edge, 0))
   true
@@ -1228,23 +1267,27 @@ proc endSheet() =
   ui.curDialog = s.was
 
 proc actionSheet*(open: var bool; title: string; actions: openArray[string]; destructive = -1;
-                  cancel = "Cancel"; message = ""): int =
+                  cancel = "Cancel"; message = ""; anchor = Rect()): int =
   ## A phone's action sheet, shown while `open`: what can be done to something, a button each
   ## -- the `destructive` one (Delete) in red --, Cancel apart under them. On a phone it comes
   ## up from the bottom, elsewhere in the middle of the window; what is behind it dims. Returns
   ## the action picked (and closes); -1 meanwhile, or when it was cancelled -- Cancel, Esc,
   ## the phone's Back, a tap beside it. Up and Down go along its buttons. Gloss: white glossy
   ## buttons on a dark sheet; Glass: its actions in a rounded card, Cancel in its own; Matte:
-  ## flat rows.
+  ## flat rows. `anchor`: the control that opened it (its `ui.lastRect`) -- it comes out of it,
+  ## in a popover pointing at it, with no Cancel (a tap beside it is Cancel) and nothing behind
+  ## it dimmed, as a tablet's did and the glass effect's do everywhere.
   result = -1
+  let pop = anchor.w > 0 and anchor.h > 0
   let compact = sizeClass() == scCompact or ui.touch
   let key = "actionsheet:" & title & $actions.len
   let sid = idOf(key)
-  let gloss = glossLook()
+  let gloss = glossLook() and not pop
   let matte = matteLook()
-  let cards = glassLook() and not gloss and not matte
-  if not beginSheet(open, sid, "", if compact: skBottom else: skMiddle, 320,
-                    drawFace = not (gloss or cards)): return
+  let cards = glassLook() and not glossLook() and not matte and not pop
+  if not beginSheet(open, sid, "", (if pop: skPopover elif compact: skBottom else: skMiddle),
+                    (if pop: 260 else: 320), anchor = anchor,
+                    drawFace = pop or not (gloss or cards)): return
   defer: endSheet()
   let sr = sheetRect
   if gloss:
@@ -1273,7 +1316,7 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
     if cards: space(-Gap)
     else: space(dp(4))
   # (Glass and Matte: the actions one block, a line between them; Cancel apart)
-  let joined = cards or matte
+  let joined = cards or matte or pop
   let blockR = if joined and actions.len > 0: place(0, bh * actions.len, fill = true) else: Rect()
   let cardRad = float(dp(14))
   if cards and actions.len > 0:
@@ -1292,7 +1335,7 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
     let t = ellipsize(tr(message), messageR.w)
     text(messageR.x + (messageR.w - textWidth(t)) div 2, messageR.y, t, titleInk)
   var focusedAt = -1
-  for i in 0 .. actions.len:
+  for i in 0 .. (if pop: actions.len - 1 else: actions.len):
     let isCancel = i == actions.len
     if isCancel: space(if gloss: dp(14) else: dp(8))
     let a = if isCancel: cancel else: actions[i]
@@ -1325,6 +1368,12 @@ proc actionSheet*(open: var bool; title: string; actions: openArray[string]; des
           roundRect(blockR, cardRad, withAlpha(th.text, 24))
           popClip()
       ink = if i == destructive: badColor() else: accentText()
+    elif pop:
+      # (in a popover: rows, a line between them, the destructive one in red)
+      if hit.down: fill(r, mixColor(th.window, accentColor(), 0.25))
+      elif hit.showsHover: fill(r, hoverColor())
+      if i > 0: hline(r.x, r.y, r.w, if glassLook(): glassHair() else: th.shadow)
+      ink = if i == destructive: badColor() elif glassLook(): accentText() else: th.text
     elif matte:
       let face = if isCancel: r else: r
       if hit.down: fill(face, mixColor(th.window, accentColor(), 0.3))
@@ -1366,6 +1415,60 @@ proc beginBottomSheet*(open: var bool; title: string; width = 560): bool =
 proc endBottomSheet*() =
   ## Ends a `beginBottomSheet`.
   endSheet()
+
+type SheetAnswer* = enum
+  ## How a `modalSheet` was left this frame.
+  shNone,      ## it wasn't (still open, or not open)
+  shDone,      ## Done (or the `done` button's own word: Save, Add, Send): take what is in it
+  shCancel     ## Cancel, Esc, the phone's Back: throw it away
+
+var modalAnswer: SheetAnswer
+
+proc beginModalSheet*(open: var bool; title: string; cancel = "Cancel"; done = "Done";
+                      doneEnabled = true; width = 540): bool =
+  ## Starts a modal sheet (see `modalSheet`): true while it is `open`.
+  modalAnswer = shNone
+  if not beginSheet(open, idOf("modalsheet:" & title), "", skForm, width, tapCloses = false):
+    return false
+  case navBar(title, action = done, done = true, cancel = cancel, enabled = true)
+  of npBack: modalAnswer = shCancel
+  of npAction:
+    if doneEnabled: modalAnswer = shDone
+  of npNone:
+    # (Done is the sheet's default button -- isDefault's rule: a control that took Enter keeps it)
+    if doneEnabled and not ui.prevTakesEnter and canInput() and keyHit(KeyEnter): modalAnswer = shDone  # isDefault
+  let f = sheetRect
+  pushFrame(rect(f.x + Pad, layoutY() + Pad, f.w - 2 * Pad, 0))
+  true
+
+proc endModalSheet*(open: var bool): SheetAnswer =
+  ## Ends a `beginModalSheet`: how it was left this frame (`open` false once it was).
+  let used = popFrame()
+  discard place(0, used + Pad, fill = true)
+  endSheet()
+  result = modalAnswer
+  if result != shNone:
+    open = false
+    ui.redraw = true
+
+template modalSheet*(open: var bool; title: string; body: untyped): SheetAnswer =
+  ## A sheet for a task of its own -- a new event, a message to write, an account to add --
+  ## with Cancel and Done on a bar at its top, as the guide has it: the whole screen on a phone,
+  ## sliding up from below; on a tablet or a desktop a sheet in the middle of the window, what is
+  ## behind it dimmed. A tap beside it doesn't close it (the work in it would be lost); Esc and
+  ## the phone's Back are Cancel, Enter is Done. Returns `shDone` (take what is in it) or
+  ## `shCancel` once, as it closes. (`beginModalSheet` names the buttons -- "Save", "Add" -- and
+  ## grays Done until the form is filled.)
+  block:
+    var ans = shNone
+    let was = open
+    if beginModalSheet(open, title):
+      try:
+        body
+      finally:
+        ans = endModalSheet(open)
+    elif was and not open: ans = shCancel
+    ans
 
 template bottomSheet*(open: var bool; title: string; body: untyped) =
   ## A sheet that comes up from the bottom of the window while `open`, over the rest (dimmed),
@@ -1657,23 +1760,33 @@ type
     toggled*: bool   ## `checkRow`: its check was tapped (Space): ticked or not
     menu*: bool      ## `tableRow`: a right click on it or a finger held on it: the app's menu
                      ## for it (an `actionSheet`)
+    deleted*: bool   ## in edit mode (`editTableGroup`): its Delete was tapped -- remove it
 
 var
-  tableGroups: seq[tuple[id: Id; r: Rect; rows, rowsBefore, gap: int; footer: string]]
+  tableGroups: seq[tuple[id: Id; r: Rect; rows, rowsBefore, gap: int; footer: string;
+                         editing, reorder: bool]]
   tableNo: tuple[frame, n: int]
+  tableDrag: tuple[group: Id; row, rowH, top: int]   # (a row's grip held: its group, its row)
+  tableMoves: tuple[frame: int; group: Id; a, b: int]  # (a row let go of in its new place)
 
 proc tableRadius(): float =
   if mobileStyle.groupCorner < 0: 0.0
   elif mobileStyle.groupCorner > 0: float(dp(1)) * mobileStyle.groupCorner
-  elif glossLook(): float(dp(9)) elif matteLook(): 0.0 elif glassLook(): float(dp(14)) else: 0.0
+  elif glossLook(): float(dp(9)) elif matteLook(): 0.0
+  elif glassFx(): float(dp(20))             # (the glass effect's: rounder, as its controls are)
+  elif glassLook(): float(dp(14)) else: 0.0
 
 proc tableRowH(two: bool): int =
   let base = if mobileStyle.rowHeight > 0: dp(mobileStyle.rowHeight)
-             elif fingers(): dp(44) else: max(dp(30), FontH + dp(14))
+             elif fingers(): dp(if glassFx(): 48 else: 44)       # (the glass effect's: roomier)
+             else: max(dp(if glassFx(): 34 else: 30), FontH + dp(14))
   if two: max(base + dp(10), 2 * FontH + dp(14)) else: base
 
-proc beginTableGroup*(header = ""; footer = "") =
-  ## Starts a group of table rows (see `tableGroup`).
+proc beginTableGroup*(header = ""; footer = ""; editing = false; reorder = false) =
+  ## Starts a group of table rows (see `tableGroup`). `editing`: its rows in edit mode, as a
+  ## list's Edit button puts them -- a red minus before each (`TableHit.deleted` once its Delete
+  ## is tapped), with `reorder` a grip at each one's end to drag it to another place
+  ## (`tableMoved`).
   if tableNo.frame != ui.frameNo: tableNo = (ui.frameNo, 0)
   inc tableNo.n
   if header.len > 0:
@@ -1681,7 +1794,9 @@ proc beginTableGroup*(header = ""; footer = "") =
     let st = if gloss: style(bold = true, size = 1.05)
              elif glassLook() and not matteLook(): style(bold = true, size = 0.8)
              else: style(bold = true, size = 0.9)
-    let t = if glassLook() and not gloss and not matteLook(): tr(header).toUpper else: tr(header)
+    # (the earlier Glass's headers in capitals; the glass effect's, as written: title case)
+    let t = if glassLook() and not gloss and not matteLook() and not glassFx(): tr(header).toUpper
+            else: tr(header)
     let hr = place(0, lineHeight(st) + dp(if fingers(): 10 else: 4), fill = true)
     let tx = hr.x + (if modernGlass(): dp(16) elif glassLook(): dp(12) else: 0)
     let ty = hr.y + hr.h - lineHeight(st) - dp(2)
@@ -1706,7 +1821,7 @@ proc beginTableGroup*(header = ""; footer = "") =
   elif matteLook(): discard
   elif glassLook(): glassPlate(cell, rad, th.field)
   else: fill(cell, th.field)
-  tableGroups.add (id, cell, 0, st.aux2, ui.m.gap, footer)
+  tableGroups.add (id, cell, 0, st.aux2, ui.m.gap, footer, editing, reorder and editing)
   ui.m.gap = 0
   pushFrame(rect(cell.x, cell.y, cell.w, 0))
 
@@ -1770,6 +1885,23 @@ template tableGroup*(header, footer: string; body: untyped) =
 template tableGroup*(header: string; body: untyped) =
   ## A group of rows with a header and no footer (see the other `tableGroup`).
   tableGroup(header, "", body)
+
+template editTableGroup*(header: string; editing: bool; body: untyped) =
+  ## A group of rows that an Edit button puts in edit mode (`editing`): a red minus before each
+  ## row -- tapped, a Delete button at its end; tapped, the row's `deleted` -- and a grip at
+  ## each one's end to drag it to another place (`tableMoved` says where to). Out of edit mode
+  ## it is a plain `tableGroup`. The navigation bar's Edit becomes Done while editing
+  ## (`navBar(..., action = if editing: "Done" else: "Edit")`).
+  beginTableGroup(header, "", editing, reorder = true)
+  try:
+    body
+  finally:
+    endTableGroup()
+
+proc tableMoved*(): tuple[moved: bool; a, b: int] =
+  ## The row dragged by its grip and let go of this frame in an `editTableGroup` ended before
+  ## this: from row `a` to row `b` (0 the first) -- move the item in the app's list so.
+  if tableMoves.frame == ui.frameNo: (true, tableMoves.a, tableMoves.b) else: (false, -1, -1)
 
 proc rowFrame(r: Rect; pressed: bool): tuple[first, last: bool; ink, sub, link: Color] =
   ## (a row's line over it, its pressed face; the colors of its text)
@@ -1884,11 +2016,43 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
   let gid = if tableGroups.len > 0: tableGroups[^1].id else: Id(0)
   let id = Id(mixId(uint32(gid), fnv("tablerow:" & (if key.len > 0: key else: title))))
   let pad = if fingers(): dp(12) else: dp(10)
+  # (edit mode -- `editTableGroup` --: the red minus, its Delete, the grip; first, they take
+  # their own presses)
+  let editing = tableGroups.len > 0 and tableGroups[^1].editing
+  let reorder = tableGroups.len > 0 and tableGroups[^1].reorder
+  let rowIx = if tableGroups.len > 0: tableGroups[^1].rows else: 0
+  var est = state(id + 5)                 # (aux 1: its Delete shown)
+  let dd = max(dp(22), FontH + dp(5))
+  let minusR = rect(r.x + pad, r.y + (r.h - dd) div 2, dd, dd)
+  let delSt = style(bold = true)
+  let delW = max(dp(72), textWidth("Delete", delSt) + dp(24))
+  let delR = rect(r.x + r.w - delW - dp(6), r.y + dp(5), delW, r.h - dp(10))
+  let gripR = rect(r.x + r.w - dp(44), r.y, dp(44), r.h)
+  if editing and enabled:
+    if interact(id + 3, minusR, focusable = false).clicked:
+      est.aux = 1 - est.aux
+      ui.redraw = true
+    if est.aux == 1 and interact(id + 4, delR, focusable = false).clicked:
+      result.deleted = true
+      est.aux = 0
+    if reorder and est.aux == 0:
+      if tableDrag.group == gid and tableDrag.row == rowIx and ui.active == id + 2 and ui.released:
+        # (let go: the row's new place, by where the finger is in the group)
+        let g = tableGroups[^1].r
+        let n = max(1, tableGroups[^1].rowsBefore)
+        let b = clamp((ui.my - g.y) div max(1, r.h), 0, n - 1)
+        if b != rowIx: tableMoves = (ui.frameNo, gid, rowIx, b)
+        tableDrag = (Id(0), -1, 0, 0)
+        ui.redraw = true
+      let gh = interact(id + 2, gripR, focusable = false)
+      if gh.down and ui.pressed: tableDrag = (gid, rowIx, r.h, r.y)
+  elif not editing: est.aux = 0
+  state(id + 5) = est
   # (the info button first: it takes its own press)
   let d = max(dp(22), FontH + dp(5))
   let ir = rect(r.x + r.w - pad - d, r.y + (r.h - d) div 2, d, d)
   var ih: Hit
-  if accessory == taInfo:
+  if accessory == taInfo and not editing:
     ih = interact(id + 1, ir, focusable = false, enabled = enabled)
     if ih.clicked: result.info = true
   var hit = interact(id, r, enabled = enabled)
@@ -1897,8 +2061,12 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
     if hit.focused:
       ui.takesEnter = true
       if keyHit(KeyEnter): hit.clicked = true
-  result.clicked = hit.clicked
-  if enabled and ui.rpressed and canInput() and mouseIn(r) and not mouseIn(ir):
+  result.clicked = hit.clicked and not editing
+  if editing and hit.clicked and est.aux == 1:
+    # (a tap on the row with its Delete shown: Delete goes)
+    est.aux = 0
+    state(id + 5) = est
+  if enabled and ui.rpressed and canInput() and mouseIn(r) and not mouseIn(ir) and not editing:
     result.menu = true
     result.clicked = false
   let pressed = (hit.down and not ih.down) or (selected and enabled)
@@ -1908,6 +2076,18 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
   var ink = if not enabled: th.gray else: ink0
   if accessory == taCheck and gloss and not pressed: ink = link
   var x = r.x + pad
+  if editing:
+    # (the red minus: a white bar across a red disc -- upright while its Delete shows)
+    let cx = float(minusR.x) + float(dd) / 2
+    let cy = float(minusR.y) + float(dd) / 2
+    let red = if gloss: color(214, 38, 38) else: color(235, 60, 50)
+    if gloss: discShaded(cx, cy, float(dd) / 2 - 1, mixColor(red, white, 0.35), red)
+    else: disc(cx, cy, float(dd) / 2 - 1, red)
+    let k = float(dd) * 0.28
+    let t = max(2.0, float(dp(2)))
+    if est.aux == 1: thickLine(cx, cy - k, cx, cy + k, t, white)
+    else: thickLine(cx - k, cy, cx + k, cy, t, white)
+    x += dd + dp(10)
   if glyph.len > 0: rowGlyph(r, x, glyph, tint, pressed, ink)
   if picture != nil and picture.w > 0:
     let d = r.h - dp(10)
@@ -1917,31 +2097,50 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
     x += d + dp(10)
   # the end: the accessory, then the detail before it
   var endX = r.x + r.w - pad
-  case accessory
-  of taChevron:
-    rowChevron(endX - dp(4), r.y + r.h div 2,
-               if lit: white elif gloss: color(123, 123, 123) else: th.gray)
-    endX -= dp(if gloss: 20 else: 18)
-  of taCheck:
-    rowCheck(endX - dp(7), r.y + r.h div 2,
-             if lit: white elif gloss: link elif glassLook(): accentText() else: ink)
-    endX -= dp(24)
-  of taInfo:
-    let cx = float(ir.x) + float(d) / 2
-    let cy = float(ir.y) + float(d) / 2
-    if gloss:
-      disc(cx, cy, float(d) / 2, if onDarkWindow(): black else: color(255, 255, 255))
-      let blue = glossTint(color(36, 112, 216))
-      discShaded(cx, cy, float(d) / 2 - 1.5, mixColor(blue, if ih.down: black else: white, 0.3),
-                 if ih.down: mixColor(blue, black, 0.25) else: blue)
-      chevron(int(cx) + 1, int(cy), d * 2 div 5, false, white, max(1.6, float(dp(2))))
-    else:
-      let ic = if lit: white else: accentText()
-      ring(cx, cy, float(d) / 2, max(1.3, float(dp(1)) + 0.3), ic)
-      let it = "i"
-      text(int(cx) - textWidth(it, true) div 2, int(cy) - FontH div 2, it, ic, true)
-    endX = ir.x - dp(8)
-  of taNone: discard
+  if editing:
+    if est.aux == 1:
+      # (Delete: a red button at the row's end)
+      let red = if gloss: color(204, 30, 30) else: color(235, 60, 50)
+      if gloss:
+        roundRect(delR, float(dp(5)), red)
+        glossTopShade(delR, float(dp(5)), [60])
+      else: roundRect(delR, float(delR.h) / 2, red)
+      text(delR.x + (delR.w - textWidth("Delete", delSt)) div 2, delR.y + (delR.h - lineHeight(delSt)) div 2,
+           "Delete", white, delSt)
+      endX = delR.x - dp(8)
+    elif reorder:
+      # (the grip: three lines to hold the row by)
+      let gw = dp(18)
+      let gx = gripR.x + (gripR.w - gw) div 2
+      for k in -1 .. 1:
+        fill(rect(gx, r.y + r.h div 2 + k * dp(5) - dp(1) div 2, gw, max(1, dp(1) + dp(1) div 2)), th.gray)
+      endX = gripR.x - dp(4)
+  if not editing:
+   case accessory
+   of taChevron:
+     rowChevron(endX - dp(4), r.y + r.h div 2,
+                if lit: white elif gloss: color(123, 123, 123) else: th.gray)
+     endX -= dp(if gloss: 20 else: 18)
+   of taCheck:
+     rowCheck(endX - dp(7), r.y + r.h div 2,
+              if lit: white elif gloss: link elif glassLook(): accentText() else: ink)
+     endX -= dp(24)
+   of taInfo:
+     let cx = float(ir.x) + float(d) / 2
+     let cy = float(ir.y) + float(d) / 2
+     if gloss:
+       disc(cx, cy, float(d) / 2, if onDarkWindow(): black else: color(255, 255, 255))
+       let blue = glossTint(color(36, 112, 216))
+       discShaded(cx, cy, float(d) / 2 - 1.5, mixColor(blue, if ih.down: black else: white, 0.3),
+                  if ih.down: mixColor(blue, black, 0.25) else: blue)
+       chevron(int(cx) + 1, int(cy), d * 2 div 5, false, white, max(1.6, float(dp(2))))
+     else:
+       let ic = if lit: white else: accentText()
+       ring(cx, cy, float(d) / 2, max(1.3, float(dp(1)) + 0.3), ic)
+       let it = "i"
+       text(int(cx) - textWidth(it, true) div 2, int(cy) - FontH div 2, it, ic, true)
+     endX = ir.x - dp(8)
+   of taNone: discard
   if count.len > 0:
     let cst = style(bold = true, size = if gloss and fingers(): 1.13 else: 1.0)
     let ch = lineHeight(cst) + dp(2)
@@ -1974,7 +2173,29 @@ proc tableRow*(title: string; detail = ""; accessory = taNone; glyph = ""; subti
   else:
     text(x, r.y + (r.h - FontH) div 2, ellipsize(title, endX - x, style(bold = bold)), ink, bold)
   if hit.focused: focusDots(inset(r, 2))
+  if editing and reorder and tableDrag.group == gid and tableDrag.row == rowIx and ui.mouseDown:
+    # (held by its grip: dimmed where it was, a line where it will go, itself by the finger)
+    fill(r, withAlpha(th.window, 150))
+    let g = tableGroups[^1].r
+    let n = max(1, tableGroups[^1].rowsBefore)
+    let b = clamp((ui.my - g.y) div max(1, r.h), 0, n - 1)
+    let ly = g.y + (if b > rowIx: b + 1 else: b) * r.h
+    fill(rect(g.x + dp(8), ly - dp(1), g.w - dp(16), max(2, dp(2))), accentColor())
+    let was = layer()
+    setLayer(LayerPopup)
+    let lr = rect(r.x, clamp(ui.my - r.h div 2, g.y - r.h div 2, g.y + g.h - r.h div 2), r.w, r.h)
+    if glassFx(): glassSurface(lr, tableRadius(), th.field, 8)
+    else:
+      softShadow(lr, tableRadius(), 6)
+      roundRect(lr, tableRadius(), th.field)
+    text(lr.x + pad + dd + dp(10), lr.y + (lr.h - FontH) div 2, ellipsize(title, lr.w - 2 * pad - dd - dp(54)),
+         th.fieldText, gloss)
+    setLayer(was)
+    wakeIn(16)
   if accessOn:
+    if editing and enabled:
+      accessNode(arButton, (if est.aux == 1: "Delete " else: "Remove ") & title, id = id + (if est.aux == 1: 4 else: 3),
+                 r = if est.aux == 1: delR else: minusR)
     accessNode(if accessory == taChevron: arButton else: arListItem, title,
                value = (if count.len > 0 and detail.len > 0: detail & ", " & count else: detail & count), id = id,
                r = r, states = offIf(enabled) + (if accessory == taCheck or selected: {asSelected} else: {}))
@@ -1990,7 +2211,11 @@ proc checkRow*(title: string; v: var bool; detail = ""; subtitle = ""; accessory
   ## `detailColor`: red when it is late), `subtitle` under the title, `flagged`: an orange flag
   ## before the end, `accessory` as `tableRow`'s. Gloss: the check a shining blue disc with a
   ## white tick, an empty ring before; Glass and Matte in the highlight; Classic 3.1's round
-  ## check.
+  ## check. In edit mode (`editTableGroup`) the row is edited as `tableRow`'s are: its minus in
+  ## place of the check, its grip at its end (`deleted`, `tableMoved`).
+  if tableGroups.len > 0 and tableGroups[^1].editing:
+    return tableRow(title, detail, taNone, subtitle = subtitle, enabled = enabled,
+                    key = "check:" & (if key.len > 0: key else: title))
   let two = subtitle.len > 0
   let r = place(0, tableRowH(two), fill = true)
   let gid = if tableGroups.len > 0: tableGroups[^1].id else: Id(0)
@@ -2484,6 +2709,18 @@ proc appearanceRows(): bool =
                        if framed: "" else: "What is under them shows blurred, as through frosted glass"):
         invalidate()
         result = true
+      if glassEffect:
+        var tint = int(round(glassTint * 100))
+        if settingSlider("Glass: clear to tinted", tint, 0, 100,
+                         if framed: "" else: "Clear shows the most of what is under the glass; tinted is easiest to read",
+                         suffix = "%"):
+          glassTint = tint.float / 100
+          invalidate()
+          result = true
+        if settingToggle("Reduce transparency", glassSolid,
+                         if framed: "" else: "The glass solid: nothing shows through bars, menus and buttons"):
+          invalidate()
+          result = true
   framedGroup("Sizes", ""):
     if framed:
       case stepRow("Size of everything", $uiScale() & "%")
@@ -2735,6 +2972,14 @@ proc searchBar*(s: var string; placeholder = "Search"; cancel = "Cancel"): bool 
   ui.lastRect = cell
 
 # ---- an action bar -------------------------------------------------------------------------------
+
+
+proc scopeBar*(scopes: openArray[string]; sel: var int): bool {.discardable.} =
+  ## Under a `searchBar`: where to search -- All, Mail, Contacts -- two to four scopes in a
+  ## segmented control the width of the row, as the guide has it. True when `sel` changed.
+  beginRow()
+  result = segmented(scopes, sel, w = available())
+  endRow()
 
 proc actionBar*(actions: openArray[(string, string)]; back = ""; signature = -1): int =
   ## The bar of a phone screen's actions along the bottom of the window (call it before the

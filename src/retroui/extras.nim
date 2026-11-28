@@ -227,9 +227,7 @@ proc drawSwitch*(track: Rect; on, enabled: bool; down = false; thumbX = -1) =
     elif enabled and onPart: glassAccent(track, float(track.h) / 2)
     else: glassWell(track, float(track.h) / 2, mixColor(th.window, th.text, if enabled: 0.14 else: 0.07))
     let k = rect(kx, inner.y, kd, kd)
-    roundRect(rect(k.x, k.y + 1, k.w, k.h), float(kd) / 2, withAlpha(color(0, 0, 0), 60))
-    disc(float(k.x) + kd / 2, float(k.y) + kd / 2, kd / 2 - 0.5,
-         if enabled: (if down: color(232, 234, 238) else: color(255, 255, 255)) else: mixColor(th.face, th.gray, 0.3))
+    glassKnob(k, down, enabled)
     return
   let inner = inset(track, 1)
   let tw = inner.w div 2
@@ -1860,6 +1858,30 @@ proc pager*(page: var int; pages: int; enabled = true): bool {.discardable.} =
 
 # ---- bottom navigation, floating button --------------------------------------------------------
 
+var
+  navBadges: seq[string]   # (the places' badges this call: `bottomNav` with badges)
+  navSearch = -1           # (... the search place, drawn apart)
+  navMin: tuple[t: float; at: int; want: bool]   # (the floating bar shrunk: 0 not .. 1 all the way)
+
+var tabBarMinimizes* = false
+  ## With the glass effect, the floating tab bar shrinks while the page scrolls down -- to a
+  ## round button of the place that is chosen, the content left the room -- and comes back as it
+  ## scrolls up, or with a tap on it. For apps whose pages are long reads (a player, a reader).
+
+proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discardable.}
+
+proc bottomNav*(items: openArray[(string, string)]; sel: var int;
+                badges: openArray[string]; search = -1): bool {.discardable.} =
+  ## `bottomNav` with a badge on the places that have news: a number in a red capsule at the top
+  ## of the glyph ("3" unread; "" none). Numbers only, as the guide says -- for what the user
+  ## would like to know of but needn't see at once. `search`: the place that is search -- with
+  ## the glass effect a round button of its own at the bar's end, apart from the others.
+  navBadges = @badges
+  navSearch = search
+  result = bottomNav(items, sel)
+  navBadges.setLen(0)
+  navSearch = -1
+
 proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discardable.} =
   ## The navigation bar of a phone app at the bottom of the window: a glyph
   ## and a label per place (`[(nfHome, "Home"), (nfSearch, "Search")]`).
@@ -1884,16 +1906,41 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   # light one under it; Matte: a dark bar, the chosen one marked by the highlight along its top;
   # Glass: a capsule of white glass standing on the window; Gloss Onyx: a capsule of black
   # gloss, the chosen one lit in the highlight)
-  let cap = rect(ui.safe.left + dp(14), r.y + dp(5), ui.w - ui.safe.left - ui.safe.right - dp(28), h - dp(11))
-  let capR = float(cap.h) / 2
+  var cap = rect(ui.safe.left + dp(14), r.y + dp(5), ui.w - ui.safe.left - ui.safe.right - dp(28), h - dp(11))
   # (the modern glass effect: no band -- the content runs on under the capsule, which floats over
   # it and is drawn over it, on the dialogs' layer, before any dialog; the content under it takes
   # no input there, and its page and panels scroll that much further: `floatInset`)
   let fx = glass and glassFx()
   let drawLayer = if fx: LayerDialog else: LayerBase
+  # (the glass effect: the search place a round button of its own at the end; the bar shrunk
+  # to the chosen place while the page scrolls down, `tabBarMinimizes`)
+  let searchAt = if fx and navSearch >= 0 and navSearch < items.len and items.len > 1: navSearch else: -1
+  var sr: Rect
+  if searchAt >= 0:
+    sr = rect(cap.x + cap.w - cap.h, cap.y, cap.h, cap.h)
+    cap.w -= cap.h + dp(8)
+  if fx and tabBarMinimizes:
+    if mainScroll.frame >= ui.frameNo - 1:
+      if mainScroll.dir > 0 and mainScroll.y > dp(40): navMin.want = true
+      elif mainScroll.dir < 0 or mainScroll.y <= 0: navMin.want = false
+    let goal = if navMin.want: 1.0 else: 0.0
+    let dt = float(max(0, ui.now - navMin.at)) / (if smoothScrolling: 200.0 else: 1.0)
+    navMin.at = ui.now
+    if navMin.t < goal: navMin.t = min(goal, navMin.t + dt)
+    elif navMin.t > goal: navMin.t = max(goal, navMin.t - dt)
+    if navMin.t != goal: wakeIn(16)
+  else: navMin = (0.0, ui.now, false)
+  let small = navMin.t >= 0.5
+  if navMin.t > 0:
+    let e = navMin.t * navMin.t * (3 - 2 * navMin.t)
+    cap.w = int(float(cap.w) * (1 - e) + float(cap.h) * e)
+  let capR = float(cap.h) / 2
   if fx:
     setLayer(drawLayer)
+    # (the soft edge: what scrolls under the bar fades as it goes down to it)
+    scrollEdge(rect(0, cap.y - dp(18), ui.w, ui.h - cap.y + dp(18)), false)
     glassSurface(cap, capR, th.field, lift = 6)
+    if searchAt >= 0: glassSurface(sr, float(sr.h) / 2, th.field, lift = 6)
     setLayer(LayerBase)
   elif floating:
     fill(r, th.window)
@@ -1930,7 +1977,15 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   else: ui.bottom = r.y
   let inner = if floating: rect(cap.x + dp(5), cap.y, cap.w - dp(10), cap.h)
               else: rect(ui.safe.left, r.y + 2, ui.w - ui.safe.left - ui.safe.right, h - 2)
-  let slot = inner.w div items.len
+  # (the places in the capsule, in their order: all but a search place apart; shrunk, the
+  # chosen one alone)
+  var order: seq[int]
+  for i in 0 ..< items.len:
+    if i == searchAt: continue
+    if small and i != sel and not (sel == searchAt and order.len == 0 and i == items.len - 1): continue
+    order.add i
+  if small and order.len == 0: order.add 0
+  let slot = inner.w div max(1, order.len)
   let gst = style(size = if gloss and fingers(): 1.6 elif floating: 1.25 else: 1.35)
   let gid = idOf("bottomnav:" & $items.len & items[0][1])
   let focused = tabStop(gid, inner)
@@ -1951,13 +2006,18 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   if gloss or darkGloss: setLineIcons(true, color(168, 168, 168))
   defer: (if gloss or darkGloss: setLineIcons(lineWas, th.text))
   for i, (glyph, label) in items:
-    let cell = rect(inner.x + slot * i, inner.y, slot, inner.h)
+    let j = order.find(i)
+    if j < 0 and i != searchAt: continue
+    let cell = if i == searchAt: sr else: rect(inner.x + slot * j, inner.y, slot, inner.h)
     let id = idOf("bottomnav:" & $i & label)
     setLayer(LayerBase)                 # (its input with the window's; drawn on `drawLayer`)
     let hit = interact(id, cell, focusable = false)
     setLayer(drawLayer)
     if hit.down and ui.pressed: ui.focus = gid
-    if hit.clicked and sel != i:
+    if hit.clicked and small and i != searchAt:
+      navMin.want = false            # (shrunk: a tap brings the places back)
+      ui.redraw = true
+    elif hit.clicked and sel != i:
       sel = i
       result = true
     let on = i == sel
@@ -2031,6 +2091,9 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
           popClip()
       let l = ellipsize(label, slot - dp(4), lst)
       text(cell.x + (cell.w - textWidth(l, lst)) div 2, gy + gh, l, lc, lst)
+    elif floating and (i == searchAt or small):
+      # (a round button of its own, or the bar shrunk to it: its glyph alone)
+      text(gx, cell.y + (cell.h - lineHeight(gst)) div 2, glyph, c, gst)
     elif floating:
       let lst = style(size = 0.78, bold = true)
       let gy = cell.y + (cell.h - lineHeight(gst) - lineHeight(lst)) div 2
@@ -2043,15 +2106,31 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
       let l = ellipsize(label, slot - dp(4), st)
       text(cell.x + (cell.w - textWidth(l, st)) div 2,
            cell.y + dp(6) + lineHeight(gst), l, lc, st)
+    if i < navBadges.len and navBadges[i].len > 0:
+      # (its badge: a red capsule, white bold digits, at the glyph's top right)
+      let bst = style(size = 0.72, bold = true)
+      let bt = navBadges[i]
+      let bh = lineHeight(bst) + dp(2)
+      let bw = max(bh, textWidth(bt, bst) + dp(10))
+      let gTop = if gloss: r.y + max(dp(3), (h - lineHeight(gst) - lineHeight(lst)) div 2)
+                 elif floating: cell.y + (cell.h - lineHeight(gst) - lineHeight(style(size = 0.78, bold = true))) div 2
+                 else: cell.y + dp(5)
+      let br = rect(min(gx + textWidth(glyph, gst) - dp(6), cell.x + cell.w - bw - dp(2)), gTop - dp(3), bw, bh)
+      roundRect(inset(br, -1), float(bh) / 2 + 1, if gloss: color(255, 255, 255) else: th.window)
+      roundRect(br, float(bh) / 2, color(230, 40, 40))
+      if gloss: glossTopShade(br, float(bh) / 2, [70])
+      text(br.x + (bw - textWidth(bt, bst)) div 2, br.y + (bh - lineHeight(bst)) div 2, bt, color(255, 255, 255), bst)
     if on and focused and not ui.touch: focusDots(inset(cell, dp(3)))
     if accessOn:
-      let k = accessNode(arTab, label, id = id, r = cell, states = (if on: {asSelected} else: {}))
+      let k = accessNode(arTab, (if i < navBadges.len and navBadges[i].len > 0: label & ", " & navBadges[i] else: label),
+                         id = id, r = cell, states = (if on: {asSelected} else: {}))
       accessItem(k, i + 1, items.len)
       if on and focused: accessFocus(k)
   setLayer(LayerBase)
   if accessOn: accessEnd()
   # (the content under the floating capsule takes no input there)
   if fx: ui.blockers.add cap
+  if fx and searchAt >= 0: ui.blockers.add sr
 
 proc fab*(glyph: string; tip = ""; color = Color()): bool =
   ## The round "floating action button" at the bottom right, over the

@@ -8,6 +8,7 @@
 # ad hoc (codesign -s -: enough to run on Apple silicon; Gatekeeper still
 # asks the first time, as for any app from the web that is not notarized)
 # and zips it with ditto. Needs sips, iconutil and ditto: run it on a Mac.
+# RETRO_LINKS=myapp,other: the schemes of the links that open it (retroui/device's takeLink).
 #
 # Developed by Sultan Al Isaiee @foxoman -- www.foxoman.net -- sultan@foxoman.net
 set -e
@@ -31,6 +32,14 @@ done
 iconutil -c icns "$set_" -o "$app/Contents/Resources/icon.icns"
 rm -rf "$(dirname "$set_")"
 
+# (the schemes of the links that open it)
+links=""
+if [ -n "${RETRO_LINKS:-}" ]; then
+  links="  <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>$id</string><key>CFBundleURLSchemes</key><array>"
+  for l in $(echo "$RETRO_LINKS" | tr ',' ' '); do links="$links<string>${l%%:*}</string>"; done
+  links="$links</array></dict></array>
+"
+fi
 cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -48,7 +57,8 @@ cat > "$app/Contents/Info.plist" <<EOF
   <key>NSHighResolutionCapable</key><true/>
   <key>NSCameraUsageDescription</key><string>$name uses the camera when you ask it to.</string>
   <key>NSMicrophoneUsageDescription</key><string>$name records sound when you ask it to.</string>
-  <key>NSHumanReadableCopyright</key><string>Sultan Al Isaiee @foxoman -- www.foxoman.net</string>
+  <key>NSFaceIDUsageDescription</key><string>$name makes sure it is you.</string>
+$links  <key>NSHumanReadableCopyright</key><string>Sultan Al Isaiee @foxoman -- www.foxoman.net</string>
 </dict>
 </plist>
 EOF

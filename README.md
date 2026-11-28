@@ -37,6 +37,11 @@ picture of what it draws.
 **Documentation: [docs/controls.md](docs/controls.md)** -- every control with
 pictures: getting started, layout, each control's example and API, the looks.
 
+**How an app should behave: [the Retro UI Interface Guidelines](docs/hig.md)**
+-- the desktop (Classic, with what Windows 95 added), the phone (Gloss) and the
+glass of both, each rule with what the kit does by itself and the call the app
+makes, and two apps that follow them all: Retro Report and Retro Groceries.
+
 **Design it: [Retro Designer](docs/designer.md)** -- `retrokit designer
 app.nim` shows your file's windows drawn with the real controls: drop
 controls, drag them, set their properties, add their events, and every
@@ -122,7 +127,7 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 
 ## Contents
 
-[The syntax, studied](docs/syntax.md) · [Tutorials](tutorials/) · [Install](#install) · [Your first app](#your-first-app) ·
+[The syntax, studied](docs/syntax.md) · [Tutorials](tutorials/) · [Interface guidelines](docs/hig.md) · [Install](#install) · [Your first app](#your-first-app) ·
 [Retro Designer](#retro-designer) · [How it works](#how-it-works) · [Controls](#controls) · [Layout](#layout) ·
 [Text and icons](#text-and-icons) · [Jobs, undo, pages and words](#jobs-undo-pages-and-words) ·
 [Translating an app](#translating-an-app) · [Screen readers and input methods](#screen-readers-and-input-methods) ·
@@ -133,7 +138,7 @@ every module is in `docs/api/` (open `docs/api/retro.html`).
 [What the computer is doing](#what-the-computer-is-doing) ·
 [Image editing](#image-editing) · [Web and HTML](#web-and-html) · [Sound and video](#sound-and-video) ·
 [Camera and microphone](#camera-and-microphone) · [More windows](#more-windows) ·
-[The system's features](#the-systems-features) · [The system's own APIs](#the-systems-own-apis) ·
+[The system's features](#the-systems-features) · [The device](#the-device) · [The system's own APIs](#the-systems-own-apis) ·
 [Updates inside the app](#updates-inside-the-app) · [Platform services](#platform-services) · [Android](#android) · [iOS](#ios) ·
 [Apps as web pages](#apps-as-web-pages) · [Screens without a desktop](#screens-without-a-desktop) ·
 [Shipping to the stores](#shipping-to-the-stores) ·
@@ -662,18 +667,19 @@ each state, is **[docs/controls.md](docs/controls.md)**. In short:
 | Group | Controls |
 |---|---|
 | Text | `label`, `paragraph`, `heading`, `styledText`, `link`, `badge`, `icon`, `iconLabel`, `tooltip` |
-| Buttons | `button` (also with a picture: icon only, text only, text below or beside the icon -- `ButtonLook`), `barButton` (tool bars; `setToolbarLook`), `buttonAt`, `toolButton`, `menuButton`, `splitButton`, `segmented`, `buttonRow` |
-| Choices | `checkbox`, `radio`, `toggle` (3.1 slide switch), `chips`, `tagInput`, `rating`, `knob` |
-| Text input | `edit`, `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit`, `codeEdit` (code, colored) |
-| Numbers, dates, colours | `spin`, `intEdit`, `numberEdit`, `slider`, `rangeSlider`, `progress`, `datePicker`, `calendar`, `dateRange`, `timePicker`, `colorPicker` |
+| Buttons | `button` (also with a picture: icon only, text only, text below or beside the icon -- `ButtonLook`), `barButton` (tool bars; `setToolbarLook`), `buttonAt`, `toolButton`, `menuButton`, `splitButton`, `segmented`, `buttonRow`, `glassButton` (regular, prominent, clear) |
+| Choices | `checkbox` (also on, off or mixed: `CheckState`, `mixedOf`), `radio`, `toggle` (3.1 slide switch), `chips`, `tagInput`, `rating`, `knob`, `unfoldButton` (Options >>) |
+| Text input | `edit` (`maxLen`, `autoExit`), `editArea`, `searchBox`, `autocomplete`, `maskedEdit`, `comboEdit`, `hotkeyEdit`, `codeEdit` (code, colored) |
+| Numbers, dates, colours | `spin` (`wrap`), `numberSpin` (decimals, a list of the usual), `intEdit`, `numberEdit`, `slider`, `rangeSlider`, `progress`, `datePicker`, `calendar`, `dateRange`, `timePicker`, `colorPicker` |
 | Lists | `listbox`, `combo`, `checkList`, `grid` (with cell kinds), `gridOf` (a seq of your type), `tree`, `treeGrid`, `iconView`, `lineView`, `dualList`, `propertyGrid` |
 | Status | `progressRing`, `spinner`, `sparkline`, `usageBar`, `banner`, `toast`, `led`, `pill`, `timeline`, `emptyState`, `busyState`, `statusbar` |
 | Containers | `group`, `card`, `tabs`, `tabStrip`, `expander`, `accordionHeader`, `form`/`field`, `formOf` (a form of your type), `pageView` (pages over pages), `listDetail`, `split`, `vsplit`, `sidePane`, `scrollPanel`, `adaptive`, `row`, `col` |
 | Menus and bars | `menubar`, `menu`, `menuItem`, `submenu`, `undoMenuItems`, `contextMenu`, `popupMenu`, `toolbar`, `statusbar`, `breadcrumb`, `pathBar`, `driveBar`, `pager`, `stepper`, `recordNav`, `findBar`, `trayIcon` (the system's tray) |
-| Dialogs | `dialog`, `msgBox`, `inputBox`, `progressBox`, `wizard`, `aboutBox`, `fileDialog` (3.1), `filePicker` (modern), `propertiesDialog` |
+| Dialogs | `dialog`, `msgBox` (with "Don't show this again"), `inputBox`, `progressBox`, `wizard`, `propertySheet` (OK, Cancel, Apply), `saveChangesBox`, `closeGuard`, `aboutBox`, `fileDialog` (3.1), `filePicker` (modern), `propertiesDialog` |
+| Help | `tooltip`, `helpText` (What's This? -- Shift+F1, `startHelpMode` -- and F1), `menuItem(hint = ...)` in the status bar (`menuHint`), the keys' sheet (Ctrl held, `shortcutSheet`), the command search (Ctrl+Shift+P) |
 | Desktop | `mdiArea` / `mdiWindow`, `mdiWindowMenu`, `hotkeyPressed`, `findIn`, `replaceAllIn` |
 | App parts | `settingToggle`, `settingChoice`, `settingSlider`, `settingButtons`, `settingCombo`, `settingLink`, `appearanceSettings`, `avatar`, `factList`, `bottomNav`, `fab`, `captionBar` |
-| From phones | `navBar`, `searchBar`, `tableGroup` (`tableRow`, `tableSwitch`, `tableButton`), `wheelPicker`, `wheelGroup`, `dateWheels`, `timeWheels`, `quantity`, `pageDots`, `swipeRow`, `actionSheet`, `alertBox`, `actionBar`, `bottomSheet`, `popover`, `cardShelf`, `roundButton`, `indexBar`, `messageBubble`, `clockFace`, `appIcon`, `texture`, `checkRow` (a to-do's round check), `editRow` (a list edited: delete, drag in order), `vslider`, `ratingStars`, `coverFlow`, `slideToConfirm`, `bigButton`, `sideMenu` (`sideMenuItem`, `sideMenuHeader`; `navBar(menu = true)`; on a tablet the items down the left, `sideMenuBack`) (`retroui/mobile`: on desktops too; `appNavBars`: the app's own bars instead of the window's caption on phones); on a touch screen a page's ends stretch and a flick into one goes on past it and springs back, `pullRefresh`, `scrollHint`, a long page's thumb, Back by a swipe (`pageView`); dialogs as pages in Gloss on Android and iOS (`dialogPages`); the on-screen keyboard a box asks for (`textKeyboard`: digits, an email's, a web address's...; Enter as Next, Done, Search), the bottom bars left out while it is up, a tap on nothing letting it go |
+| From phones | `navBar`, `searchBar`, `tableGroup` (`tableRow`, `tableSwitch`, `tableButton`), `wheelPicker`, `wheelGroup`, `dateWheels`, `timeWheels`, `quantity`, `pageDots`, `swipeRow`, `actionSheet`, `alertBox`, `actionBar`, `bottomSheet`, `popover`, `cardShelf`, `roundButton`, `indexBar`, `messageBubble`, `clockFace`, `appIcon`, `texture`, `checkRow` (a to-do's round check), `editRow` (a list edited: delete, drag in order), `vslider`, `ratingStars`, `coverFlow`, `slideToConfirm`, `bigButton`, `sideMenu` (`sideMenuItem`, `sideMenuHeader`; `navBar(menu = true)`; on a tablet the items down the left, `sideMenuBack`), `editTableGroup` (edit mode: minus, Delete, grips), `scopeBar`, `modalSheet`, `bottomNav` with badges and the search place apart (`retroui/mobile`: on desktops too; `largeTitle`, `skeletonRows`, `liftMenu`, `growing` in `retroui/modern`; `appNavBars`: the app's own bars instead of the window's caption on phones); on a touch screen a page's ends stretch and a flick into one goes on past it and springs back, `pullRefresh`, `scrollHint`, a long page's thumb, Back by a swipe (`pageView`); dialogs as pages in Gloss on Android and iOS (`dialogPages`); the on-screen keyboard a box asks for (`textKeyboard`: digits, an email's, a web address's...; Enter as Next, Done, Search), the bottom bars left out while it is up, a tap on nothing letting it go |
 | Business views | `chart` (21 kinds), `gauge`, `kanbanBoard`, `ganttView`, `agendaView`, `kpiTile`, `statCard`, `orgChart`, `reportView` |
 | Files | `fileList`, `filePreview`, `folderTree`, `placesView`, `trashList`, `driveBar`, `pathBar`, `textFileView`, `hexFileView`, `runJobDialog` |
 | Media and more | `mapView`, `view3d`, `canvas2d`, `htmlView`, `webView`, `markdownView`, `imageView`, `animation`, `videoView`, `audioView` (any speed) |
@@ -920,6 +926,18 @@ app "Notes", 420, 300:
   bar on macOS -- with its clicks and its menu's picks as events.
 - **Feeds** (`retroui/feeds`): RSS (with the iTunes and Podcasting 2.0
   tags), Atom and OPML read and written, in pure Nim.
+- **The app's state kept** (`keepState`, `restoreState`): what the user
+  was doing -- the page, a draft, the list -- written as NIF as the app
+  goes to the background or ends, and read back as it starts: Android and
+  iOS end an app whenever they need its memory. `retroui/nif` writes any
+  value as NIF text and reads it back (`toNif`, `fromNif`, `saveNif`,
+  `loadNif`).
+- **Values never changed in place** (`import retroui/persist`): a vector, a
+  map, a set and a rope (`PVec`, `PMap`, `PSet`, `Rope`) whose versions
+  share all they didn't change -- a thousand undo steps of a big document
+  for next to nothing, what changed between two versions found at once
+  (`diff`); builders for a large one. Their numbers are in
+  [docs/benchmarks.md](docs/benchmarks.md#persistent-collections).
 
 [Retro Podcast](examples/README.md#retro-podcast) is built from all of
 them; the Gallery's Forms & Code page shows them, and its View, This
@@ -3292,6 +3310,48 @@ app "Shop", 420, 300:
 
 The Gallery's System page tries each one.
 
+## The device
+
+What an app reaches past its window, in `retroui/device`: the links it is
+opened with, one copy of it running, the screen lock asked before something
+private, how the device is held and shaken, picture in picture, drag and drop
+with the app beside it, and purchases in the app. Where a system has no such
+thing the calls say so (false, `laUnavailable`, an empty `Motion`) and the app
+offers another way. `examples/androidapis.nim` has a page for each.
+
+```nim
+import retroui, retroui/device
+
+if not singleInstance("shop"): quit 0       # a second copy hands its link to the first, which comes forward
+var showSecrets = false
+app "Shop", 420, 300:
+  let link = takeLink()                     # "shop://order/1042": opened by a link (each once)
+  if link.len > 0: openOrder(link)
+  if button("Show the &Secrets"): askUnlock("To show your saved cards")
+  if unlockAnswer() == laOk: showSecrets = true
+  if shaken() and history.canUndo: undoAsked = true
+  if button("&Buy Pro"): storeBuy("pro")    # Play Billing or StoreKit
+```
+
+| | Linux | Windows | macOS | Android | iOS |
+|---|---|---|---|---|---|
+| `takeLink` (`registerLinks`; `retroapk --links`, `retroios --links`, `RETRO_LINKS`) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `singleInstance`, `bringForward` | ✓ (X11) | ✓ | ✓ | – | – |
+| `askUnlock` | – | – | ✓ | ✓ | ✓ |
+| `motion`, `shaken`, `glassTilt` | – | – | – | ✓ | ✓ |
+| `pictureInPicture` (`retroapk --pip`) | – | – | – | ✓ | – |
+| Drag and drop with other apps | ✓ (X11) | ✓ | ✓ | ✓ (`dragToApps`, `droppedFromApps`) | – |
+| `storeStart`, `storeBuy`... | – | – | – | ✓ (Play Billing, brought with `--java`) | ✓ (StoreKit) |
+
+On a desktop a drag of the kit's with files (`startDrag(..., files = ...)`,
+`fileDragSource`) goes on out of the window by itself, and what other apps
+drop comes as `droppedFiles` and `fileDropTarget`.
+
+Codes are read by the kit itself: `qrRead(bitmap)` finds and reads QR codes
+in a photo, `barcodeRead(bitmap)` EAN-13, UPC-A, EAN-8, Code 128 and Code 39
+(`retroui/barcode`), and `scannerView()` (`retroui/scanner`) is a camera view
+that reads them as they come in front of it, with a tap felt.
+
 ## The system's own APIs
 
 Retro never stands between an app and its system: `retroui/native` reaches
@@ -4050,12 +4110,17 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_lorem` | placeholder text: as many paragraphs as asked, Lorem Ipsum, Arabic (no Latin letters, Arabic-Indic digits) or the two in turn, three to five sentences each, neighbours not alike, the same each time; a few words; cut at a sentence's end |
 | `test_proctexture` | Procedural Texture: formulas read and what is wrong with one said, each value and function, a channel left as it was, the shared value and the sliders, noise smooth and within 0..1, every preset read, clouds varying, the checkerboard's squares exact, the vignette dark at the corners only |
 | `test_photoextras` | Retro Atelier 5.16's engine: every new filter keeps the size and changes the picture; Tone Stretch uses the whole range, Invert Channels inverts, Split Toning cools the shadows and warms the highlights, the adjustment layers with numbers, Hue Curves' Saturation vs Saturation; Bilateral Blur takes the noise and keeps the edge; the range masks and the four Compound Mask ways; the FFT there and back; a known shake found (angle, length) and taken out; a shift found exactly, six noisy frames stacked, a gradient made even; a 360 view put back; the relief's mesh; the ten live shapes in their box; letters turned, kept in the file; each Type on a Path effect kept and placing the letters elsewhere; Area Type's frame kept; the Scatter chart |
-| `test_atelierextras` | Retro Atelier 5.16 as a program: SDR to HDR, a mask from the lightness and Compound Mask; Transform Selection, Copy CSS and SVG, Define Custom Shape kept, Delete All Empty Layers, the Measurement Log; Color Lookup Tables (the Invert layer's .cube), Zoomify, Save for Web's five formats, Layer to 3D's .glb; a 360 view edited and put back; Version History and Image Assets on each save; Play Action by name; Accessibility Check; Generate Background, Generative Upscale, Style Transfer from a picture, Rewrite, Generative Recolor and Text to Pattern against the test's own service; every new tool dragged on the canvas, every new command run; 5.17's: a text box sized by its handle (its letters as big, its lines flowing again), glyphs put with the feature that makes them, the brush's outline shown and gone, a color taken from anywhere in the window, a gradient's color stop made transparent in the picker, every tool its own icon; 5.18's: type and a shape moved whole by the Move tool while a selection is made (nothing to rasterize, the selection where it was), a layer of pixels its selected pixels; type in points at the document's resolution |
+| `test_atelierextras` | Retro Atelier 5.16 as a program: SDR to HDR, a mask from the lightness and Compound Mask; Transform Selection, Copy CSS and SVG, Define Custom Shape kept, Delete All Empty Layers, the Measurement Log; Color Lookup Tables (the Invert layer's .cube), Zoomify, Save for Web's five formats, Layer to 3D's .glb; a 360 view edited and put back; Version History and Image Assets on each save; Play Action by name; Accessibility Check; Generate Background, Generative Upscale, Style Transfer from a picture, Rewrite, Generative Recolor and Text to Pattern against the test's own service; every new tool dragged on the canvas, every new command run; 5.17's: a text box sized by its handle (its letters as big, its lines flowing again), glyphs put with the feature that makes them, the brush's outline shown and gone, a color taken from anywhere in the window, a gradient's color stop made transparent in the picker, every tool its own icon; 5.18's: type and a shape moved whole by the Move tool while a selection is made (nothing to rasterize, the selection where it was), a layer of pixels its selected pixels; type in points at the document's resolution; a type size with arrows and a list of the usual ones |
 | `test_photoleaks` | Retro Atelier lets go of a closed image: every command of the program (900 and more) run on an image of pixels, a shape, type and a selection, the image closed, no document left alive |
 | `test_queries` | `retroui/queries` on a clock of its own: an entry two pages ask for loaded once, its value kept while it is loaded again (out of date, too old), a failed load tried again then told (its value before kept), a change put in at once, another type under a key another entry, one nobody asks for let go of |
 | `test_backdrop` | frosted glass and masks: what is under a blur smoothed and lighter, its rounded corners keeping what is outside them, a mask's circle and a mask inside it; a change near a blur, far from it, of its tint and over it the very pixels of a whole frame; the GPU's frames the CPU's (3 levels at most apart), and its partial frames, at every buffer age, a whole frame's |
 | `test_terminal` | the terminal: text, the 16, 256 and RGB colors (semicolons and colons), bold, underlined, inverse, struck; the cursor moved, lines and characters erased, inserted, deleted; a line wrapped and the lines scrolled off kept; a scroll region; the other screen and back; wide characters and the line-drawing set; the answers asked for (the cursor's place, what it is), the title; the keys as xterm sends them; a size changed; a shell in a pseudo-terminal -- its colors, its size, an exit code, what is typed answered; the view taking the keys, a word chosen with a double click and copied; found text (back and on, any case), its size bigger and smaller, a reset; kitty's keyboard protocol (its flags pushed and popped per screen, Esc, Ctrl, Alt and the keypad told apart, releases, every key as an escape with its text) and graphics protocol (RGB, RGBA and PNG, zlib'ed, in pieces, by number, placed again, quiet, deleted, scrolled with the text, its answers and errors; an app's own picture) |
 | `test_mobile` | the controls from phones: the navigation bar's Back (and Alt+Left) and its action; an alert (Enter its last button, Esc its cancel, a tap beside it waits); rows in groups (a row, its info button apart, a switch's row, a button's row, Enter); a search bar's Cancel; an action bar's action and Back; a wheel picker by the keys, a click on a row, the mouse wheel, a letter, a drag, a fling that stops on a row, the app's own value, a long wheel made as it shows; a day's wheels (31 January to February: the 28th) and a time's (12 hours, a step of minutes); a number with - and + (held, it goes on; the keys, + typed, the wheel); page dots; rows with actions behind them swiped, picked, closed by a tap, one at a time, by the keys and a right click's menu; the action sheet (the keys, Esc, a click beside it, from the bottom on a phone), the bottom sheet (its controls, dragged down, Esc), the popover (under its button, closed by a click outside) -- in every look, light and dark |
+| `test_higdesk` | the interface guidelines' desktop parts: a check box on, off and mixed (Space cycles them, `mixedOf`); spin boxes that wrap; a code in boxes that go on to the next when full; Options >>; a property sheet's OK, Cancel and Apply, asking before changes not applied are lost; "Save changes?" and `closeGuard` when the window closes; "Don't show this again"; a menu item's hint in the status bar; What's This? and F1; a scroll bar's thumb going back when dragged far off; a drag cancelled by Esc and a list scrolling under it; paths cut in the middle |
+| `test_higphone` | the interface guidelines' phone parts: edit mode (the minus, its Delete, a row moved by its grip; a to-do's check rows too), a scope bar, a modal sheet (Cancel, Done, Enter, Esc; the whole screen on a phone, in the middle of a tablet), a tab bar's badges, an action sheet out of its button, a tap on the title back to the top |
+| `test_modern` | `retroui/modern`: a large title and the bar's own left out while it shows, placeholders, an item lifted with its menu (a right click; an action picked, it settles back), a page grown out of what was tapped; the keys' sheet held Ctrl |
+| `test_persist` | `retroui/persist`: vectors, maps, sets and ropes against seqs, tables and strings (20,000 random edits, every version kept and checked), `diff`, builders; NIF written and read back (every kind of value, escapes, a document's state); the app's state kept as it was paused, read back (`keepState`, `restoreState`) |
+| `test_codes` | QR codes made by the kit and read back (every level, Arabic too; from their modules and from pictures -- placed, turned, rotated --; damaged and mended), bar codes (EAN-13, UPC-A, EAN-8, Code 128, Code 39) read across, turned, upside down and small; a wrong check digit refused |
 | `test_phoneparts` | the phone's newer parts in every look: round buttons (a click, Space, disabled; Gloss's green inside a white ring), the index down a list (the letter under the finger, dragged past its foot, -1 let go), bubbles (the other's gray on the left, yours pale blue on the right), the clock (its red second hand, the hour hand at three), app icons (a click, Enter, the badge), the textures (their colors, the same grain each frame); Gloss's colors (iOS 6's own in Gloss Light, green in a green scheme) and the window plain by default, its pinstripes when asked for; a row in a row after one that took the line, side by side on the next; `vslider` dragged past its top and its keys, `ratingStars` (a tap, the same again, the keys, a digit), `editRow` (the minus alone deletes nothing, then Delete; a grip dragged two rows down; Alt+Down), `coverFlow` (the middle one tapped, Right, a tap at a side, a drag, End); the About box at touch sizes in Gloss, Glass and Matte a phone's page (Website, Copy Info putting its facts on the clipboard), in Classic the desktop's; a settings row's page of choices in a dialog drawn over it (the dialog's rows not through it, one tapped chosen); a page's status bar the bar's color, darker; Glass's modern glass effect -- the tab bar floating over the content, which runs to the foot, scrolls its end out from under it and shows through it blurred, takes no tap under it; without it, the band; Glass effect in Appearance, kept with the look; a page its panel fills not scrolling for the capsule; the navigation bar of glass, a panel scrolled up under it seen through it blurred, no tap reaching it there, its Back still tapped |
 | `test_glosstouch` | Gloss on a touch screen: a flick into a page's top goes on past it and springs back; pull to refresh's drop and fresh content asked once; a toast as the black banner at the top; `slideToConfirm` (part way: nothing, back; all the way: once); `bigButton`; a row's count capsule; the Glass focus ring only while the keys move the focus |
 | `test_reach` | how the controls take the mouse, the keys and a finger: a finger's press just beside a small button or a round button is its, not far off, not beside a list it is on, the nearer of two, the gesture with it; a mouse not moved so; a tap or a drag by 8 points at 100 % and 200 %; a finger held on a word chooses it (Copy gives the word); a right click on a list's row chooses it; a breadcrumb by the keys; a drop-down list's wheel only with the focus; Glass and Matte light a text box, a check box, a radio button under the mouse, 3.1 not; a chip's cross for a finger |

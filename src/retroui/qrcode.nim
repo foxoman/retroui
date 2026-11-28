@@ -19,6 +19,7 @@
 ## given. The modules equal segno's and python-qrcode's for the same
 ## version and mask.
 
+import std/[math, strutils]
 import gfx
 
 type
@@ -479,3 +480,543 @@ proc qrPath*(q: QrCode; scale = 1.0; x = 0.0; y = 0.0): seq[seq[(float, float)]]
       let c = poly[1]
       if (a[0] == b[0] and b[0] == c[0]) or (a[1] == b[1] and b[1] == c[1]): poly.delete(0)
     if poly.len >= 3: result.add poly
+
+# ==== reading QR codes ===========================================================================
+#
+# A picture is made black and white against the light round each pixel; the three finder
+# patterns (their 1:1:3:1:1 runs, across and down) are found; from them -- and the alignment
+# pattern near the fourth corner, when the version has one -- the code's grid is laid over the
+# picture in perspective and each module read at its middle; then its format, its codewords
+# unmasked and put back into their blocks, each block mended by Reed-Solomon where it can be
+# (up to the code's level), and the text read from the data.
+
+type
+  QrRead* = object
+    ## A QR code read from a picture (`qrRead`).
+    text*: string          ## what it says (bytes as they are: UTF-8 in practice)
+    version*: int
+    ecc*: QrEcc
+    corners*: array[4, (float, float)]   ## where it is: top left, top right, bottom right, bottom left
+    mended*: int           ## codewords put right by its error correction
+
+# ---- GF(256) for mending -----------------------------------------------------------------------
+
+var gfExp: array[512, int]
+var gfLog: array[256, int]
+block:
+  var x = 1
+  for i in 0 ..< 255:
+    gfExp[i] = x
+    gfLog[x] = i
+    x = x shl 1
+    if x >= 256: x = x xor 0x11D
+  for i in 255 ..< 512: gfExp[i] = gfExp[i - 255]
+
+proc gm(a, b: int): int {.inline.} =
+  if a == 0 or b == 0: 0 else: gfExp[gfLog[a] + gfLog[b]]
+
+proc gdiv(a, b: int): int {.inline.} =
+  if a == 0: 0 else: gfExp[(gfLog[a] + 255 - gfLog[b]) mod 255]
+
+proc gpow(e: int): int {.inline.} = gfExp[((e mod 255) + 255) mod 255]
+
+proc rsMend(blk: var seq[int]; ecLen: int): int =
+  ## Mends the codewords `blk` (its last `ecLen` the error correction): the number put right, -1
+  ## when there are too many wrong to.
+  let n = blk.len
+  var synd = newSeq[int](ecLen)
+  var bad = false
+  for i in 0 ..< ecLen:
+    var s = 0
+    let a = gpow(i)
+    for c in blk: s = gm(s, a) xor c
+    synd[i] = s
+    if s != 0: bad = true
+  if not bad: return 0
+  # Berlekamp-Massey: the error locator
+  var lam = @[1]
+  var prev = @[1]
+  var l = 0
+  var m = 1
+  var b = 1
+  for k in 0 ..< ecLen:
+    var d = synd[k]
+    for i in 1 .. l:
+      if i < lam.len: d = d xor gm(lam[i], synd[k - i])
+    if d == 0:
+      inc m
+      continue
+    let coef = gdiv(d, b)
+    var t = lam
+    if lam.len < prev.len + m: lam.setLen(prev.len + m)
+    for i in 0 ..< prev.len: lam[i + m] = lam[i + m] xor gm(coef, prev[i])
+    if 2 * l <= k:
+      l = k + 1 - l
+      prev = t
+      b = d
+      m = 1
+    else: inc m
+  while lam.len > 1 and lam[^1] == 0: lam.setLen(lam.len - 1)
+  if l != lam.len - 1 or 2 * l > ecLen: return -1
+  # Chien: where they are
+  var pos: seq[int]
+  for j in 0 ..< n:
+    let xinv = gpow(-(n - 1 - j))
+    var v = 0
+    for i in countdown(lam.high, 0): v = gm(v, xinv) xor lam[i]
+    if v == 0: pos.add j
+  if pos.len != l: return -1
+  # Forney: how far off each is
+  var omega = newSeq[int](ecLen)
+  for i in 0 ..< ecLen:
+    var v = 0
+    for j in 0 .. min(i, lam.high): v = v xor gm(lam[j], synd[i - j])
+    omega[i] = v
+  for j in pos:
+    let xj = gpow(n - 1 - j)
+    let xinv = gpow(-(n - 1 - j))
+    var num = 0
+    for i in countdown(omega.high, 0): num = gm(num, xinv) xor omega[i]
+    var den = 0
+    var i = 1
+    while i <= lam.high:
+      den = den xor gm(lam[i], gpow(-(n - 1 - j) * (i - 1)))
+      i += 2
+    if den == 0: return -1
+    blk[j] = blk[j] xor gm(xj, gdiv(num, den))
+  pos.len
+
+# ---- from a grid of modules to its text ----------------------------------------------------------
+
+proc countSetBitsInt(x: int): int =
+  var x = x
+  while x != 0:
+    x = x and (x - 1)
+    inc result
+
+proc formatOf(bits: int): tuple[ok: bool; ecc: QrEcc; mask: int] =
+  ## (the format nearest the 15 bits read -- three may be wrong)
+  var best = 99
+  for e in QrEcc:
+    for mask in 0 .. 7:
+      let d = countSetBitsInt(formatBits(e, mask) xor bits)
+      if d < best:
+        best = d
+        result = (true, e, mask)
+  if best > 3: result.ok = false
+
+proc versionOf(bits: int): int =
+  ## (the version nearest the 18 bits read, 0 none)
+  var best = 99
+  for ver in 7 .. 40:
+    var rem = ver
+    for i in 0 ..< 12: rem = (rem shl 1) xor ((rem shr 11) * 0x1F25)
+    let d = countSetBitsInt((ver shl 12 or rem) xor bits)
+    if d < best:
+      best = d
+      result = ver
+  if best > 3: result = 0
+
+proc textOf(data: seq[int]; ver: int; ok: var bool): string =
+  ## (the segments of the data codewords: numbers, letters, bytes)
+  var bitPos = 0
+  let total = data.len * 8
+  proc take(n: int): int =
+    for i in 0 ..< n:
+      if bitPos >= total: return -1
+      result = (result shl 1) or ((data[bitPos shr 3] shr (7 - (bitPos and 7))) and 1)
+      inc bitPos
+  let k = if ver <= 9: 0 elif ver <= 26: 1 else: 2
+  ok = true
+  while bitPos + 4 <= total:
+    let mode = take(4)
+    case mode
+    of 0: break
+    of 1:                                 # numeric
+      var count = take([10, 12, 14][k])
+      while count >= 3:
+        let v = take(10)
+        if v < 0 or v > 999: (ok = false; return)
+        result.add align($v, 3, '0')
+        count -= 3
+      if count == 2:
+        let v = take(7)
+        if v < 0 or v > 99: (ok = false; return)
+        result.add align($v, 2, '0')
+      elif count == 1:
+        let v = take(4)
+        if v < 0 or v > 9: (ok = false; return)
+        result.add $v
+    of 2:                                 # letters and digits
+      var count = take([9, 11, 13][k])
+      while count >= 2:
+        let v = take(11)
+        if v < 0 or v >= 45 * 45: (ok = false; return)
+        result.add alnumChars[v div 45]
+        result.add alnumChars[v mod 45]
+        count -= 2
+      if count == 1:
+        let v = take(6)
+        if v < 0 or v >= 45: (ok = false; return)
+        result.add alnumChars[v]
+    of 4:                                 # bytes
+      let count = take([8, 16, 16][k])
+      if count < 0: (ok = false; return)
+      for i in 0 ..< count:
+        let v = take(8)
+        if v < 0: (ok = false; return)
+        result.add char(v)
+    of 7:                                 # ECI: the bytes' character set (taken as UTF-8)
+      let first = take(8)
+      if first < 0: (ok = false; return)
+      if (first and 0x80) != 0: discard take(if (first and 0x40) != 0: 16 else: 8)
+    of 8:                                 # kanji: not read (each a '?')
+      let count = take([8, 10, 12][k])
+      for i in 0 ..< count:
+        discard take(13)
+        result.add '?'
+    else:
+      ok = false
+      return
+
+proc qrDecodeModules*(dark: openArray[bool]; size: int; mended: var int): tuple[ok: bool; text: string;
+                      version: int; ecc: QrEcc] =
+  ## The text of a QR code's modules, `size` x `size`, row by row (true: dark) -- as `qrRead`
+  ## reads them from a picture; `ok` false when they don't make a code (too damaged).
+  if size < 21 or (size - 17) mod 4 != 0 or dark.len < size * size: return
+  var ver = (size - 17) div 4
+  template at(x, y: int): bool = dark[(y) * size + (x)]
+  # its format: the copy beside the top left finder, else the one split along the others
+  var f1, f2 = 0
+  for i in 0 .. 5: f1 = f1 or (ord(at(8, i)) shl i)
+  f1 = f1 or (ord(at(8, 7)) shl 6) or (ord(at(8, 8)) shl 7) or (ord(at(7, 8)) shl 8)
+  for i in 9 .. 14: f1 = f1 or (ord(at(14 - i, 8)) shl i)
+  for i in 0 .. 7: f2 = f2 or (ord(at(size - 1 - i, 8)) shl i)
+  for i in 8 .. 14: f2 = f2 or (ord(at(8, size - 15 + i)) shl i)
+  var fmt = formatOf(f1)
+  if not fmt.ok: fmt = formatOf(f2)
+  if not fmt.ok: return
+  if ver >= 7:
+    var vb = 0
+    for i in 0 ..< 18: vb = vb or (ord(at(size - 11 + i mod 3, i div 3)) shl i)
+    let v2 = versionOf(vb)
+    if v2 > 0 and 17 + 4 * v2 == size: ver = v2
+  # the codewords, unmasked, in the order they were placed
+  let g = functionPatterns(ver)
+  let n = size
+  var cw: seq[int]
+  var cur = 0
+  var nb = 0
+  var right = n - 1
+  while right >= 1:
+    if right == 6: right = 5
+    for vert in 0 ..< n:
+      for j in 0 .. 1:
+        let x = right - j
+        let upward = ((right + 1) and 2) == 0
+        let y = if upward: n - 1 - vert else: vert
+        if not g.fn[y * n + x]:
+          var bit = at(x, y)
+          if maskBit(fmt.mask, x, y): bit = not bit
+          cur = (cur shl 1) or ord(bit)
+          inc nb
+          if nb == 8:
+            cw.add cur
+            cur = 0
+            nb = 0
+    right -= 2
+  let raw = rawModules(ver) div 8
+  if cw.len < raw: return
+  cw.setLen(raw)
+  # back into their blocks, each mended, their data together
+  let blocks = int(eccBlocks[fmt.ecc][ver])
+  let el = int(eccPerBlock[fmt.ecc][ver])
+  let numShort = blocks - raw mod blocks
+  let shortLen = raw div blocks
+  var bl = newSeq[seq[int]](blocks)
+  var k = 0
+  for i in 0 .. shortLen:
+    for j in 0 ..< blocks:
+      if i == shortLen - el and j < numShort: continue
+      if k < cw.len:
+        bl[j].add cw[k]
+        inc k
+  var data: seq[int]
+  for j in 0 ..< blocks:
+    let r = rsMend(bl[j], el)
+    if r < 0: return
+    mended += r
+    for i in 0 ..< bl[j].len - el: data.add bl[j][i]
+  var ok = false
+  let text = textOf(data, ver, ok)
+  if not ok: return
+  (true, text, ver, fmt.ecc)
+
+# ---- finding codes in a picture ------------------------------------------------------------------
+
+type
+  Finder = object
+    x, y, module: float
+    count: int
+
+proc lumaOf(b: Bitmap): seq[uint8] =
+  result = newSeq[uint8](b.w * b.h)
+  for i, p in b.px:
+    let r = int((p shr 16) and 255)
+    let g = int((p shr 8) and 255)
+    let bl = int(p and 255)
+    var l = (r * 77 + g * 151 + bl * 28) shr 8
+    let a = int(p shr 24)
+    if a < 255: l = (l * a + 255 * (255 - a)) div 255       # (see-through: on white)
+    result[i] = uint8(l)
+
+proc binarize(l: seq[uint8]; w, h: int): seq[bool] =
+  ## (dark: darker than the light round it -- the mean of a square about a sixteenth of the
+  ## picture across -- by a little; a page in shade or a screen's glare are read alike)
+  var integ = newSeq[int]((w + 1) * (h + 1))
+  for y in 0 ..< h:
+    var row = 0
+    for x in 0 ..< w:
+      row += int(l[y * w + x])
+      integ[(y + 1) * (w + 1) + x + 1] = integ[y * (w + 1) + x + 1] + row
+  let half = max(8, min(w, h) div 16)
+  result = newSeq[bool](w * h)
+  for y in 0 ..< h:
+    let y0 = max(0, y - half)
+    let y1 = min(h, y + half + 1)
+    for x in 0 ..< w:
+      let x0 = max(0, x - half)
+      let x1 = min(w, x + half + 1)
+      let sum = integ[y1 * (w + 1) + x1] - integ[y0 * (w + 1) + x1] - integ[y1 * (w + 1) + x0] + integ[y0 * (w + 1) + x0]
+      let mean = sum div ((y1 - y0) * (x1 - x0))
+      result[y * w + x] = int(l[y * w + x]) * 100 < mean * 92 or l[y * w + x] < 40
+
+proc ratioOk(r: array[5, int]): bool =
+  ## (runs of 1:1:3:1:1)
+  let total = r[0] + r[1] + r[2] + r[3] + r[4]
+  if total < 7: return false
+  let m = total / 7
+  let v = m / 2
+  abs(m - r[0].float) < v and abs(m - r[1].float) < v and abs(3 * m - r[2].float) < 3 * v and
+    abs(m - r[3].float) < v and abs(m - r[4].float) < v
+
+proc crossDown(bw: seq[bool]; w, h: int; cx, cy, maxRun: int): float =
+  ## (the middle of a finder down the column `cx` about `cy`, NaN when it isn't one)
+  var r: array[5, int]
+  var y = cy
+  while y >= 0 and bw[y * w + cx]: (inc r[2]; dec y)
+  if y < 0: return NaN
+  while y >= 0 and not bw[y * w + cx] and r[1] <= maxRun: (inc r[1]; dec y)
+  if y < 0 or r[1] > maxRun: return NaN
+  while y >= 0 and bw[y * w + cx] and r[0] <= maxRun: (inc r[0]; dec y)
+  if r[0] > maxRun: return NaN
+  y = cy + 1
+  while y < h and bw[y * w + cx]: (inc r[2]; inc y)
+  if y >= h: return NaN
+  while y < h and not bw[y * w + cx] and r[3] < maxRun: (inc r[3]; inc y)
+  if y >= h or r[3] >= maxRun: return NaN
+  while y < h and bw[y * w + cx] and r[4] < maxRun: (inc r[4]; inc y)
+  if r[4] >= maxRun: return NaN
+  if not ratioOk(r): return NaN
+  float(y - r[4] - r[3]) - r[2].float / 2
+
+proc crossAcross(bw: seq[bool]; w, h: int; cx, cy, maxRun: int): float =
+  ## (the same along the row `cy` about `cx`)
+  var r: array[5, int]
+  var x = cx
+  let row = cy * w
+  while x >= 0 and bw[row + x]: (inc r[2]; dec x)
+  if x < 0: return NaN
+  while x >= 0 and not bw[row + x] and r[1] <= maxRun: (inc r[1]; dec x)
+  if x < 0 or r[1] > maxRun: return NaN
+  while x >= 0 and bw[row + x] and r[0] <= maxRun: (inc r[0]; dec x)
+  if r[0] > maxRun: return NaN
+  x = cx + 1
+  while x < w and bw[row + x]: (inc r[2]; inc x)
+  if x >= w: return NaN
+  while x < w and not bw[row + x] and r[3] < maxRun: (inc r[3]; inc x)
+  if x >= w or r[3] >= maxRun: return NaN
+  while x < w and bw[row + x] and r[4] < maxRun: (inc r[4]; inc x)
+  if r[4] >= maxRun: return NaN
+  if not ratioOk(r): return NaN
+  float(x - r[4] - r[3]) - r[2].float / 2
+
+proc addFinder(fs: var seq[Finder]; cx, cy, module: float) =
+  for f in fs.mitems:
+    if abs(f.x - cx) <= module * 2 and abs(f.y - cy) <= module * 2 and
+       abs(f.module - module) <= max(1.0, module * 0.5):
+      f.x = (f.x * f.count.float + cx) / float(f.count + 1)
+      f.y = (f.y * f.count.float + cy) / float(f.count + 1)
+      f.module = (f.module * f.count.float + module) / float(f.count + 1)
+      inc f.count
+      return
+  fs.add Finder(x: cx, y: cy, module: module, count: 1)
+
+proc findFinders(bw: seq[bool]; w, h: int): seq[Finder] =
+  ## (the finder patterns: runs of dark, light, dark, light, dark of 1:1:3:1:1 along a row, the
+  ## same down the column through their middle and along the row again)
+  for y in countup(0, h - 1, max(1, h div 600)):
+    var r: array[5, int]
+    var state = 0
+    let row = y * w
+    for x in 0 ..< w:
+      if bw[row + x]:
+        if (state and 1) == 1: inc state
+        inc r[state]
+      elif (state and 1) == 0:
+        if state == 0 and r[0] == 0: continue        # (light before any dark)
+        if state == 4:
+          if ratioOk(r):
+            let total = r[0] + r[1] + r[2] + r[3] + r[4]
+            let cx = int(float(x - r[4] - r[3]) - r[2] / 2)
+            let cy = crossDown(bw, w, h, cx, y, r[2])
+            if not cy.isNaN:
+              let cx2 = crossAcross(bw, w, h, cx, int(cy), r[2])
+              if not cx2.isNaN: result.addFinder(cx2, cy, total / 7)
+          # (on: its last dark, light and dark the start of the next one)
+          r = [r[2], r[3], r[4], 1, 0]
+          state = 3
+        else:
+          inc state
+          inc r[state]
+      else: inc r[state]
+
+proc solve8(src, dst: array[4, (float, float)]): array[9, float] =
+  ## (the perspective taking the square `src` corners to `dst`: a 3x3 matrix, by Gauss)
+  var a: array[8, array[9, float]]
+  for i in 0 .. 3:
+    let (x, y) = src[i]
+    let (u, v) = dst[i]
+    a[2 * i] = [x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y, u]
+    a[2 * i + 1] = [0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y, v]
+  for c in 0 ..< 8:
+    var p = c
+    for r in c + 1 ..< 8:
+      if abs(a[r][c]) > abs(a[p][c]): p = r
+    swap(a[c], a[p])
+    if abs(a[c][c]) < 1e-12: return
+    for r in 0 ..< 8:
+      if r != c:
+        let f = a[r][c] / a[c][c]
+        for k in c .. 8: a[r][k] -= f * a[c][k]
+  for i in 0 ..< 8: result[i] = a[i][8] / a[i][i]
+  result[8] = 1.0
+
+proc mapPt(m: array[9, float]; x, y: float): (float, float) {.inline.} =
+  let d = m[6] * x + m[7] * y + m[8]
+  ((m[0] * x + m[1] * y + m[2]) / d, (m[3] * x + m[4] * y + m[5]) / d)
+
+proc findAlign(bw: seq[bool]; w, h: int; ex, ey, module: float): tuple[ok: bool; x, y: float] =
+  ## (the alignment pattern -- a dark module in a light ring in a dark one -- nearest where it
+  ## should be: its middle)
+  let reach = int(module * 4)
+  var best = 1e9
+  for dy in -reach .. reach:
+    for dx in -reach .. reach:
+      let x = int(ex) + dx
+      let y = int(ey) + dy
+      if x < 2 or y < 2 or x >= w - 2 or y >= h - 2 or not bw[y * w + x]: continue
+      # (light a module out every way, dark again two out)
+      let m = max(1, int(module + 0.5))
+      var good = true
+      for (ax, ay) in [(m, 0), (-m, 0), (0, m), (0, -m)]:
+        let lx = x + ax
+        let ly = y + ay
+        if lx < 0 or ly < 0 or lx >= w or ly >= h or bw[ly * w + lx]: (good = false; break)
+        let fx = x + 2 * ax
+        let fy = y + 2 * ay
+        if fx < 0 or fy < 0 or fx >= w or fy >= h or not bw[fy * w + fx]: (good = false; break)
+      if good:
+        let d = float(dx * dx + dy * dy)
+        if d < best:
+          best = d
+          result = (true, x.float, y.float)
+
+proc readAt(bw: seq[bool]; w, h: int; f: array[3, Finder]; mended: var int): tuple[ok: bool; r: QrRead] =
+  ## (a code whose three finders are `f`: top left, top right, bottom left)
+  let (tl, tr, bl) = (f[0], f[1], f[2])
+  let module = (tl.module + tr.module + bl.module) / 3
+  let dTop = hypot(tr.x - tl.x, tr.y - tl.y)
+  let dLeft = hypot(bl.x - tl.x, bl.y - tl.y)
+  var dim = int(round((dTop + dLeft) / 2 / module)) + 7
+  case dim and 3
+  of 0: inc dim
+  of 2: dec dim
+  of 3: dim -= 2
+  else: discard
+  for tryDim in [dim, dim + 4, dim - 4]:
+    if tryDim < 21 or tryDim > 177: continue
+    let ver = (tryDim - 17) div 4
+    let d = tryDim.float
+    # the fourth corner: by the alignment pattern when there is one, else as a parallelogram
+    var br = (tr.x + bl.x - tl.x, tr.y + bl.y - tl.y)
+    var brModule = (d - 3.5, d - 3.5)
+    if ver >= 2:
+      let k = 1.0 - 3.0 / (d - 7.0)
+      let ex = tl.x + k * (tr.x - tl.x + bl.x - tl.x)
+      let ey = tl.y + k * (tr.y - tl.y + bl.y - tl.y)
+      let a = findAlign(bw, w, h, ex, ey, module)
+      if a.ok:
+        br = (a.x, a.y)
+        brModule = (d - 6.5, d - 6.5)
+    let m = solve8([(3.5, 3.5), (d - 3.5, 3.5), brModule, (3.5, d - 3.5)],
+                   [(tl.x, tl.y), (tr.x, tr.y), br, (bl.x, bl.y)])
+    if m[8] == 0: continue
+    var mods = newSeq[bool](tryDim * tryDim)
+    for y in 0 ..< tryDim:
+      for x in 0 ..< tryDim:
+        let (px, py) = mapPt(m, x.float + 0.5, y.float + 0.5)
+        let ix = int(px)
+        let iy = int(py)
+        if ix >= 0 and iy >= 0 and ix < w and iy < h: mods[y * tryDim + x] = bw[iy * w + ix]
+    var fixed = 0
+    let got = qrDecodeModules(mods, tryDim, fixed)
+    if got.ok:
+      mended += fixed
+      var r = QrRead(text: got.text, version: got.version, ecc: got.ecc, mended: fixed)
+      r.corners = [mapPt(m, 0, 0), mapPt(m, d, 0), mapPt(m, d, d), mapPt(m, 0, d)]
+      return (true, r)
+
+proc qrRead*(b: Bitmap; most = 4): seq[QrRead] =
+  ## The QR codes in the picture `b` -- a camera's, a screenshot, a scan -- read: what each says,
+  ## where it is. Upright or turned any way, in perspective, a little damaged (as much as its
+  ## level of error correction mends). At most `most` of them.
+  if b == nil or b.w < 21 or b.h < 21: return
+  let bw = binarize(lumaOf(b), b.w, b.h)
+  var fs = findFinders(bw, b.w, b.h)
+  if fs.len < 3: return
+  # (the surest first: seen in the most rows)
+  for i in 1 ..< fs.len:
+    var j = i
+    while j > 0 and fs[j].count > fs[j - 1].count:
+      swap(fs[j], fs[j - 1])
+      dec j
+  if fs.len > 12: fs.setLen(12)
+  var used = newSeq[bool](fs.len)
+  var mended = 0
+  for i in 0 ..< fs.len:
+    for j in i + 1 ..< fs.len:
+      for k in j + 1 ..< fs.len:
+        if used[i] or used[j] or used[k] or result.len >= most: continue
+        let a = [fs[i], fs[j], fs[k]]
+        let ms = [a[0].module, a[1].module, a[2].module]
+        if max(ms) > min(ms) * 1.6: continue
+        # (the corner of the right angle: the one opposite the longest side)
+        let d01 = hypot(a[0].x - a[1].x, a[0].y - a[1].y)
+        let d02 = hypot(a[0].x - a[2].x, a[0].y - a[2].y)
+        let d12 = hypot(a[1].x - a[2].x, a[1].y - a[2].y)
+        var tl, p, q: Finder
+        if d12 >= d01 and d12 >= d02: (tl = a[0]; p = a[1]; q = a[2])
+        elif d02 >= d01: (tl = a[1]; p = a[0]; q = a[2])
+        else: (tl = a[2]; p = a[0]; q = a[1])
+        let longest = max(d01, max(d02, d12))
+        if longest < 14 * min(ms): continue
+        # (top right and bottom left: clockwise from top left, y going down)
+        let cross = (p.x - tl.x) * (q.y - tl.y) - (p.y - tl.y) * (q.x - tl.x)
+        if cross < 0: swap(p, q)
+        let got = readAt(bw, b.w, b.h, [tl, p, q], mended)
+        if got.ok:
+          result.add got.r
+          used[i] = true
+          used[j] = true
+          used[k] = true

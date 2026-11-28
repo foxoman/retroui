@@ -2846,6 +2846,54 @@ proc inputBox*(open: var bool; title, prompt: string; text: var string;
     endDialog()
   if was and not open and result == 0: result = 2
 
+type SaveChoice* = enum
+  ## What the user said to "Save changes?" (`saveChangesBox`).
+  scNone,        ## not answered (yet)
+  scSave,        ## save them, then go on (close, open the other document)
+  scDiscard,     ## don't save: lose them and go on
+  scCancel       ## don't go on: stay with the document as it is
+
+proc saveChangesBox*(open: var bool; name: string): SaveChoice =
+  ## The question before work is lost, while `open`: "Do you want to save the changes to
+  ## “Report”?" -- Yes, No and Cancel in Classic; Save, Don't Save and Cancel, with what is at
+  ## stake under it, in the newer looks. Esc is Cancel. Ask it when the document closes, the app
+  ## quits or another document replaces it -- and only then: work saved by itself (on a phone)
+  ## needs no question.
+  let shown = if name.len > 0: name else: "Untitled"
+  let n = if glassLook():
+            msgBox(open, ui.title, "Do you want to save the changes you made to \u201C" & shown &
+                   "\u201D?\nYour changes will be lost if you don't save them.",
+                   ["&Save", "Do&n't Save", "Cancel"], miWarning)
+          else:
+            msgBox(open, ui.title, "Do you want to save the changes to \u201C" & shown & "\u201D?",
+                   ["&Yes", "&No", "Cancel"], miWarning)
+  result = case n
+           of 1: scSave
+           of 2: scDiscard
+           of 3: scCancel
+           else: scNone
+
+var guardAsking: bool   # (`closeGuard`'s question shown)
+
+proc closeGuard*(dirty: bool; name: string; save: proc (): bool {.closure.} = nil): bool {.discardable.} =
+  ## Call once a frame, after the window's content: when the user closes the window (its close
+  ## button, Alt+F4, Exit) while `dirty`, the app asks `saveChangesBox` instead of closing. Save
+  ## calls `save` -- true when it saved: the app closes; false (no file picked, the disk full):
+  ## it stays --, Don't Save closes, Cancel stays. True in the frame the app is to close.
+  if closeRequested() and dirty:
+    cancelClose()
+    guardAsking = true
+  if guardAsking:
+    case saveChangesBox(guardAsking, name)
+    of scSave:
+      if save == nil or save():
+        quitApp()
+        result = true
+    of scDiscard:
+      quitApp()
+      result = true
+    else: discard
+
 type FileMode* = enum
   ## What a file dialog is for.
   fmOpen        ## pick a file that is there

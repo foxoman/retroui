@@ -1065,6 +1065,7 @@ proc gpuBarrier(c: Cmd) =
       shrinkBlur(cast[ptr UncheckedArray[uint32]](addr blurRead[0]), src.w, rect(0, 0, src.w, src.h),
                  blurReach(c), k)
       k.src = src
+      if c.flags > 0: lensWarp(k, dr, rad, int(c.flags) * s)
       blurKept[key] = move k
     let k = addr blurKept[key]
     if k.tex == 0:

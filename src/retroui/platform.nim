@@ -1,7 +1,7 @@
 ## Platform services for apps: a folder for the app's files, small saved
 ## settings, opening links, and what kind of device this is.
 
-import std/[os, tables, strutils]
+import std/[os, tables, strutils, math]
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 when not (androidApp or defined(ios)):
   import std/osproc
@@ -225,6 +225,8 @@ proc storeAppearance*(s: var Settings) =
   s["look.look"] = $uiLook
   s["look.frosted"] = $frostedGlass
   s["look.glassfx"] = $glassEffect
+  s["look.glasstint"] = $int(round(glassTint * 100))
+  s["look.glasssolid"] = $glassSolid
   s["look.system"] = $systemColors
   s["look.controls"] = (case controlSizes()
                         of csAuto: "auto"
@@ -273,6 +275,9 @@ proc restoreAppearance*(s: Settings) =
   else: discard
   if s.hasKey("look.frosted"): frostedGlass = s.getBool("look.frosted", true)
   if s.hasKey("look.glassfx"): glassEffect = s.getBool("look.glassfx", true)
+  if s.hasKey("look.glasstint"):
+    glassTint = clamp((try: parseInt(s["look.glasstint"]) except ValueError: 50), 0, 100).float / 100
+  if s.hasKey("look.glasssolid"): glassSolid = s.getBool("look.glasssolid", glassSolid)
   if s.hasKey("look.system"): systemColors = s.getBool("look.system", systemColors)
   if not existsEnv("RETRO_TEXT"):
     case s.getOrDefault("look.textedges", "")

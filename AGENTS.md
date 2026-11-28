@@ -404,6 +404,31 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   without end -- is not done under random input (`smokeOn()`): the soak
   runs for an hour on GitHub with a real network and real processes.
 - `docs/controls.md` -- every control with pictures, made by `tools/shots.nim`.
+- `docs/hig.md` -- the Retro UI Interface Guidelines: how an app behaves on
+  the desktop (Classic and Windows 95's additions) and on the phone (Gloss),
+  and the glass of both; each rule says what the kit does by itself and the
+  call the app makes, so a rule names only what the kit really does (a
+  claim the kit doesn't keep is a bug in one or the other). Its pictures are
+  the controls guide's (`docs/controls/*.png`) and the two apps'
+  (`examples/higdesk.nim`, `examples/higphone.nim`; `sh
+  tools/exampleshots.sh higdesk higphone`), its code snippets compiled
+  before a release. A new behaviour of the kit that the guidelines cover
+  goes into them.
+- `retroui/device` -- what an app reaches past its window: links
+  (`takeLink`), one copy (`singleInstance`, `bringForward`: a watcher
+  thread wakes the screen's loop with `interruptWaitEvent`), the screen
+  lock, motion, picture in picture, drag and drop with other apps, and
+  purchases. Android through `tools/android/RetroDevice.java` (Play Billing
+  by reflection only: the app brings the library, the kit has none of
+  Google's), iOS and macOS through the Objective-C runtime (`native`:
+  classes made at run time for delegates, global blocks for LAContext).
+  Every call answers on every system: false, `laUnavailable`, `ssUnavailable`.
+- `retroui/persist`, `retroui/nif`, `retroui/appstate` -- persistent
+  collections (their counts are not atomic: a version goes to another
+  thread as a copy), NIF text, the app's state kept on pause and exit
+  (`pauseHooks`, `addExitProc`). `tests/bench_persist.nim`'s numbers are in
+  `docs/benchmarks.md`, after "The apps" (`tools/bench.py` keeps what comes
+  after it).
   Pictures that change only with the day (the calendar, the agenda, the
   Gantt chart, the About and splash boxes, the file pickers) are not
   committed again unless their control changed.
@@ -1053,7 +1078,8 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - **Keep these up to date with every change** to the API, the build or
   the behaviour: `skills/retroui/SKILL.md` (how to build apps with the
   kit), this file, `README.md`, `CHANGELOG.md` (the top section),
-  `BUILDING.md` (builds), `docs/controls.md` (controls), `docs/syntax.md`
+  `BUILDING.md` (builds), `docs/controls.md` (controls), `docs/hig.md`
+  (behaviour the guidelines cover), `docs/syntax.md`
   (when the syntax or what a form draws changes: run
   `sh tools/syntaxshots/make.sh`), `tutorials/` (when what a lesson uses
   changes: `nimble tutorials`), `docs/designer.md` (Retro Designer),
