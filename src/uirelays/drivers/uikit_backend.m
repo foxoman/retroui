@@ -614,9 +614,39 @@ static BOOL typesText(long usage) {
 @property (strong, nonatomic) UIWindow *window;
 @end
 
+/* the links the app was opened with (a scheme of its own: CFBundleURLTypes), oldest first:
+   taken by uirelays_take_link (retroui/device's takeLink) */
+static NSMutableArray *openedLinks = nil;
+
+static void keepLink(NSURL *url) {
+  if (url == nil || url.isFileURL) return;
+  @synchronized ([UrAppDelegate class]) {
+    if (openedLinks == nil) openedLinks = [[NSMutableArray alloc] init];
+    [openedLinks addObject:url.absoluteString];
+  }
+}
+
+const char *uirelays_take_link(void) {
+  static char *last = NULL;
+  @synchronized ([UrAppDelegate class]) {
+    if (openedLinks == nil || openedLinks.count == 0) return "";
+    NSString *s = openedLinks[0];
+    [openedLinks removeObjectAtIndex:0];
+    free(last);
+    last = strdup(s.UTF8String);
+    return last;
+  }
+}
+
 @implementation UrAppDelegate
 
+- (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary *)o {
+  keepLink(url);
+  return YES;
+}
+
 - (BOOL)application:(UIApplication *)app didFinishLaunchingWithOptions:(NSDictionary *)opts {
+  keepLink(opts[UIApplicationLaunchOptionsURLKey]);
   self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
   gWindow = self.window;
   self.window.rootViewController = [[UrViewController alloc] init];
