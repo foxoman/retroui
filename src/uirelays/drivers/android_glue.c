@@ -104,6 +104,9 @@ static struct {
   int keyboardShown, reshow;
   /* from the Java side (UI thread), under mu */
   int insets[4], haveInsets;
+  /* where the app's picture is in its window (RetroActivity's surface view: a free window's
+   * title bar over it); touches are moved by it (UI thread writes, app thread reads) */
+  volatile int surfX, surfY;
   char *inbox;
   size_t inboxLen;
   /* JNI: cached classes and methods (global references) */
@@ -138,6 +141,10 @@ static struct {
   jmethodID changingMethod;          /* Activity.isChangingConfigurations */
   pthread_t uiThread;
 } g;
+
+/* (a touch's place on the app's picture: in the window, less where the picture is in it) */
+static float evX(const AInputEvent *ev, size_t i) { return AMotionEvent_getX(ev, i) - (float)g.surfX; }
+static float evY(const AInputEvent *ev, size_t i) { return AMotionEvent_getY(ev, i) - (float)g.surfY; }
 
 /* ---- the background check -------------------------------------------------
  * A job of the system (the app's JobService) may start this process with no
@@ -495,6 +502,14 @@ static void JNICALL nativeInsets(JNIEnv *env, jclass cls, jint top, jint left,
   writeCmd(CMD_RECT);
 }
 
+/* RetroActivity.nativeSurfaceAt, on the UI thread: where the app's picture is in its window */
+static void JNICALL nativeSurfaceAt(JNIEnv *env, jclass cls, jint x, jint y) {
+  (void)env; (void)cls;
+  g.surfX = x;
+  g.surfY = y;
+  writeCmd(CMD_RECT);
+}
+
 /* ---- the keyboard's input connection (RetroInput): what it composes, its keys ---- */
 
 static char *composeText = NULL;      /* malloc'ed UTF-8, under g.mu */
@@ -591,6 +606,10 @@ static void registerNatives(JNIEnv *env, jobject activity) {
     { "nativeAccess", "(IILjava/lang/String;D)V", (void *)nativeAccess },
   };
   if ((*env)->RegisterNatives(env, cls, ma, 1) != 0) jniFailed(env);  /* (an activity without it) */
+  JNINativeMethod mw[] = {
+    { "nativeSurfaceAt", "(II)V", (void *)nativeSurfaceAt },
+  };
+  if ((*env)->RegisterNatives(env, cls, mw, 1) != 0) jniFailed(env);  /* (an activity without it) */
   JNINativeMethod mi[] = {
     { "nativeCompose", "(Ljava/lang/String;I)V", (void *)nativeCompose },
     { "nativeKey", "(IZ)V", (void *)nativeKey },
@@ -907,7 +926,11 @@ void uirelays_layout(int *w, int *h, int *density, int *top, int *left,
   int in[4] = { g.insets[0], g.insets[1], g.insets[2], g.insets[3] };
   pthread_mutex_unlock(&g.mu);
   if (have) {                    /* from UiRelaysActivity: bars and keyboard */
-    *top = in[0]; *left = in[1]; *bottom = in[2]; *right = in[3];
+    /* (the window's; the app's picture may start below its top or in from its left: a free
+     * window's title bar over it) */
+    *top = in[0] > g.surfY ? in[0] - g.surfY : 0;
+    *left = in[1] > g.surfX ? in[1] - g.surfX : 0;
+    *bottom = in[2]; *right = in[3];
   } else if (r.right > r.left && r.bottom > r.top) {
     *top = r.top; *left = r.left;
     *bottom = g.winH - r.bottom; *right = g.winW - r.right;
@@ -1474,8 +1497,8 @@ static int twoFingers(AInputEvent *ev, float *cx, float *cy, float *d) {
     if (id == g.g2b) ib = (int)i;
   }
   if (ia < 0 || ib < 0) return 0;
-  float ax = AMotionEvent_getX(ev, ia), ay = AMotionEvent_getY(ev, ia);
-  float bx = AMotionEvent_getX(ev, ib), by = AMotionEvent_getY(ev, ib);
+  float ax = evX(ev, ia), ay = evY(ev, ia);
+  float bx = evX(ev, ib), by = evY(ev, ib);
   *cx = (ax + bx) / 2;
   *cy = (ay + by) / 2;
   float dx = ax - bx, dy = ay - by;
@@ -1563,7 +1586,7 @@ static int translate(AInputEvent *ev) {
     case AMOTION_EVENT_ACTION_DOWN: {
       g.pointerId = AMotionEvent_getPointerId(ev, 0);
       penOf(ev, 0);
-      int x = (int)AMotionEvent_getX(ev, 0), y = (int)AMotionEvent_getY(ev, 0);
+      int x = (int)evX(ev, 0), y = (int)evY(ev, 0);
       int64_t t = AMotionEvent_getEventTime(ev) / 1000000;   /* when it happened */
       g.reshow = 1;
       int slop = g.density * 24 / 160;
@@ -1592,7 +1615,7 @@ static int translate(AInputEvent *ev) {
       int i = a == AMOTION_EVENT_ACTION_MOVE ? pointerIndex(ev) : 0;
       if (i >= 0) {
         penOf(ev, i);
-        pushMove((int)AMotionEvent_getX(ev, i), (int)AMotionEvent_getY(ev, i));
+        pushMove((int)evX(ev, i), (int)evY(ev, i));
       }
       return 1;
     }
@@ -1611,8 +1634,8 @@ static int translate(AInputEvent *ev) {
                       (AMotionEvent_getFlags(ev) & 0x20) != 0;
       int i = pointerIndex(ev);
       if (i < 0) i = 0;
-      int x = cancelled ? -100000 : (int)AMotionEvent_getX(ev, i);
-      int y = cancelled ? -100000 : (int)AMotionEvent_getY(ev, i);
+      int x = cancelled ? -100000 : (int)evX(ev, i);
+      int y = cancelled ? -100000 : (int)evY(ev, i);
       if (!cancelled) pushMove(x, y);
       UrEvent *e = push(UR_UP);
       e->x = x; e->y = y; e->button = g.downButton;
