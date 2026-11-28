@@ -501,6 +501,8 @@ proc agendaActs(ev: AgendaEvent) =
     calMoving = -1
     moveEntry(i)
 
+var calPaneW = 0   # (the Calendar's left pane: as the mailboxes' tree, the month whole in it)
+
 proc calendarView() =
   loadAppts()
   if isCompact():
@@ -508,7 +510,10 @@ proc calendarView() =
       if button("&New Event", pxNew, enabled = calAccounts().len > 0): newEventNow()
     agendaActs(agendaView(appts, calDay, calMode, height = -1, key = "cal"))
     return
-  split(treeW, -1):
+  # (the month calendar whole in its pane, a finger's cells wider: Saturday was cut on a tablet)
+  if calPaneW == 0: calPaneW = treeW
+  calPaneW = max(calPaneW, calendarSize().w + 2 * Pad + 2)
+  split(calPaneW, -1):
     calendar(calDay)
     space()
     label "Calendars", bold = true

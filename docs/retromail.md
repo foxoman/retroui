@@ -287,7 +287,7 @@ the web, plain text); Writing (replies in blue, Undo Send); Kept Safe (the
 mail kept encrypted, look-alikes, trackers); Appearance; and More Options for
 the rest (signatures, spelling, swipes, tags, the assistant) -- each kept as
 it is changed --; and About Retro Mail, the kit's About page. On a tablet the mailboxes and the list stay down the left, the
-message beside them.
+message beside them; Calendar, People, To Do and Notes take the whole width.
 
 On a phone in the 3.1 look each screen comes alone (folders, list,
 conversation, writing) and the Outlook bar sits at the bottom; swipe a message right to archive

@@ -148,7 +148,9 @@ proc parseDate*(s: string; d: var Date): bool =
 
 # ---- calendar ---------------------------------------------------------------
 
-proc calendarSize(): tuple[w, h, cw, ch: int] =
+proc calendarSize*(): tuple[w, h, cw, ch: int] =
+  ## How big `calendar` is -- its width and height, a day's cell's -- at the sizes now (a finger's
+  ## cells wider): for a pane that is to hold it whole.
   let cw = if fingers(): dp(36) else: dp(26)
   let ch = ItemH + 3
   (7 * cw + 2, ItemH + 8 + ch + 6 * ch + 4, cw, ch)

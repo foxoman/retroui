@@ -22,7 +22,7 @@ when (defined(linux) or defined(bsd)) and not defined(android):
 import gfx, busy, hangwatch, frameprof
 export busy
 
-const RetroVersion* = "0.81.0"
+const RetroVersion* = "0.82.0"
   ## The toolkit's version (shown in About boxes' Credits).
 const
   RetroDeveloper* = "Sultan Al Isaiee"
@@ -758,6 +758,9 @@ type Ctx* = object
   eraser*: bool                  ## ... its eraser end is down
   barY*: int                     ## where the content starts under the bars at the top
   bottom*: int                   ## where it ends above the bars at the bottom
+  floatInset*: int               ## the room at its foot that glass floating over the content
+                                 ## covers (Glass's floating tab bar, `glassEffect`): the page and
+                                 ## the panels that reach it scroll that much further
   prevBottom*: int               ## ... last frame
   winX*, winY*: int              ## the window's top left: 0, 0, but a `windowBox`
                                  ## moves it to its box (its bars, dialogs, menus)
@@ -1407,6 +1410,14 @@ var systemColors* = defined(android) or defined(ios)
   ## and tablets, unless the user picked a scheme of their own ("Light or dark as the system" in
   ## `appearanceSettings`, kept with the look; picking a color scheme there turns it off). An
   ## app's own theme (not one of `builtinThemes`) is left as it is, and so is $RETRO_THEME.
+
+var glassEffect* = true
+  ## In the Glass look, the modern glass effect: the tab bar a capsule of glass floating over the
+  ## content, which runs on under it and shows through it blurred, and the surfaces that float --
+  ## menus, dialogs, sheets, alerts, the side menu, the bars' buttons -- glass with its edges lit
+  ## and a sheen of light down from its top (`glassSurface`). False: Glass as before, the tab bar
+  ## standing on a band of its own. The user's choice ("Glass effect" in `appearanceSettings`) is
+  ## kept with the look and wins.
 
 var frostedGlass* = true
   ## In the Glass look, menus, dialogs and the lists a combo box drops down show what is under
@@ -4843,6 +4854,7 @@ proc frameSetup(main: bool) =
   ui.safe = (ui.layoutSafe.top + fb, ui.layoutSafe.left + fb,
              ui.layoutSafe.bottom + fb, ui.layoutSafe.right + fb)
   ui.bottom = ui.h - ui.safe.bottom
+  ui.floatInset = 0
   # (a title in a larger style: a taller bar)
   let titleH = if captionStyle == TextStyle(): 0 else: lineHeight(captionTitleStyle()) + dp(6)
   ui.captionH = if ui.ownFrame: (if full: 0 else: max(MenuH, titleH) + 1)
@@ -5092,7 +5104,7 @@ proc endPage() =
   ui.pageMaxX = if overX > 0 or (wasX and overX > -SbW and ui.pageX > 0): max(1, overX) else: 0
   let hbarH = if ui.pageMaxX > 0: SbW else: 0
   let view = rect(0, ui.barY, ui.w, max(0, ui.bottom - hbarH - ui.barY))
-  let over = f.bottom + ui.pageY + Pad - (ui.bottom - hbarH)
+  let over = f.bottom + ui.pageY + Pad + ui.floatInset - (ui.bottom - hbarH)
   let was = ui.pageOn
   ui.pageOn = over > 0 or (was and over > -SbW and ui.pageY > 0)
   ui.pageMax = max(0, over)

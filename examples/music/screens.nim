@@ -18,7 +18,7 @@ export local, online, tv
 
 const
   AppKey* = "RetroMusic"
-  MusicVersion* = "2.1.1"
+  MusicVersion* = "2.1.2"
   AppOrigin* = "https://net.foxoman.retromusic"
     ## (the app's address for YouTube's player: its identifier, as YouTube asks)
 
@@ -657,9 +657,9 @@ proc nowPlaying*() =
     masked(r, float(dp(8))):
       drawBitmap(r, big)
   else:
-    roundRect(r, float(dp(8)), mixColor(ui.theme.window, ui.theme.text, 0.1))
-    text(r.x + (r.w - textWidth(nfMusic, style(size = 3.0))) div 2,
-         r.y + (r.h - lineHeight(style(size = 3.0))) div 2, nfMusic, ui.theme.gray, style(size = 3.0))
+    # (no cover: artwork made from it, as for a song of yours)
+    masked(r, float(dp(8))):
+      drawArtwork(r, Song(title: t.title, artist: t.artist, album: t.album), words = false)
   heading(t.title, 2)
   label(t.artist & (if t.album.len > 0: " -- " & t.album else: ""), color = ui.theme.gray)
   playerControls()
@@ -691,14 +691,18 @@ proc homeScreen() =
     # (your own: the albums that came lately, on a shelf; what you played last)
     var cards: seq[ShelfCard]
     var keys: seq[string]
+    var firsts: seq[int]
     for i in smartSongs(skAdded) & smartSongs(skPlayed):
       let k = albumKey(songs[i])
       if k in keys or keys.len >= 12: continue
       keys.add k
+      firsts.add i
       cards.add (songs[i].album, songs[i].artist, coverOf(songs[i]), nfMusic)
     if cards.len > 0:
       label("On This Device", bold = true)
-      let k = cardShelf(cards, "local")
+      # (an album with no cover: its artwork made from it, as on Now Playing)
+      let k = cardShelf(cards, "local", art = proc (c: int; r: Rect) =
+        drawArtwork(r, songs[firsts[c]], words = false))
       if k >= 0: goLocal("local:album:" & keys[k])
   elif musicAccess():
     tableGroup("", "Put songs in your Music folder, and they are here too: Library > On This Device."):

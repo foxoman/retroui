@@ -950,11 +950,52 @@ proc textWidth*(s: string; st: TextStyle): int =
   let em = widthEm(s, f, if st.rtl: 1 else: -1)
   int(ceil(em * emOf(st, f) - 0.01))
 
+var inkReachCache: Table[(string, uint16, float32, float32, int), tuple[above, below: int]]
+
+proc inkReach*(s: string; st: TextStyle): tuple[above, below: int] =
+  ## How far the ink of `s`, one line in style `st`, reaches over the top of its line and under
+  ## its foot, in logical pixels (0, 0 when it stays in it): the marks of vowelled Arabic -- a
+  ## shadda with its vowel over a tall letter, tanween under a deep one. `label`, `paragraph`,
+  ## `styledText` and `heading` grow by it, so such a line is not cut or run into its neighbours.
+  if s.len == 0 or plainAscii(s): return
+  let f = faceOf(st)
+  if not hasGlyphs(s, f): return
+  let key = (s, flagsOf(st), sizeOf(st), textEm, FontH)
+  if key in inkReachCache: return inkReachCache[key]
+  let em = emOf(st, f)
+  let lh = float32(lineHeight(st))
+  let mf = uiBase()
+  let base = (lh - lineFactor(mf, true) * em) / 2 + ascentFactor(mf, true) * em
+  let run = shapeCached(s, f, if st.rtl: 1 else: -1)
+  var top = 0'f32
+  var foot = 0'f32
+  for g in run.glyphs:
+    let ff = face(g.face)
+    let b = ff.bounds(int(g.gid))
+    if b.x1 <= b.x0: continue                 # (no outline: a space)
+    let upm = float32(ff.unitsPerEm)
+    top = max(top, (float32(b.y1) / upm + g.y) * em)
+    foot = min(foot, (float32(b.y0) / upm + g.y) * em)
+  # (a pixel of soft edge is the line's own, and a pixel more past it left alone: lines of the
+  # UI's text do not move by a pixel for a damma -- Suhar App's 1.3 em hold most vowelled Arabic
+  # to within one at the UI's sizes)
+  let up = int(ceil(top - base - 1))
+  let down = int(ceil(-foot - (lh - base) - 1))
+  result.above = if up >= 2: up else: 0
+  result.below = if down >= 2: down else: 0
+  if inkReachCache.len > 4096: inkReachCache.clear()
+  inkReachCache[key] = result
+
 proc plainStyle(bold: bool; mag: int): TextStyle {.inline.} =
   ## (what plain text is in: the UI's, or `withTextStyle`'s)
   result = baseStyle
   result.bold = result.bold or bold
   result.size = sizeOf(baseStyle) * float32(mag)
+
+proc inkReach*(s: string; bold = false): tuple[above, below: int] =
+  ## How far the ink of `s` in the UI's text (`textWidth(s, bold)`'s style) reaches out of its
+  ## line (see the other `inkReach`).
+  inkReach(s, plainStyle(bold, 1))
 
 proc textWidth*(s: string; bold = false; mag = 1): int =
   ## Width of `s` in logical pixels.

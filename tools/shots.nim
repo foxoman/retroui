@@ -568,6 +568,20 @@ example("surface", "Surfaces: frosted glass, shadows, masks",
     fill(ring, color(40, 160, 110))
     text(ring.x + dp(9), ring.y + dp(20), "circle", color(255, 255, 255))
 
+example("glass", "The modern glass: glassSurface",
+        "With the modern glass effect (`glassEffect`, on in the Glass look; \"Glass effect\" in `appearanceSettings`) Glass is glass everywhere: the tab bar a capsule floating over the content, which shows through it blurred and scrolls its end out from under it (`ui.floatInset`); the bars' buttons capsules of glass; menus, dialogs, sheets, alerts and the side menu glass with their edges lit. `glassSurface(r, radius, tint)` draws a pane of it of your own -- what is under it blurred and seen through it, a sheen of light down from its top, its edges lit (`glassRim`); `glassFx()` says whether the effect is on.",
+        380, 170, ["glassSurface", "glassRim", "glassFx"], std3):
+  let area = place(0, dp(150))
+  for i in 0 ..< area.w div dp(16) + 1:
+    fill(rect(area.x + i * dp(16), area.y, dp(8), area.h),
+         if i mod 2 == 0: color(230, 120, 60) else: color(60, 150, 220))
+  let pane = rect(area.x + dp(14), area.y + dp(16), dp(220), dp(56))
+  glassSurface(pane, float(pane.h) / 2)
+  text(pane.x + dp(22), pane.y + (pane.h - FontH) div 2, "A capsule of glass", ui.theme.text, style(bold = true))
+  let card = rect(area.x + dp(40), area.y + dp(86), dp(180), dp(52))
+  glassSurface(card, float(dp(14)), ui.theme.window)
+  text(card.x + dp(14), card.y + (card.h - FontH) div 2, "A card, its edge lit", ui.theme.text)
+
 example("form", "Forms and fields",
         "`form` lines up labels and their controls in two columns (0: the labels as wide as the longest). On a phone the label goes above its control.",
         340, 120, ["form", "field"], std3):
@@ -645,11 +659,12 @@ is joined and runs right to left everywhere.
 """)
 
 example("label", "label, paragraph, heading",
-        "Static text. A `&` before a letter underlines it, and Alt with that letter moves the focus to the control after the label. Ending in ':', it names that control: in a row that wraps, the two go to the next line together.",
-        360, 120, ["label", "paragraph", "heading"], std3):
+        "Static text. A `&` before a letter underlines it, and Alt with that letter moves the focus to the control after the label. Ending in ':', it names that control: in a row that wraps, the two go to the next line together. A paragraph is in the UI font's reading cut (Suhar App Read). A right-to-left paragraph -- Arabic -- in a left-to-right interface sets its lines from the right (`lineStart` tells where a line starts); text whose marks reach out of its line -- fully vowelled Arabic in large text -- is as tall as they reach (`inkReach`).",
+        360, 150, ["label", "paragraph", "heading", "lineStart"], std3):
   heading("Quarterly report", 2)
   label "&Name: (a label with a mnemonic)"
   paragraph("A paragraph wraps to the room it has, as 3.1's static text did.")
+  paragraph("صحار مدينة على ساحل الباطنة، ومنها أبحر السندباد.")
 
 example("styledtext", "styledText, link, badge",
         "Text in a style of its own (bold, italic, mono, underlined, larger), a link that is true when clicked, and a small count in a colored badge.",
@@ -971,8 +986,8 @@ do:
   aim()
 
 example("calendar", "calendar",
-        "A month to pick a day from: the arrows move the day, Page Up and Page Down the month.",
-        300, 210, ["calendar"], focus4):
+        "A month to pick a day from: the arrows move the day, Page Up and Page Down the month. `calendarSize()` tells how big it is at the sizes now -- a finger's cells are wider --, for a pane to hold it whole.",
+        300, 210, ["calendar", "calendarSize"], focus4):
   var calDay = date(2026, 10, 27)
 do:
   calendar(calDay, enabled = shotEnabled)
@@ -1456,8 +1471,8 @@ do:
 opts(reset = proc () = inputOpen = true)
 
 example("dialog", "dialog",
-        "A dialog of your own: any controls in its body. Esc closes it.",
-        400, 180, ["dialog"], std3):
+        "A dialog of your own: any controls in its body. Esc closes it. Something a control in it opens over it -- a page of choices, a dialog of its own -- is drawn as the dialog ends with `afterDialog(proc () = ...)`, so it lies over the dialog and not under the rest of its content (a settings row's page of choices does it by itself).",
+        400, 180, ["dialog", "afterDialog"], std3):
   var dlgOpen = true
   var dlgCopies = 2
   var collate = true

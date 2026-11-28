@@ -27,6 +27,7 @@ from std/strutils import nil
 import uirelays/target   # (androidApp: an APK, not a program in Termux)
 import gfx, core, widgets, business, desktop, extras, platform, nerdicons
 import uirelays/input
+from typeset import textIsRtl
 
 template th: untyped = ui.theme
 
@@ -121,9 +122,16 @@ proc navButton(id: Id; r: Rect; label: string; back, primary: bool; bg: Color; e
     if primary:
       glassBlue(r, pr, hit.down, glow = false)
       ink = white
+    elif glassFx():
+      glassSurface(r, pr, if hit.down: mixColor(th.field, th.text, 0.08) else: th.field, lift = 2)
+      ink = accentText()
     else:
       glassPlate(r, pr, if hit.down: mixColor(th.field, th.text, 0.08) else: th.field, lift = 2)
       ink = accentText()
+  elif glassFx() and back:
+    # (the modern glass effect: Back a capsule of glass too, its point and label in the highlight)
+    glassSurface(r, float(r.h) / 2, if hit.down: mixColor(th.field, th.text, 0.08) else: th.field, lift = 2)
+    ink = accentText()
   elif glassLook():
     if hit.down or hit.showsHover:
       roundRect(r, glassRadius(r), withAlpha(th.text, if hit.down: 40 else: 18))
@@ -166,7 +174,10 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
   let bg = if glassLook() or own: titleColors(true).bg else: th.face
   let fg = if mobileStyle.barText.a != 0: mobileStyle.barText
            elif glassLook() or own: titleColors(true).fg else: th.text
-  if glassLook():
+  if glassFx() and not own:
+    # (the modern glass effect: no band -- the page's own face, its buttons glass floating on it)
+    fill(full, th.window)
+  elif glassLook():
     titleBar(full, true)
     # (a soft shadow under it on the page, as the bar stood over it; Glass: a hairline)
     if glossLook(): glossBarShadow(full)
@@ -208,7 +219,9 @@ proc navBar*(title: string; back = ""; action = ""; enabled = true; done = false
     if gloss: glossBarButton(mr, mh.down)
     elif modernGlass():
       # (a round button of glass, its lines in the highlight)
-      glassPlate(mr, float(mr.h) / 2, if mh.down: mixColor(th.field, th.text, 0.1) else: th.field, lift = 2)
+      if glassFx(): glassSurface(mr, float(mr.h) / 2, if mh.down: mixColor(th.field, th.text, 0.1) else: th.field,
+                                 lift = 2)
+      else: glassPlate(mr, float(mr.h) / 2, if mh.down: mixColor(th.field, th.text, 0.1) else: th.field, lift = 2)
       ink = accentText()
     elif glassLook():
       if mh.down or mh.showsHover: roundRect(mr, glassRadius(mr), withAlpha(th.text, if mh.down: 40 else: 18))
@@ -1711,14 +1724,17 @@ proc endTableGroup*() =
   if g.footer.len > 0:
     let gloss = glossLook()
     let room = cellRoom() - (if glassLook(): 2 * dp(12) else: 0)
-    let lines = wrapLines(tr(g.footer), room)
+    let note = tr(g.footer)
+    let lines = wrapLines(note, room)
     let lh = FontH + dp(1)
+    let rtl = textIsRtl(note)       # (Arabic: from the right where it is not in the middle)
     # (one place for its lines: close together, not a row's gap apart)
     let fr = place(0, lines.len * lh, fill = true)
     for i, ln in lines:
       let lr = rect(fr.x, fr.y + i * lh, fr.w, lh)
       let tw = textWidth(ln)
-      let tx = if gloss: lr.x + (lr.w - tw) div 2 elif glassLook(): lr.x + dp(12) else: lr.x
+      let inner = if glassLook() and not gloss: rect(lr.x + dp(12), lr.y, lr.w - 2 * dp(12), lh) else: lr
+      let tx = if gloss: lr.x + (lr.w - tw) div 2 else: lineStart(inner, tw, rtl)
       if gloss:
         if not onDarkWindow(): text(tx, lr.y + 1, ln, withAlpha(white, 204))
         text(tx, lr.y, ln, if onDarkWindow(): color(176, 180, 190) else: glossTint(color(76, 86, 108)))
@@ -2207,6 +2223,8 @@ var
   choiceFor: Id     # (the settings row whose choices are open: a page of them)
   choiceSince: int  # (the frame it opened in)
   choiceDrawn: int  # (... the frame it was drawn in last: a row gone, its page closed)
+  choicePicked: tuple[id: Id; v: int] = (Id(0), -1)
+    # (one chosen on a page drawn after its dialog: taken by its row the next frame)
 
 proc choicePage(id: Id; title, detail: string; options: openArray[string]; v: var int;
                 enabled: bool): bool =
@@ -2261,7 +2279,23 @@ proc settingCombo*(title: string; options: openArray[string]; v: var int;
       accessNode(arComboBox, title, value = (if v >= 0 and v < options.len: tr(options[v]) else: ""),
                  id = id, r = r, states = accessOff(enabled) + {asExpandable} +
                                          (if choiceFor == id: {asExpanded} else: {}))
-    if choiceFor == id: result = choicePage(id, title, detail, options, v, enabled)
+    if choicePicked.id == id:
+      if choicePicked.v != v and choicePicked.v >= 0 and choicePicked.v < options.len:
+        v = choicePicked.v
+        result = true
+      choicePicked = (Id(0), -1)
+    if choiceFor == id:
+      if ui.curDialog == 0: result = choicePage(id, title, detail, options, v, enabled) or result
+      else:
+        # (a row in a dialog -- an app's Appearance --: its page drawn as that dialog ends, over
+        # it, not under the rows after this one)
+        let opts = @options
+        let now = v
+        afterDialog(proc () =
+          var w = now
+          if choicePage(id, title, detail, opts, w, enabled):
+            choicePicked = (id, w)
+            ui.redraw = true)
     ui.lastId = id
     ui.lastRect = r
     return
@@ -2423,6 +2457,10 @@ proc appearanceRows(): bool =
       invalidate()
       result = true
     if uiLook == lookGlass:
+      if settingToggle("Glass effect", glassEffect,
+                       if framed: "" else: "The tab bar floating over the page, the buttons and menus of glass"):
+        invalidate()
+        result = true
       if settingToggle("See-through menus and dialogs", frostedGlass,
                        if framed: "" else: "What is under them shows blurred, as through frosted glass"):
         invalidate()
@@ -2548,11 +2586,14 @@ type ShelfCard* = tuple[title, subtitle: string; picture: Bitmap; glyph: string]
   ## A card of a `cardShelf`: its picture (nil: `glyph` on a tint instead), its title, a line
   ## under it.
 
-proc cardShelf*(cards: openArray[ShelfCard]; key: string; side = 0): int =
+proc cardShelf*(cards: openArray[ShelfCard]; key: string; side = 0;
+                art: proc (i: int; r: Rect) {.closure.} = nil): int =
   ## A shelf of cards in a row the finger slides sideways, as phone apps show "your playlists"
   ## or "recently played": each a square picture with rounded corners, its title and a gray line
   ## under it; `side` its width (0: about a third of a phone's). Returns the one tapped (-1:
-  ## none). A wheel or Shift+wheel slides it too; the cards are read as buttons.
+  ## none). A wheel or Shift+wheel slides it too; the cards are read as buttons. A card with no
+  ## picture: `art` draws card `i`'s in `r` when it is given (its corners rounded), else its
+  ## glyph on a tint.
   result = -1
   let w = if side > 0: side else: clamp(cellRoom() * 2 div 5, dp(110), dp(150))
   let gap = dp(12)
@@ -2580,6 +2621,9 @@ proc cardShelf*(cards: openArray[ShelfCard]; key: string; side = 0): int =
     if c.picture != nil:
       masked(pic, float(dp(10))):
         drawBitmap(pic, c.picture)
+    elif art != nil:
+      masked(pic, float(dp(10))):
+        art(i, pic)
     else:
       roundRect(pic, float(dp(10)), mixColor(th.window, accentColor(), 0.25))
       if c.glyph.len > 0:
@@ -3460,7 +3504,8 @@ proc bigButton*(label: string; tone = btGray; enabled = true; key = ""): bool =
     # glass, its label in the text's color)
     let pr = float(r.h) / 2
     if tone == btGray:
-      glassPlate(r, pr, if hit.down: mixColor(th.field, th.text, 0.1) else: th.field)
+      if glassFx(): glassSurface(r, pr, if hit.down: mixColor(th.field, th.text, 0.1) else: th.field, lift = 3)
+      else: glassPlate(r, pr, if hit.down: mixColor(th.field, th.text, 0.1) else: th.field)
       ink = if enabled: th.text else: th.gray
     else: glassBlue(r, pr, hit.down, c = c, glow = enabled)
   elif glassLook():
@@ -4024,16 +4069,21 @@ proc wordsRows(items: openArray[string]; bullet: bool) =
     let dot = if bullet: dp(16) else: 0
     for it in items:
       let w = available()
-      let lines = wrapLines(tr(it), max(dp(40), w - 2 * pad - dot))
+      let t = tr(it)
+      let lines = wrapLines(t, max(dp(40), w - 2 * pad - dot))
       let h = max(tableRowH(false), lines.len * FontH + dp(18))
       let r = place(0, h, fill = true)
       let f = rowFrame(r, false)
       var y = r.y + (r.h - lines.len * FontH) div 2
+      # (a right-to-left one -- Arabic -- set from the right, its dot at the right)
+      let rtl = textIsRtl(t) and not ui.rtl
+      let room = rect(r.x + pad + (if rtl: 0 else: dot), r.y, r.w - 2 * pad - dot, r.h)
       if bullet:
         let s = float(max(dp(3), 3))
-        disc(float(r.x + pad + dp(4)), float(y + FontH div 2), s, if glossLook(): glossDetail() else: accentColor())
+        let dx = if rtl: r.x + r.w - pad - dp(4) else: r.x + pad + dp(4)
+        disc(float(dx), float(y + FontH div 2), s, if glossLook(): glossDetail() else: accentColor())
       for ln in lines:
-        text(r.x + pad + dot, y, ln, f.ink)
+        text(lineStart(room, textWidth(ln), rtl), y, ln, f.ink)
         y += FontH
       if accessOn: accessNode(arLabel, tr(it), id = 0, r = r)
 

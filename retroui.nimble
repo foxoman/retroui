@@ -2,7 +2,7 @@ import std/strutils
 
 # Package
 
-version       = "0.81.0"
+version       = "0.82.0"
 author        = "Sultan Al Isaiee (@foxoman) <sultan@foxoman.net>"
 description   = "Retro Nim UI (retroui): a small, fast, dependency-free Windows 3.1 style UI toolkit for business and desktop apps on Windows, macOS, Linux, Android and iOS"
 license       = "MIT"
@@ -114,8 +114,8 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.board", version: "1.7.0", icon: "examples/assets/board-icon-512.png",
    apk: "--storage --share-target:image/*,text/plain --nim:-d:lto", code: 19, small: true),
   (key: "mail", src: "examples/mail.nim", name: "Retro Mail", stem: "RetroMail",
-   id: "org.retro.mail", version: "1.5.1", icon: "examples/assets/mail-icon-512.png",
-   apk: "--permission:INTERNET --permission:POST_NOTIFICATIONS --background --nim:-d:lto", code: 18, small: false),
+   id: "org.retro.mail", version: "1.5.2", icon: "examples/assets/mail-icon-512.png",
+   apk: "--permission:INTERNET --permission:POST_NOTIFICATIONS --background --nim:-d:lto", code: 19, small: false),
   (key: "taskman", src: "examples/taskman.nim", name: "Retro Task Manager", stem: "RetroTaskManager",
    id: "org.retro.taskman", version: "1.0.6", icon: "examples/assets/taskman-icon-512.png",
    apk: "--nim:-d:lto", code: 7, small: true),
@@ -123,16 +123,16 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.navigator", version: "0.6.0", icon: "examples/assets/navigator-icon-512.png",
    apk: "--permission:INTERNET --cleartext --nim:-d:lto", code: 8, small: true),
   (key: "dns", src: "examples/retrodns.nim", name: "Retro DNS", stem: "RetroDNS",
-   id: "net.foxoman.retrodns", version: "1.9.1", icon: "examples/retrodns/icon.png",
+   id: "net.foxoman.retrodns", version: "1.9.2", icon: "examples/retrodns/icon.png",
    # (its VPN is Java of its own: --java)
    apk: "--java:examples/retrodns/glue --permission:INTERNET --permission:POST_NOTIFICATIONS --widget " &
-        "--target-sdk:36 --nim:-d:lto --nim:--opt:size", code: 14, small: true),
+        "--target-sdk:36 --nim:-d:lto --nim:--opt:size", code: 15, small: true),
   (key: "hrbook", src: "examples/hrbook.nim", name: "HR Book", stem: "HRBook",
    id: "org.retro.hrbook", version: "0.2.5", icon: "examples/assets/hrbook-icon-512.png",
    apk: "--storage --nim:-d:lto", code: 7, small: true),
   (key: "gallery", src: "examples/gallery.nim", name: "Retro Gallery", stem: "RetroGallery",
-   id: "org.retro.gallery", version: "0.81.0", icon: "examples/assets/gallery-icon.png",
-   apk: "--permission:INTERNET --permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 255, small: true),
+   id: "org.retro.gallery", version: "0.82.0", icon: "examples/assets/gallery-icon.png",
+   apk: "--permission:INTERNET --permission:VIBRATE --nim:-d:lto --nim:--opt:size", code: 256, small: true),
   # the small examples (the gallery's icon)
   (key: "notepad", src: "examples/notepad.nim", name: "Retro Notepad", stem: "RetroNotepad",
    id: "org.retro.notepad", version: "0.65.0", icon: "examples/assets/gallery-icon.png",
@@ -159,11 +159,11 @@ const RetroApps: seq[RetroApp] = @[
    id: "org.retro.podcast", version: "1.2.2", icon: "examples/assets/podcast-icon-512.png",
    apk: "--storage --cleartext --share-target:text/plain --widget --nim:-d:lto --nim:--opt:size", code: 6, small: true),
   (key: "music", src: "examples/music.nim", name: "Retro Music", stem: "RetroMusic",
-   id: "net.foxoman.retromusic", version: "2.1.1", icon: "examples/assets/music-icon-512.png",
-   apk: "--permission:INTERNET --cleartext --nim:-d:lto --nim:--opt:size", code: 8, small: true),
+   id: "net.foxoman.retromusic", version: "2.1.2", icon: "examples/assets/music-icon-512.png",
+   apk: "--permission:INTERNET --cleartext --nim:-d:lto --nim:--opt:size", code: 9, small: true),
   (key: "tasks", src: "examples/tasks.nim", name: "Retro Tasks", stem: "RetroTasks",
-   id: "net.foxoman.retrotasks", version: "1.0.0", icon: "examples/assets/tasks-icon-512.png",
-   apk: "--permission:POST_NOTIFICATIONS --background --nim:-d:lto --nim:--opt:size", code: 1, small: true),
+   id: "net.foxoman.retrotasks", version: "1.0.1", icon: "examples/assets/tasks-icon-512.png",
+   apk: "--permission:POST_NOTIFICATIONS --background --nim:-d:lto --nim:--opt:size", code: 2, small: true),
   (key: "grow", src: "examples/grow.nim", name: "Grow", stem: "Grow",
    id: "net.foxoman.grow", version: "1.0.0", icon: "examples/assets/grow-icon-512.png",
    apk: "--orientation:portrait --nim:-d:lto --nim:--opt:size", code: 1, small: true),

@@ -78,6 +78,18 @@ block shelf:
   up(Pad + 120 + dp(12) + 30, Pad + 40)
   run(3)
   check tapped == 1, "the card tapped: " & $tapped
+  # (a card with no picture drawn by the app: `art`)
+  var drawnFor: seq[int]
+  view = proc () =
+    discard cardShelf(cards, "test", side = 120, art = proc (i: int; r: Rect) =
+      drawnFor.add i
+      fill(r, color(200, 30, 40)))
+  run(2)
+  var red = 0
+  for y in Pad .. Pad + 110:
+    for x in Pad .. Pad + 110:
+      if px(x, y) == 0xC81E28'u32: inc red
+  check 1 in drawnFor and 0 in drawnFor and red > 100 * 100, "a card with no picture: the app's art in it"
 
 block swipeBack:
   var nav = initPages("home")

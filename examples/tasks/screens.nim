@@ -11,7 +11,7 @@ import retroui
 import retroui/[notify, bgcheck]
 import model
 
-const TasksVersion* = "1.0.0"
+const TasksVersion* = "1.0.1"
 
 var
   tab* = 0                               ## Tasks, Notes, Search, Settings

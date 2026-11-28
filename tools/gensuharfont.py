@@ -23,7 +23,10 @@ Every glyph is kept. What goes: the hinting the kit does not run (it fits
 outlines to the pixels itself, ttf.nim), `gasp`, the glyph names (`post`
 format 3) and the names in languages other than English. The OpenType
 layout (GSUB, GPOS, GDEF) stays: the Arabic forms, kerning and marks.
-Letters Suhar has not drawn come from GNU FreeFont (typeset.nim's chain).
+The symbols the kit writes or names that Suhar has not drawn (∀ ∂ ∈ ∝ ⟨ ⟩
+☎ ♀ ♂ ♭ ♮ ♯...) are drawn into each face in its own weight and slant
+(tools/suharsymbols.py); letters Suhar has not drawn (Thai) come from GNU
+FreeFont (typeset.nim's chain).
 """
 import io, os, sys, zlib
 from fontTools.ttLib import TTFont
@@ -31,6 +34,7 @@ from fontTools.ttLib import TTFont
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import packlzma
+import suharsymbols
 
 ROOT = os.path.dirname(HERE)
 FONTS = os.path.join(ROOT, "src", "retroui", "fonts")
@@ -58,6 +62,7 @@ def build(src, name):
     names = f["name"]
     names.names = [n for n in names.names
                    if n.nameID in KEEP_NAMES and n.platformID == 3 and n.langID == 0x409]
+    added = suharsymbols.add_symbols(f)
     out = io.BytesIO()
     f.save(out)
     data = out.getvalue()
@@ -68,7 +73,7 @@ def build(src, name):
     packed = zlib.compress(data, 9) if os.path.basename(z) in packlzma.KEEP_ZLIB else packlzma.pack(data)
     with open(z, "wb") as w:
         w.write(packed)
-    print("%-24s %7d bytes, %7d packed" % (name, len(data), len(packed)))
+    print("%-24s %7d bytes, %7d packed, %d symbols drawn" % (name, len(data), len(packed), len(added)))
 
 
 def main():

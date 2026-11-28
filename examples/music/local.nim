@@ -701,6 +701,9 @@ proc songRows*(idx: openArray[int]; key: string; numbers = false) =
         songMenuOpen = true
       elif h.clicked: playSongs(paths, n)
 
+proc drawArtwork*(r: Rect; s: Song; top = 0; words = true)
+  ## (below: artwork made from a song with no cover)
+
 proc localAlbum(key: string) =
   for (k, idx) in albums():
     if k != key: continue
@@ -712,9 +715,9 @@ proc localAlbum(key: string) =
       masked(r, float(dp(6))):
         drawBitmap(r, b)
     else:
-      roundRect(r, float(dp(6)), mixColor(ui.theme.window, ui.theme.text, 0.1))
-      let st = style(size = 3.0)
-      text(r.x + (r.w - textWidth(nfMusic, st)) div 2, r.y + (r.h - lineHeight(st)) div 2, nfMusic, ui.theme.gray, st)
+      # (no cover: the album's artwork made from it, as on Now Playing)
+      masked(r, float(dp(6))):
+        drawArtwork(r, s, words = false)
     heading(s.album, 2)
     var ms = 0
     for i in idx: ms += songs[i].durationMs
@@ -990,9 +993,8 @@ proc localNowPlaying*(goTo: proc (page: string)) =
     masked(r, float(dp(8))):
       drawBitmap(r, b)
   else:
-    roundRect(r, float(dp(8)), mixColor(ui.theme.window, ui.theme.text, 0.1))
-    let st = style(size = 3.0)
-    text(r.x + (r.w - textWidth(nfMusic, st)) div 2, r.y + (r.h - lineHeight(st)) div 2, nfMusic, ui.theme.gray, st)
+    masked(r, float(dp(8))):
+      drawArtwork(r, s, words = false)
   heading(s.title, 2)
   label(s.artist & (if s.album.len > 0: " -- " & s.album else: ""), color = ui.theme.gray)
   var stars = s.rating

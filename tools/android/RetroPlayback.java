@@ -19,7 +19,13 @@ import android.os.IBinder;
  *  sound starts, stopped when none plays. retroapk declares it (and its
  *  permissions) for apps whose code uses audioView. */
 public class RetroPlayback extends Service {
-  static boolean on;
+  static volatile boolean on;
+  // (Android stops the app -- ForegroundServiceDidNotStartInTimeException -- when a service
+  // started by startForegroundService is stopped, or takes too long, before it calls
+  // startForeground: so it calls it as it is made and on every start, and a stop asked before
+  // that is kept until it has)
+  static volatile boolean foreground;
+  static volatile boolean stopWanted;
 
   static boolean declared(Context c) {
     try {
@@ -31,6 +37,8 @@ public class RetroPlayback extends Service {
   static void start(Activity a) {
     if (on || !declared(a)) return;
     on = true;
+    stopWanted = false;
+    foreground = false;            // (this start wants its own startForeground before a stop)
     try {
       Intent i = new Intent(a, RetroPlayback.class);
       if (Build.VERSION.SDK_INT >= 26)
@@ -42,10 +50,16 @@ public class RetroPlayback extends Service {
   static void stop(Activity a) {
     if (!on) return;
     on = false;
+    // (not yet in the foreground: it stops itself once it is)
+    if (!foreground) {
+      stopWanted = true;
+      return;
+    }
     try { a.stopService(new Intent(a, RetroPlayback.class)); } catch (Throwable t) { }
   }
 
-  @Override public int onStartCommand(Intent intent, int flags, int startId) {
+  /** (the service in the foreground, its notification shown: what Android wants at once) */
+  boolean toForeground() {
     try {
       Notification n = note(this);
       if (Build.VERSION.SDK_INT >= 29) {
@@ -53,9 +67,25 @@ public class RetroPlayback extends Service {
         Service.class.getMethod("startForeground", int.class, Notification.class, int.class)
             .invoke(this, RetroSession.NOTE_ID, n, 2);
       } else startForeground(RetroSession.NOTE_ID, n);
+      foreground = true;
+      return true;
     } catch (Throwable t) {
-      on = false;
-      stopSelf();
+      return false;
+    }
+  }
+
+  @Override public void onCreate() {
+    super.onCreate();
+    toForeground();
+  }
+
+  @Override public int onStartCommand(Intent intent, int flags, int startId) {
+    // (on every start: each startForegroundService wants its startForeground)
+    if (!toForeground() || stopWanted || !on) {
+      stopWanted = false;
+      try { stopForeground(true); } catch (Throwable t) { }
+      foreground = false;
+      stopSelf(startId);
     }
     return START_NOT_STICKY;
   }
@@ -83,7 +113,7 @@ public class RetroPlayback extends Service {
   }
 
   @Override public void onDestroy() {
-    on = false;
+    foreground = false;
     super.onDestroy();
   }
 

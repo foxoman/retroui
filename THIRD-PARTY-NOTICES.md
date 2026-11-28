@@ -66,8 +66,8 @@ ArabicNoLayout-Test.*`, `ArabicLegacy-Test.ttf`, `HebrewThaiNoLayout-Test.ttf`, 
 `OldType1-Test.pfb`, `OldSymbol-Test.pfb`: `tools/genlegacy.py`,
 `tools/genoldfonts.py`) are FreeFont's, GPL 3 with the font exception;
 they are never carried in an app. `SuharNoForms-Test.ttf`, `SuharMarks-Test.ttf` and
-`SuharMarksNoLayout-Test.ttf` (`tools/gensuhartestfonts.py`) are cut from Suhar App, SIL Open
-Font License 1.1 (`Suhar-OFL.txt`). `Win1256-Test.ttf` and
+`SuharMarksNoLayout-Test.ttf` (`tools/gensuhartestfonts.py`) are cut from Suhar App, and
+`SuharVar-Test.ttf` from Suhar's variable font, SIL Open Font License 1.1 (`Suhar-OFL.txt`). `Win1256-Test.ttf` and
 `ArabicPua-Test.ttf` (plain boxes, `tools/genlegacy.py`) are made for the
 tests, public domain.
 

@@ -392,6 +392,11 @@ proc cancelTasks*(kind: TaskKind; group = -1) =
                          cancelled: true, error: "cancelled", page: t.page)
       cb(r)
 
+proc tasksAsked*(): int =
+  ## How many requests were made so far (each `pictureAsync`, `folderAsync`, `later`...): what a
+  ## test compares to see that a view does not ask the same again every frame.
+  nextTicket
+
 proc busy*(): bool =
   ## Requests are waiting, being worked on, or not taken yet.
   if not started: return false

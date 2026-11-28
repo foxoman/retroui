@@ -101,7 +101,7 @@ seconds by the kit's smoke run (`RETRO_SMOKE`).
 | photo | 26.7 MB | 46 ms | 32.7 MB | 34.2 MB | 0 ms |
 | retroboard | 6.5 MB | 45 ms | 21.2 MB | 23.7 MB | 1 ms |
 | mail | 11.2 MB | 23 ms | 22.2 MB | 22.8 MB | 4 ms |
-| navigator | 6.2 MB | 71 ms | 23.7 MB | 25.0 MB | 4 ms |
+| navigator | 6.3 MB | 354 ms | 158.5 MB | 179.3 MB | 7 ms |
 | retrodns | 4.1 MB | 63 ms | 16.7 MB | 17.3 MB | 3 ms |
 | podcast | 4.8 MB | 25 ms | 14.3 MB | 22.6 MB | 0 ms |
 | grow | 3.7 MB | 24 ms | 11.9 MB | 15.7 MB | 2 ms |
@@ -111,8 +111,8 @@ seconds by the kit's smoke run (`RETRO_SMOKE`).
 Memory at rest is the resident memory 6 seconds after the start (3 seconds
 untouched); most in use, the peak while the smoke run worked it. Measured
 in 0.81.0, the apps in Suhar App: its eight files are about 0.8 MB of each
-program. Retro Navigator ran without the system's web engine this time
-(no WebKitGTK on the machine): with it, as measured before, the engine
-took it to about 160 MB, running beside the app. The first frames move by
+program. Retro Navigator's numbers are mostly the system's web engine
+(WebKitGTK here), which runs beside the app: without it the app alone is
+24 MB at rest. The first frames move by
 10 to 70 ms from one run to the next here (hello took 87 ms in its first
 run, the machine's first, and 16 ms in the next).

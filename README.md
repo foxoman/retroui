@@ -304,6 +304,18 @@ of frosted glass over the page, its sheets and alerts white or smoked glass
 as the scheme is. On Android and iOS it acts as Gloss does: touch sizes on
 a tablet too, dialogs as pages.
 
+**The modern glass effect.** In Glass, `glassEffect` (on by default; "Glass
+effect" in Appearance, kept with the look) makes it glass everywhere, as
+2026's phones draw it: the tab bar is a capsule of glass floating over the
+content, which runs on under it and shows through it blurred -- the page and
+the panels scroll their end out from under it, and what is under it takes no
+tap there; the navigation bars have no band of their own, their buttons
+(Back too) capsules of glass; menus, dialogs, sheets, alerts, toasts and the
+side menu are glass with more of what is under them showing, a sheen of light
+down from the top and their edges lit. `glassSurface(r, radius)` draws a pane
+of it for an app's own parts (`glassRim` its lit edge; `glassFx()`: the effect
+is on). Off, Glass is drawn as 0.81 drew it.
+
 **The default look.** `uiLook` is Classic (Windows 3.1's) on Windows, macOS,
 Linux and the web, and Gloss (iOS 6's) on Android and iOS, in Gloss Light or
 Gloss Dark; an app sets its own before it starts (`uiLook = lookClassic`:
@@ -319,8 +331,9 @@ scheme turns it off). An app's own theme stays as it is.
 Gloss, `appearanceSettings` draws its rows in groups, as phones had their
 settings: Look, Color scheme and Light or dark as the system; the sizes with -
 and +; the font. A choice is a row with the chosen one at its end; a tap shows
-the choices on a page of their own, a check by the chosen one. The settings
-rows (`settingToggle`, `settingCombo`, `settingLink`...) do the same in a
+the choices on a page of their own, a check by the chosen one -- over the
+dialog when Appearance is in one (`afterDialog`). The settings rows
+(`settingToggle`, `settingCombo`, `settingLink`...) do the same in a
 `tableGroup` of an app's own.
 
 **The phone controls in the scheme's colors, or the app's.** In Gloss a
@@ -954,8 +967,12 @@ together, of one size and weight in a mixed line, with Greek, Cyrillic,
 Hebrew and the Vietnamese letters -- built into the app in its regular,
 bold, italic and bold italic (Arabic has an italic too). Paragraphs --
 `paragraph`, Markdown's text, `style(read = true)` -- are in **Suhar App
-Read**, its cut for reading. A letter Suhar has not drawn (Thai, a symbol)
-comes from GNU FreeFont in the same style. Suhar's Arabic is shaped by its
+Read**, its cut for reading. The symbols the kit writes or names that Suhar
+had not drawn -- ∀ ∂ ∃ ∅ ∆ ∇ ∈ ∉ ∋ ∏ ∗ ∝ ⌀ ⟨ ⟩ ⁁ ▁ ☎ ♀ ♂ ♭ ♮ ♯ -- are drawn into
+its eight faces in each face's weight and slant (`tools/suharsymbols.py`:
+from its own letters where one is the symbol turned or moved -- ∀ its A
+turned round, ∂ its 6 mirrored --, in its strokes where none is); a letter
+it has not drawn (Thai) comes from GNU FreeFont in the same style. Suhar's Arabic is shaped by its
 own OpenType tables: the joining forms from GSUB, the vowels and marks where
 GPOS puts them. Suhar is under the SIL Open Font License 1.1
 (src/retroui/fonts/LICENSE-Suhar.txt; `tools/gensuharfont.py` makes the
@@ -970,14 +987,23 @@ serif families in HTML, on the canvas and in documents are FreeSerif.
 Italic and bold italic are the fonts' own italics, not slanted copies.
 `setUiFontFile` takes a font of your own (its four styles in four files),
 `setUiFontVariable` one variable font file for all of them (its weights,
-its italic, its optical size following the text's size).
+its italic, its optical size following the text's size -- tested with
+Suhar's own `Suhar[opsz,wght].ttf`: narrower letters at 64 pixels than at
+12).
 A font with Arabic and GSUB's joining forms is shaped by its own tables,
 with presentation forms or without them; its marks go where its GPOS puts
 them, and where it has none the kit places them above or below their
 letter by where most of the mark is (a damma's foot may cross the
 baseline). Fully vowelled text -- a shadda and a vowel over a tall letter,
-tanween under a deep one -- reaches past a font's line; `setTallLines(true)`
-makes every line tall enough for it.
+tanween under a deep one -- reaches past a font's line: a `label`, a
+`paragraph`, `styledText` and a `heading` grow by what it reaches
+(`inkReach`; a pixel past the line is left alone: of the interface's own
+Arabic at 12 pixels two lines grow in Suhar App and eighteen in its bold, by
+two or three pixels -- a kasratan under a letter, a vowel over a hamza), and `setTallLines(true)` makes every line, row and
+field tall enough for it. A right-to-left paragraph in a left-to-right
+interface sets its lines from the right (`lineStart`). In the rich editor a
+color or a link in the middle of a word keeps the font's kerning and forms
+across its edges: the word is measured and drawn whole, cut to each piece.
 **Arabic is everywhere:** FreeSans has none of its own, so its Arabic --
 in every style -- is FreeSerif's (FreeSerif Bold's in bold text), joined,
 lam-alef as one letter, right to left among Latin text, mirrored brackets;
@@ -2123,7 +2149,7 @@ message with "3 of 9" and its arrows, names in capsules, sheets for Flag,
 Mark as Unread and Reply, writing with Cancel and Send, Settings in groups as
 a phone's (the accounts, when mail comes, reading, writing, what is kept safe,
 Appearance; the rest in More Options; About Retro Mail as a phone's page); on a tablet the
-list down the left, the message beside it. Adding an account is your address and Enter: the browser opens the
+list down the left, the message beside it, and Calendar, People, To Do and Notes the whole width. Adding an account is your address and Enter: the browser opens the
 right sign-in page, done (`docs/retromail.md`: the app registrations a build
 carries, made once); for any other provider, the password, and the servers
 are found -- IMAP, POP3, JMAP or Exchange, and where the provider wants an
@@ -2936,7 +2962,8 @@ Google in one tap when it is built with its own Google client. A music video
 on the device plays with its picture on Now Playing (its sound on when you
 leave it), and a song with no cover gets artwork made from it -- its album's
 colors, waves of sound, a record's grooves or a meter's bars, its title
-written on it.
+written on it -- on Now Playing, on Home's shelf of albums and on an album's
+page (`cardShelf(art = ...)` draws a card's own picture).
 
 **Retro Tasks** (`examples/tasks.nim`, `nimble tasks`) is a whole phone
 app: tasks in lists, ticked off with a round check and put in order, each
@@ -3118,7 +3145,8 @@ at any `speed` (0.5 to 3, a voice keeping its pitch: GStreamer's
 scaletempo, Media Foundation, AVFoundation, Android's MediaPlayer, the
 browser), and plays on when the app stops drawing it: in an Android app in
 the background too, with the system's notification (a foreground service
-retroapk declares for apps that use `audioView`), on iOS with
+retroapk declares for apps that use `audioView`, in the foreground from the
+moment it is made, as Android 12 and later want), on iOS with
 `UIBackgroundModes` audio (`retroios` adds it); `seekVideo` and
 `playVideo` move and start it from the app. `videoInfo`, `videoFrameAt`
 and `videoFrames` read a video's pictures; `beginVideo`, `addFrame` and
@@ -3886,9 +3914,9 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_widgets` | clicks, slide-off, default button, typing and the clipboard, Tab and Space, mnemonics, lists, modal dialogs, pixels, frame skipping, hover (mouse yes, finger no), Back versus Exit |
 | `test_business` | dates, number formats, sorting; the grid (selection, multi-select, sorting, editing, resizing, every cell kind, cell colours, record indicator, totals); tree; icon view; calendar and date picker; check list; number fields; auto-complete; splitter; dialogs |
 | `test_text` | fonts (Suhar App the default and FreeSans to choose, its real bold, oblique and bold oblique, GPOS kerning, crisp stems at 100 %, 125 %, 150 % and 2x, Arabic joined in every face and in a font file, the settings of before), Arabic joining and lam-alef, bidi order, the rasterizer, sizes, rows, `spring`, `adaptive`, forms, page scrolling both ways with the standard scroll bars, Tab scrolling into view, Markdown (right to left in Arabic: lists and tables), the wrap that carries a line's width on (`LineMeter`) giving the very lines of the one that measured each line again, for 7,800 paragraphs and widths |
-| `test_bidi` | the bidi algorithm against Unicode's (a corpus of Arabic, Persian and mixed lines, explicit embeddings and isolates, every line of Unicode 18's BidiTest and BidiCharacterTest: 861,948 cases), the joiners, Arabic in text boxes and the rich editor (caret, marks, Backspace and Delete, selections, the clipboard), PDF read back in reading order, right-to-left Excel sheets, the Arabic interface's text boxes and charts |
+| `test_bidi` | the bidi algorithm against Unicode's (a corpus of Arabic, Persian and mixed lines, explicit embeddings and isolates, every line of Unicode 18's BidiTest and BidiCharacterTest: 861,948 cases), the joiners, Arabic in text boxes and the rich editor (caret, marks, Backspace and Delete, selections, the clipboard; a colored piece of a word as wide as the word whole, in Suhar and FreeSerif), PDF read back in reading order, right-to-left Excel sheets, the Arabic interface's text boxes and charts |
 | `test_uifonts` | the font choices and their settings words, a .ttc collection read and used as the UI's font, the canvas's font names, every character of the kit's strings and the Arabic translations in the fonts |
-| `test_suhar` | Suhar App the default font and Suhar App Read a paragraph's, FreeFont's three to choose, a look kept before Suhar, a letter Suhar has not drawn from FreeFont; marks whose outline crosses the baseline drawn where they go (by the font's GPOS and by the kit without one); a font with Arabic and GSUB's joining but no presentation forms drawing its own Arabic, joined; tall lines for vowelled Arabic; `setRightToLeft` mirroring the layout, `setRtlInterface` the text alone; one variable font file as the UI's font, its bold the font at weight 700 |
+| `test_suhar` | Suhar App the default font and Suhar App Read a paragraph's, FreeFont's three to choose, a look kept before Suhar, a letter Suhar has not drawn from FreeFont; marks whose outline crosses the baseline drawn where they go (by the font's GPOS and by the kit without one); a font with Arabic and GSUB's joining but no presentation forms drawing its own Arabic, joined; tall lines for vowelled Arabic, and text as tall as its marks (`inkReach`: a large vowelled line's ink all in its place, the interface's Arabic its line's height); `setRightToLeft` mirroring the layout, `setRtlInterface` the text alone, an Arabic paragraph in an English interface set from the right; one variable font file as the UI's font, its bold the font at weight 700, and Suhar's own variable font's optical sizes (narrower letters at 64 pixels than at 12; `opticalSize = false` the font's own); the 23 symbols drawn into Suhar App's eight faces, none from FreeFont, the bold's heavier |
 | `test_input` | every kind of input on the widgets that take it: the slide switch, the tab strip, chips, the bottom bar, the menu key, the mouse's side buttons, a tall dialog on a touch screen |
 | `test_files` | listings (quick and full), natural sorting, copy / move / delete / zip / unzip jobs with conflicts, links and cancelling, JPEG decoding, big text and hex files, worker threads, what the window asks of a disk answered on a thread (`later`: six questions held up by pipes nobody writes to hold up neither the window nor a folder's listing), thousands of damaged files, zip bombs, names that climb out, a FIFO and /dev/zero left as they are by a copy, a move and a zip (said, the rest done) |
 | `test_apps` | settings rows, appearance, avatars, steps, pages, banners, the bottom bar, the folder model, the file list, thumbnails, the preview, text and hex views, properties, file jobs |
@@ -3909,7 +3937,7 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_photo` | the image engine: blend modes, layers, undo and cancelled steps, the selection and channels, Quick Mask, paths, every painting tool, transforms, color modes, every filter and adjustment, .rpd / PNG / JPEG / BMP files |
 | `test_canvas2d` | the Canvas 2D API: paths, fills and strokes, transforms, gradients and patterns, text, pictures, clipping, compositing, against expected pixels |
 | `test_pdf`, `test_report` | the PDF writer (structure, fonts, pictures, cross-reference table), templates, HTML reports, page breaks, repeated headers, totals, previews |
-| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; `androiddex.nim` made from the Java there is now (`classesDexOf`); the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused; the permissions read from an app's C, Nim 2.4's function names and 2.2's |
+| `test_apk` | the APK tool's SHA-256, CRC-32, deflate and PNG; `androiddex.nim` made from the Java there is now (`classesDexOf`); the playback service in the foreground as it is made and on every start, a stop before it waiting for it; the App Bundle's proto manifest and resources, its JAR signature (checked with `jarsigner` and `bundletool` when they are there); `--java`'s manifest.txt read, nested and merged into both manifests, a bad line refused; the permissions read from an app's C, Nim 2.4's function names and 2.2's |
 | `test_store` | DER, certificates and their subjects, JAR signatures, Authenticode (the digest, the checksum, signing again, a time stamp from an authority made with OpenSSL), MSIX (ZIP64 records, the block map's blocks one by one, the signed digests rebuilt by the test), macOS: the `.icns`, the code directory read back page by page (one architecture and universal), the sealed resources, the `.ipa`; `osslsigncode` and `rcodesign` when they are there |
 | `test_tilemap` | the street map: tiles of every kind of source, the cache, dragging, zooming, markers and shapes, the services' answers (places and routes of each), polylines, GCJ-02, GeoJSON, vector tiles decoded and drawn, PMTiles and MBTiles read and written |
 | `test_system` | `retroui/system` on Linux: what answers and what says false, the autostart entry made and taken away, the answers of a page and of phones read right, speech when a voice is installed; `retroui/admin`'s words for sh, Windows and AppleScript, and its answer with no polkit; GNOME's settings read, a folder watched (made, changed, removed), the clipboard's pictures and the desktop's shortcuts with no driver, the app installed for the user and taken away, the Linux packages |
@@ -4005,16 +4033,16 @@ a sandbox: the security holes they can show, each with its proof.
 | `test_backdrop` | frosted glass and masks: what is under a blur smoothed and lighter, its rounded corners keeping what is outside them, a mask's circle and a mask inside it; a change near a blur, far from it, of its tint and over it the very pixels of a whole frame; the GPU's frames the CPU's (3 levels at most apart), and its partial frames, at every buffer age, a whole frame's |
 | `test_terminal` | the terminal: text, the 16, 256 and RGB colors (semicolons and colons), bold, underlined, inverse, struck; the cursor moved, lines and characters erased, inserted, deleted; a line wrapped and the lines scrolled off kept; a scroll region; the other screen and back; wide characters and the line-drawing set; the answers asked for (the cursor's place, what it is), the title; the keys as xterm sends them; a size changed; a shell in a pseudo-terminal -- its colors, its size, an exit code, what is typed answered; the view taking the keys, a word chosen with a double click and copied; found text (back and on, any case), its size bigger and smaller, a reset; kitty's keyboard protocol (its flags pushed and popped per screen, Esc, Ctrl, Alt and the keypad told apart, releases, every key as an escape with its text) and graphics protocol (RGB, RGBA and PNG, zlib'ed, in pieces, by number, placed again, quiet, deleted, scrolled with the text, its answers and errors; an app's own picture) |
 | `test_mobile` | the controls from phones: the navigation bar's Back (and Alt+Left) and its action; an alert (Enter its last button, Esc its cancel, a tap beside it waits); rows in groups (a row, its info button apart, a switch's row, a button's row, Enter); a search bar's Cancel; an action bar's action and Back; a wheel picker by the keys, a click on a row, the mouse wheel, a letter, a drag, a fling that stops on a row, the app's own value, a long wheel made as it shows; a day's wheels (31 January to February: the 28th) and a time's (12 hours, a step of minutes); a number with - and + (held, it goes on; the keys, + typed, the wheel); page dots; rows with actions behind them swiped, picked, closed by a tap, one at a time, by the keys and a right click's menu; the action sheet (the keys, Esc, a click beside it, from the bottom on a phone), the bottom sheet (its controls, dragged down, Esc), the popover (under its button, closed by a click outside) -- in every look, light and dark |
-| `test_phoneparts` | the phone's newer parts in every look: round buttons (a click, Space, disabled; Gloss's green inside a white ring), the index down a list (the letter under the finger, dragged past its foot, -1 let go), bubbles (the other's gray on the left, yours pale blue on the right), the clock (its red second hand, the hour hand at three), app icons (a click, Enter, the badge), the textures (their colors, the same grain each frame); Gloss's colors (iOS 6's own in Gloss Light, green in a green scheme) and the window plain by default, its pinstripes when asked for; a row in a row after one that took the line, side by side on the next; `vslider` dragged past its top and its keys, `ratingStars` (a tap, the same again, the keys, a digit), `editRow` (the minus alone deletes nothing, then Delete; a grip dragged two rows down; Alt+Down), `coverFlow` (the middle one tapped, Right, a tap at a side, a drag, End); the About box at touch sizes in Gloss, Glass and Matte a phone's page (Website, Copy Info putting its facts on the clipboard), in Classic the desktop's |
+| `test_phoneparts` | the phone's newer parts in every look: round buttons (a click, Space, disabled; Gloss's green inside a white ring), the index down a list (the letter under the finger, dragged past its foot, -1 let go), bubbles (the other's gray on the left, yours pale blue on the right), the clock (its red second hand, the hour hand at three), app icons (a click, Enter, the badge), the textures (their colors, the same grain each frame); Gloss's colors (iOS 6's own in Gloss Light, green in a green scheme) and the window plain by default, its pinstripes when asked for; a row in a row after one that took the line, side by side on the next; `vslider` dragged past its top and its keys, `ratingStars` (a tap, the same again, the keys, a digit), `editRow` (the minus alone deletes nothing, then Delete; a grip dragged two rows down; Alt+Down), `coverFlow` (the middle one tapped, Right, a tap at a side, a drag, End); the About box at touch sizes in Gloss, Glass and Matte a phone's page (Website, Copy Info putting its facts on the clipboard), in Classic the desktop's; a settings row's page of choices in a dialog drawn over it (the dialog's rows not through it, one tapped chosen); a page's status bar the bar's color, darker; Glass's modern glass effect -- the tab bar floating over the content, which runs to the foot, scrolls its end out from under it and shows through it blurred, takes no tap under it; without it, the band; Glass effect in Appearance, kept with the look |
 | `test_glosstouch` | Gloss on a touch screen: a flick into a page's top goes on past it and springs back; pull to refresh's drop and fresh content asked once; a toast as the black banner at the top; `slideToConfirm` (part way: nothing, back; all the way: once); `bigButton`; a row's count capsule; the Glass focus ring only while the keys move the focus |
 | `test_reach` | how the controls take the mouse, the keys and a finger: a finger's press just beside a small button or a round button is its, not far off, not beside a list it is on, the nearer of two, the gesture with it; a mouse not moved so; a tap or a drag by 8 points at 100 % and 200 %; a finger held on a word chooses it (Copy gives the word); a right click on a list's row chooses it; a breadcrumb by the keys; a drop-down list's wheel only with the focus; Glass and Matte light a text box, a check box, a radio button under the mouse, 3.1 not; a chip's cross for a finger |
 | `test_audiotags` | music files' tags: MP3 (ID3v2.3 in UTF-16, ID3v2.4), FLAC, M4A, Ogg Vorbis, Opus and WAV -- title with its accents, artist, album, album artist, track and disc, year, genre, composer, the cover as it was (and not read when not asked for), the length, rate, channels and bit rate, ReplayGain --, the same from memory, cut short anywhere or damaged with no fault, music by its name |
 | `test_musiclibrary` | Retro Music's own music: a folder looked through (4 songs, a title from a file's name, ReplayGain read), albums and their order, artists, genres, the lists made by themselves; played through a fake Android player -- the song asked for as a sound, its volume, the equalizer's 10 bands, a play counted once, the next at the end, Repeat One --; Play Next, Add to Queue, Shuffle and back; the sleep timer; a playlist and stars kept and read back; every page in every look |
 | `test_musicsources` | Retro Music's free sources: what Piped, Invidious, Radio Browser, Audius, the Internet Archive and a Subsonic server say, read (made-up answers, `tests/musicanswers.nim`); YouTube links; the Subsonic token (the password's salted MD5, never the password); in the app: a search with each, Piped's servers not answering and Invidious' asked, a playlist's link pasted and kept, a station kept and played live, an artist's Audius, an Archive recording, a server's "no" then signed in; Search over them; TV (a Free-TV list read: names with commas, the in-its-country mark, YouTube pages left out; its countries, a search; a country, a channel held kept, a channel played on the screen, the one before, Done: its sound on in our player, live); a music video's picture on Now Playing and its sound on when it is left, an MP4 of sound alone a song; artwork made for a song with no cover, the same for its album; the side menu on a phone (its button, a place, a tap beside it, Esc); the places down the left on a tablet; Now Playing; every place in every look on both |
-| `test_mailtouch` | Retro Mail on a phone and a tablet in the newer looks: Mailboxes (All Inboxes, the accounts), a list (Focused and Other), a message tapped and read, its place on the bar, Mark as Unread, Flag, the arrow to the one before, Reply's sheet and writing, Cancel and Delete Draft, a finger held (several chosen, Mark), an account's folders, a folder; Settings as a phone's (a switch kept at once, a choice's page of them and one tapped, Close), Appearance in groups, About Retro Mail the phone's About page; on a tablet the message beside the list -- every page in every look, light and dark |
+| `test_mailtouch` | Retro Mail on a phone and a tablet in the newer looks: Mailboxes (All Inboxes, the accounts), a list (Focused and Other), a message tapped and read, its place on the bar, Mark as Unread, Flag, the arrow to the one before, Reply's sheet and writing, Cancel and Delete Draft, a finger held (several chosen, Mark), an account's folders, a folder; Settings as a phone's (a switch kept at once, a choice's page of them and one tapped, Close), Appearance in groups, About Retro Mail the phone's About page; on a tablet the message beside the list, People and Calendar the whole width -- every page in every look, light and dark |
 | `test_comfyui` | `retroui/comfyui` against a made-up ComfyUI server: found (its checkpoints, its LaMa), a picture from words (the workflow it got), a fill (the picture sent clear where the mask is), Remove (LaMa's workflow; without it, the model asked), a work that failed on the server, no server; through `retroui/aiimage` (`kind = "comfyui"`), kept |
 | `test_tasks` | Retro Tasks: tasks in lists, late or not, their days written, Today, Upcoming, Flagged, Completed, put in order; notes (their titles and previews, pinned first); the search; a reminder raised once; the file kept and read back; then by taps -- a row's check (done, not done), the row's page, Edit's minus and Delete, the phone's Back -- and every page in every look |
-| `test_touchpages` | a page under the finger on a touch screen: pulled down past its top and let go it asks for fresh content once, a short pull nothing; a dialog as a page of the app closed by its Close; a shelf of cards, the one tapped; Back by a swipe from a page's left edge, a short one staying |
+| `test_touchpages` | a page under the finger on a touch screen: pulled down past its top and let go it asks for fresh content once, a short pull nothing; a dialog as a page of the app closed by its Close; a shelf of cards, the one tapped, a card with no picture the app's own art; Back by a swipe from a page's left edge, a short one staying |
 | `test_music` | Retro Music without a window: Spotify's answers read (a search, a playlist's items -- a missing track and a local file left out --, your playlists, the devices, what plays, nothing playing), the bodies of play and transfer, YouTube's search (its HTML entities), your YouTube playlists, a playlist's songs (a deleted one left out, an artist's Topic channel as the artist), the ones you like and their lengths, the player's page, a YouTube queue, LrcLib's timed lines (several times a line, the line at a time), and its screens drawn with no account in every look |
 | `test_signals` | signals and computed values worked out again only when what they read changed (through two, a branch not taken, an answer that stayed the same, a change in place), effects run and stopped; `keep`: nothing outside `--watch`, the values written, and a second program started with the file getting them back |
 | `test_photoaffinity` | Retro Atelier 5.15 as a program: studios kept, deleted, exported and imported; a help card for every tool of the toolbar; paint on type making a pixel layer; a live blend following its end and expanded; Hue Curves; the Mask Brush (a mask made, black hides, Alt shows, the pixels untouched, the Background made a layer); the Tone Brush; Procedural Texture's dialog; the Artboard tool: a box drawn a new artboard, sized by its corner with what is on it following its Constraints, moved with its artwork, Alt+dragged a copy with its artwork, deleted with its artwork kept; Symbols made, inserted, kept alike and detached; each new menu command run by its name doing its work; Fill with Placeholder Text (Arabic, paragraphs, added after, as many as fill the box, your own, the choices kept) |

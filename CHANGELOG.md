@@ -1,5 +1,69 @@
 # Changes
 
+## 0.82.0
+
+- **The modern glass effect** (`glassEffect`, on by default in the Glass look; "Glass effect" in
+  Appearance, kept with the look): Glass is glass everywhere now. The tab bar is a capsule of
+  glass floating over the content, which runs on under it and shows through it blurred -- the
+  page and the panels scroll their end out from under it (`ui.floatInset`), and what is under it
+  takes no tap there; the bars have no band, their buttons -- Back too -- capsules of glass;
+  menus, dialogs, sheets, alerts, toasts and the side menu are glass with more of what is under
+  them showing, a sheen of light down from the top and their edges lit. `glassSurface(r,
+  radius)` draws a pane of it, `glassRim` its lit edge, `glassFx()` says whether it is on.
+  Off: Glass as 0.81 drew it.
+- **A settings row's page of choices in a dialog** (Look, Color scheme, Font in an app's
+  Appearance) is drawn over the dialog: its rows were drawn through it, the dialog's rows after
+  that one over the choices. `afterDialog(draw)` draws something asked in a dialog as the dialog
+  ends.
+- **Right-to-left paragraphs from the right**: an Arabic `paragraph`, a wrapped `label`, an
+  About page's words and a group's note in a left-to-right interface set their lines from the
+  right, as Arabic reads; in a mirrored interface every line is from the right as before
+  (`lineStart`).
+- **A color or a link in the middle of a word** (the rich editor) keeps the font's kerning and
+  joined forms across its edges: the pieces of one word in one font are measured and drawn as
+  the word whole, cut to each piece (in Suhar a colored letter in an Arabic word made the word
+  wider).
+- **Symbols drawn into Suhar App**: the 23 the kit writes or names that Suhar had not drawn --
+  ∀ ∂ ∃ ∅ ∆ ∇ ∈ ∉ ∋ ∏ ∗ ∝ ⌀ ⟨ ⟩ ⁁ ▁ ☎ ♀ ♂ ♭ ♮ ♯ -- are in its eight faces now, in each face's
+  weight and slant, made from its own letters where one of them is the symbol turned or moved
+  (∀ its A turned round, ∃ its E mirrored, ∂ its 6 mirrored, ∈ its є on the axis) and drawn in
+  its strokes where none is (`tools/suharsymbols.py`, run by `tools/gensuharfont.py`). They came
+  from FreeFont before; Thai still does.
+- **Text as tall as its marks**: `label`, `paragraph`, `styledText` and `heading` grow by what
+  the marks of a line reach out of it (`inkReach`) -- fully vowelled Arabic in large text, a
+  font whose marks go far -- so none is cut or runs into the line above; a pixel past the line
+  is left alone (of the interface's own Arabic at 12 pixels two lines grow, eighteen in bold, by
+  two or three pixels). `setTallLines` stays for apps of vowelled text, every row and field
+  taller.
+- **Optical size tested with Suhar's own variable font** (`SuharVar-Test.ttf`, cut from Suhar
+  2.8's `Suhar[opsz,wght].ttf`): `setUiFontVariable` gives regular and bold at their weights and
+  the letters drawn for the text's size -- narrower at 64 pixels than at 12 -- and the font's own
+  with `opticalSize = false`.
+- **Retro Mail on a tablet**: Calendar, People, To Do and Notes take the whole width, as a
+  tablet's own apps (they were squeezed into the mailboxes' column beside an empty message), and
+  the Calendar's month is whole in its pane. `calendarSize()` tells how big `calendar` is.
+- **Retro Music: artwork made from the music on its album shelf and pages**: Home's On This Device,
+  an album's page and a song's draw the artwork made for an album with no cover, as Now Playing
+  does (a plain note before); a track from the network with no cover too. `cardShelf(art = ...)`
+  draws a card's own picture when it has none.
+- docs/benchmarks.md: Retro Navigator measured again with WebKitGTK (158.5 MB at rest, most of it
+  the engine; 24 MB without it).
+- `tasksAsked()` (`retroui/background`): how many requests were made so far -- test_filecolumns
+  counts the listings asked for over 50 frames instead of looking at the time, steady on a busy
+  machine.
+- **A page's status bar** (a dialog as a page on a phone or a tablet) is its bar's color, darker,
+  as over the app's own bars: the bar's shading ran up under it, lighter.
+- **Retro Music stopped on Android 12** ("ForegroundServiceDidNotStartInTimeException"): the
+  service that keeps a sound playing in the background is in the foreground as soon as it is
+  made and on every start, and a stop asked before that waits until it is.
+- Retro Music 2.1.2, Retro Mail 1.5.2, Retro DNS 1.9.2, Retro Tasks 1.0.1, the Gallery 0.82.0: the
+  glass effect in Glass, the symbols in Suhar, the fixes above.
+- Tests: test_phoneparts (a choice page in a dialog over it, a page's status bar, the glass tab
+  bar floating over the content), test_suhar (the symbols in the eight faces, right-to-left
+  paragraphs, text as tall as its marks, Suhar's variable font's optical sizes), test_bidi (a
+  colored piece of a word in Suhar), test_mailtouch (People and Calendar on a tablet),
+  test_touchpages (a shelf card's own art), test_apk (the playback service in the foreground).
+
 ## 0.81.0
 
 - **Suhar App is every app's font**: Suhar, my own typeface, cut for apps -- Latin and Arabic

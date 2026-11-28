@@ -19,7 +19,7 @@ from std/os import getEnv
 import std/unicode except strip   # (its strip cuts letters: docs/nim-bugs.md)
 import uirelays/input
 import core, nerdicons, pixelicons, busy
-from typeset import bidiInfo, visualOrderOf, isMark, shownRtl, plainLetters, joinsAt, plainAscii
+from typeset import bidiInfo, visualOrderOf, isMark, shownRtl, plainLetters, joinsAt, plainAscii, textIsRtl
 
 template th: untyped = ui.theme
 
@@ -897,11 +897,63 @@ proc frosted*(): bool {.inline.} = uiLook == lookGlass and glassLook() and frost
 proc frostAlpha(): uint8 = (if onDark(): 208 else: 196)
   ## (how much of a frosted face's color is over the blur)
 
+proc glassFx*(): bool {.inline.} = uiLook == lookGlass and glassLook() and glassEffect
+  ## The modern glass effect drawn now (`glassEffect`, in the Glass look).
+
+proc glassRim*(r: Rect; radius: float) =
+  ## The lit edge of a pane of glass in `r` (`glassSurface`): a bright line round its top
+  ## fading down its sides, a faint one at its foot where the light comes through, a second line
+  ## of light just inside its top, and a faint dark hairline round it to set it off what is
+  ## behind.
+  if r.w <= 2 or r.h <= 2: return
+  let dark = onDark()
+  let half = r.h div 2
+  roundFrame(inset(r, -1), radius + 1, 1, withAlpha(black, if dark: 90 else: 26))
+  pushClip(rect(r.x - 1, r.y - 1, r.w + 2, half + 1))
+  roundFrame(r, radius, 1, withAlpha(white, if dark: 92 else: 220))
+  popClip()
+  pushClip(rect(r.x - 1, r.y + half, r.w + 2, r.h - half + 1))
+  roundFrame(r, radius, 1, withAlpha(white, if dark: 34 else: 110))
+  popClip()
+  pushClip(rect(r.x, r.y, r.w, max(2, r.h div 4)))
+  roundFrame(inset(r, 1), max(0.0, radius - 1), 1, withAlpha(white, if dark: 30 else: 90))
+  popClip()
+
+proc glassSheen(r: Rect; radius: float) =
+  ## (light coming down from the top of a pane of glass, fading out before its middle)
+  let dark = onDark()
+  let top = if dark: 26 else: 70
+  let n = max(1, r.h * 45 div 100)
+  masked(r, radius):
+    for k in 0 ..< n:
+      let a = top * (n - k) div n
+      if a > 0: hline(r.x, r.y + k, r.w, withAlpha(white, a))
+
+proc glassSurface*(r: Rect; radius: float; tint = Color(); lift = 4) =
+  ## A pane of the modern glass (`glassEffect`) in `r`, its corners rounded `radius`: a soft
+  ## shadow under it (`lift`), what is under it blurred and seen through it, `tint` over that a
+  ## little (the field's color when none), a sheen of light down from its top and its edges lit
+  ## (`glassRim`). What goes in it is drawn after it. The floating tab bar, the bars' buttons, a
+  ## toast; menus, dialogs, sheets and alerts through `frostedFace`.
+  if r.w <= 0 or r.h <= 0: return
+  let dark = onDark()
+  if lift > 0: softShadow(r, radius, lift)
+  let base = if tint.a == 0: th.field else: Color(r: tint.r, g: tint.g, b: tint.b, a: 255)
+  backdropBlur(r, dp(18), withAlpha(base, if dark: 150 else: 118), radius)
+  glassSheen(r, radius)
+  glassRim(r, radius)
+
 proc frostedFace*(r: Rect; back: Color; corner = 0.0): bool {.discardable.} =
   ## A face of frosted glass in `r` when the look draws them so (`frosted`): what is under it
   ## blurred, `back` over it most of the way, its corners rounded `corner`; false -- nothing
-  ## drawn -- otherwise.
+  ## drawn -- otherwise. With the modern glass effect (`glassEffect`) more of what is under it
+  ## shows, a sheen of light down from its top and its edges lit (`glassSurface`).
   if not frosted(): return false
+  if glassFx():
+    backdropBlur(r, dp(18), withAlpha(back, (if onDark(): 172 else: 150)), corner)
+    glassSheen(r, corner)
+    glassRim(r, corner)
+    return true
   backdropBlur(r, dp(16), withAlpha(back, int(frostAlpha())), corner)
   true
 
@@ -1106,6 +1158,7 @@ proc statusBarColor*(): Color =
   ## bar's color, darker -- as iOS 6 tinted its status bar to the navigation bar --, so the
   ## system's icons stand on the scheme's colors (`MobileStyle.statusBar`: that color).
   if mobileStyle.statusBar.a != 0: mobileStyle.statusBar
+  elif glassFx() and mobileStyle.bar.a == 0: th.window     # (the modern glass: no band, the page's face)
   elif glossLook(): mixColor(glossBarColors().foot, black, 0.3)
   elif matteLook(): mixColor(titleColors(true).bg, black, 0.3)
   else: mixColor(titleColors(true).bg, black, 0.1)
@@ -1529,6 +1582,12 @@ template offWhen(enabled: bool): set[AccessState] =
   ## (a screen reader's state of a control that is grayed)
   (if enabled: {} else: {asDisabled})
 
+proc lineStart*(r: Rect; lineW: int; rtlText: bool): int =
+  ## Where a line `lineW` wide starts in `r`: a right-to-left paragraph's (Arabic) at the right in
+  ## a left-to-right interface; otherwise at the interface's start (the left, or the right in a
+  ## mirrored one, `setRightToLeft`, where every line is set from the right).
+  if rtlText and not ui.rtl: r.x + r.w - lineW else: r.x
+
 proc label*(s: string; bold = false; color = Color(); enabled = true; literal = false) =
   ## Static text; '\n' starts a new line, '&' underlines the next letter
   ## (Alt + that letter moves the focus to the control after the label, as
@@ -1548,7 +1607,9 @@ proc label*(s: string; bold = false; color = Color(); enabled = true; literal = 
     let w1 = if literal: textWidth(s, bold) else: labelWidth(s, bold)
     let room1 = cellRoom()
     if not (w1 > room1 and room1 > dp(40)):
-      let r = place(max(1, min(w1, max(room1, w1))), FontH)
+      # (taller by what its marks reach out of the line: vowelled Arabic -- `inkReach`)
+      let reach = inkReach(s, bold)
+      let r = place(max(1, min(w1, max(room1, w1))), FontH + reach.above + reach.below)
       ui.lastId = 0
       ui.lastRect = r
       if accessOn:
@@ -1556,8 +1617,8 @@ proc label*(s: string; bold = false; color = Color(); enabled = true; literal = 
         accessNode(arLabel, s, id = 0, r = r, states = offWhen(enabled))
       if enabled and not literal and '&' in s and mnemonicHit(s): focusNext()
       let c = if not enabled: th.gray elif color.a == 0: th.text else: color
-      if literal: text(r.x, r.y, s, c, bold)
-      else: drawLabel(r.x, r.y, s, c, bold)
+      if literal: text(r.x, r.y + reach.above, s, c, bold)
+      else: drawLabel(r.x, r.y + reach.above, s, c, bold)
       return
   var shown = s
   if not literal and uiLanguageCode() notin ["", "en"]:
@@ -1565,6 +1626,9 @@ proc label*(s: string; bold = false; color = Color(); enabled = true; literal = 
     let t = tr(plain)
     if t != plain: shown = t
   var lines = shown.split('\n')
+  proc rtlsOf(ls: seq[string]): seq[bool] =
+    for l in ls: result.add textIsRtl(l)
+  var rtls = rtlsOf(lines)          # (each line's paragraph right to left: set from the right)
   var w = 0
   template width(line: string): int =
     (if literal: textWidth(line, bold) else: labelWidth(line, bold))
@@ -1572,12 +1636,23 @@ proc label*(s: string; bold = false; color = Color(); enabled = true; literal = 
   let room = cellRoom()
   if w > room and room > dp(40):
     var wrapped: seq[string]
-    for line in lines: wrapped.add wrapLines(line, room, bold)
+    var wrappedRtl: seq[bool]
+    for i, line in lines:
+      for part in wrapLines(line, room, bold):
+        wrapped.add part
+        wrappedRtl.add rtls[i]
     lines = wrapped
+    rtls = wrappedRtl
     w = 0
     for line in lines: w = max(w, width(line))
+  # (each line taller by what its marks reach out of it: vowelled Arabic -- `inkReach`)
+  var reaches: seq[tuple[above, below: int]]
+  var h = 0
+  for line in lines:
+    reaches.add inkReach(line, bold)
+    h += FontH + reaches[^1].above + reaches[^1].below
   # (an empty label is 1 pixel wide: 0 would ask for the whole row)
-  let r = place(max(1, min(w, max(room, w))), lines.len * FontH)
+  let r = place(max(1, min(w, max(room, w))), h)
   ui.lastId = 0
   ui.lastRect = r
   if accessOn:
@@ -1587,10 +1662,12 @@ proc label*(s: string; bold = false; color = Color(); enabled = true; literal = 
   if enabled and not literal and '&' in s and mnemonicHit(s): focusNext()
   let c = if not enabled: th.gray elif color.a == 0: th.text else: color
   var y = r.y
-  for line in lines:
-    if literal: text(r.x, y, line, c, bold)
-    else: drawLabel(r.x, y, line, c, bold)
-    y += FontH
+  for i, line in lines:
+    let x = if rtls[i]: lineStart(r, width(line), true) else: r.x
+    y += reaches[i].above
+    if literal: text(x, y, line, c, bold)
+    else: drawLabel(x, y, line, c, bold)
+    y += FontH + reaches[i].below
 
 proc wrapAscii(para: string; maxW: int; bold: bool; lines: var seq[string]) =
   ## (`wrapUncached` for a paragraph of plain ASCII: the same lines, each word measured once and
@@ -1734,16 +1811,30 @@ proc ellipsize*(s: string; maxW: int; st = TextStyle()): string =
 
 proc paragraph*(s: string; w = 0; color = Color()) =
   ## Word-wrapped text as wide as the space it is in (or `w`), in the UI font's cut for
-  ## reading (Suhar App Read: `TextStyle.read`).
+  ## reading (Suhar App Read: `TextStyle.read`); a right-to-left paragraph (Arabic) set from the
+  ## right.
   let maxW = if w > 0: w else: available()
   withTextStyle(style(read = true)):
-    let lines = wrapLines(tr(s), maxW)
-    let r = place(maxW, lines.len * FontH)
+    let t = tr(s)
+    let lines = wrapLines(t, maxW)
+    # (each line taller by what its marks reach out of it: vowelled Arabic -- `inkReach`)
+    var reaches: seq[tuple[above, below: int]]
+    var h = 0
+    for line in lines:
+      reaches.add inkReach(line)
+      h += FontH + reaches[^1].above + reaches[^1].below
+    let r = place(maxW, h)
     ui.lastId = 0
     ui.lastRect = r
-    if accessOn: accessNode(arLabel, tr(s), id = 0, r = r)
+    if accessOn: accessNode(arLabel, t, id = 0, r = r)
     let c = if color.a == 0: th.text else: color
-    for i, line in lines: text(r.x, r.y + i * FontH, line, c)
+    let rtl = textIsRtl(t)
+    var y = r.y
+    for i, line in lines:
+      let x = if rtl: lineStart(r, textWidth(line), rtl) else: r.x
+      y += reaches[i].above
+      text(x, y, line, c)
+      y += FontH + reaches[i].below
 
 proc separator*() =
   ## A horizontal etched line.
@@ -4816,10 +4907,13 @@ proc beginPanel*(height = -1; key = ""; plain = false) =
 
 proc endPanel*() =
   ## Ends a `beginPanel`.
-  let ch = popFrame() + 2 * Pad
+  var ch = popFrame() + 2 * Pad
   endClipped()
   popClip()
   let (id, inner, _, reveal, glide) = panelStack.pop()
+  # (down to the window's foot, under glass floating over it -- Glass's tab bar --: room to
+  # scroll its end out from under it)
+  if ui.floatInset > 0 and inner.y + inner.h >= ui.bottom - Pad - 2: ch += ui.floatInset
   var st = state(id)
   let maxY = if ch - inner.h > dp(2): ch - inner.h else: 0
   var y = clamp(st.scrollY, 0, maxY)
@@ -6286,6 +6380,15 @@ template TitleH: int = FontH + (if fingers(): dp(10) else: dp(5))
 var dlgCloseOff = false     # (the next dialog's close button grayed: `msgBox`)
 var dlgAlert = false        # (the next dialog a message box: a small alert, even where dialogs are pages)
 var dlgPage = false         # (the dialog drawn now is a page)
+var afterDialogs: seq[tuple[dialog: Id; frame: int; draw: proc () {.closure.}]]
+  # (what is to be drawn as the dialog it was asked in ends: over it)
+
+proc afterDialog*(draw: proc () {.closure.}) =
+  ## Draws `draw` -- a dialog or a page of its own, opened from a control in a dialog (a settings
+  ## row's page of choices) -- as the dialog it is called in ends, so it lies over that dialog
+  ## and not under the rest of its content; outside a dialog, now.
+  if ui.curDialog == 0: draw()
+  else: afterDialogs.add (ui.curDialog, ui.frameNo, draw)
 
 type DialogPages* = enum
   ## How dialogs open (`dialogPages`).
@@ -6334,9 +6437,14 @@ proc beginPageDialog(open: var bool; title: string; id: Id; st: var WState): boo
   let barH = if fingers(): dp(44) else: max(dp(32), CtrlH + dp(8))
   let bar = rect(full.x, full.y, full.w, safeTop + barH)
   let inBar = rect(full.x + ui.safe.left, full.y + safeTop, full.w - ui.safe.left - ui.safe.right, barH)
-  if glassLook(): titleBar(bar, true)
+  # (under the system's status bar: the bar's color, darker -- as over the app's own bars --, the
+  # bar itself under it)
+  if safeTop > 0: fill(rect(bar.x, bar.y, bar.w, safeTop), statusBarColor())
+  let face = rect(bar.x, bar.y + safeTop, bar.w, barH)
+  if glassFx(): discard                    # (the modern glass effect: the page's own face)
+  elif glassLook(): titleBar(face, true)
   else:
-    fill(bar, th.face)
+    fill(face, th.face)
     hline(bar.x, bar.y + bar.h - 1, bar.w, th.frame)
   let (_, tfg) = if glassLook(): titleColors(true) else: (th.face, th.text)
   let bst = style(bold = true, size = 0.9)
@@ -6360,6 +6468,8 @@ proc beginPageDialog(open: var bool; title: string; id: Id; st: var WState): boo
   if glossLook():
     glossBarButton(br, hit.down)
     ink = white
+  elif glassFx():
+    glassSurface(br, float(br.h) / 2, if hit.down: mixColor(th.field, th.text, 0.08) else: th.field, lift = 2)
   elif hit.down: roundRect(br, float(dp(6)), withAlpha(th.text, 30))
   let lw = labelWidth(closeLabel, bst)
   let ly = br.y + (br.h - lineHeight(bst)) div 2
@@ -6532,6 +6642,17 @@ proc endDialog*() =
   popLayer()
   ui.curDialog = 0
   dlgPage = false
+  # (what was asked in it to be drawn over it: now)
+  # (one of a frame before -- its dialog closed before it ended --: dropped)
+  var k = 0
+  while k < afterDialogs.len:
+    if afterDialogs[k].frame != ui.frameNo:
+      afterDialogs.delete(k)
+    elif afterDialogs[k].dialog == id:
+      let d = afterDialogs[k].draw
+      afterDialogs.delete(k)
+      d()
+    else: inc k
 
 template dialog*(open: var bool; title: string; width: int; body: untyped) =
   ## A modal dialog, `width` pixels wide, shown while `open` is true. Esc,

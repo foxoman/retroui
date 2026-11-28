@@ -46,17 +46,21 @@ proc heading*(s: string; level = 1; color = Color()) =
     else: 1.0
   let st = style(bold = true, size = size)
   let s = tr(s)
-  let r = place(textWidth(s, st), lineHeight(st))
+  # (taller by what its marks reach out of the line: vowelled Arabic -- `inkReach`)
+  let reach = inkReach(s, st)
+  let r = place(textWidth(s, st), lineHeight(st) + reach.above + reach.below)
   ui.lastId = 0
   ui.lastRect = r
-  text(r.x, r.y, s, orText(color), st)
+  text(r.x, r.y + reach.above, s, orText(color), st)
 
 proc styledText*(s: string; st: TextStyle; color = Color()) =
-  ## One line of text in any style (`style(italic = true, size = 1.2)`).
-  let r = place(textWidth(s, st), lineHeight(st))
+  ## One line of text in any style (`style(italic = true, size = 1.2)`), taller by what its marks
+  ## reach out of the line (vowelled Arabic: `inkReach`).
+  let reach = inkReach(s, st)
+  let r = place(textWidth(s, st), lineHeight(st) + reach.above + reach.below)
   ui.lastId = 0
   ui.lastRect = r
-  text(r.x, r.y, s, orText(color), st)
+  text(r.x, r.y + reach.above, s, orText(color), st)
 
 # ---- search box ------------------------------------------------------------------------
 
@@ -1882,7 +1886,16 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   # gloss, the chosen one lit in the highlight)
   let cap = rect(ui.safe.left + dp(14), r.y + dp(5), ui.w - ui.safe.left - ui.safe.right - dp(28), h - dp(11))
   let capR = float(cap.h) / 2
-  if floating:
+  # (the modern glass effect: no band -- the content runs on under the capsule, which floats over
+  # it and is drawn over it, on the dialogs' layer, before any dialog; the content under it takes
+  # no input there, and its page and panels scroll that much further: `floatInset`)
+  let fx = glass and glassFx()
+  let drawLayer = if fx: LayerDialog else: LayerBase
+  if fx:
+    setLayer(drawLayer)
+    glassSurface(cap, capR, th.field, lift = 6)
+    setLayer(LayerBase)
+  elif floating:
     fill(r, th.window)
     if glass:
       if not frostedFace(cap, withAlpha(th.field, 235), capR): glassPlate(cap, capR, th.field, lift = 5)
@@ -1913,7 +1926,8 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
     fill(r, if mobileStyle.tabBar.a != 0: mobileStyle.tabBar else: th.face)
     hline(0, r.y, ui.w, th.frame)
     hline(0, r.y + 1, ui.w, th.light)
-  ui.bottom = r.y
+  if fx: ui.floatInset = max(ui.floatInset, ui.bottom - cap.y + dp(6))
+  else: ui.bottom = r.y
   let inner = if floating: rect(cap.x + dp(5), cap.y, cap.w - dp(10), cap.h)
               else: rect(ui.safe.left, r.y + 2, ui.w - ui.safe.left - ui.safe.right, h - 2)
   let slot = inner.w div items.len
@@ -1939,7 +1953,9 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
   for i, (glyph, label) in items:
     let cell = rect(inner.x + slot * i, inner.y, slot, inner.h)
     let id = idOf("bottomnav:" & $i & label)
+    setLayer(LayerBase)                 # (its input with the window's; drawn on `drawLayer`)
     let hit = interact(id, cell, focusable = false)
+    setLayer(drawLayer)
     if hit.down and ui.pressed: ui.focus = gid
     if hit.clicked and sel != i:
       sel = i
@@ -1962,6 +1978,10 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
         let a = accentColor()
         roundRect(pill, pr, mixColor(a, color(0, 0, 0), 0.5))
         glossShine(inset(pill, 1), pr - 1, a, true)
+      elif on and fx:
+        # (the chosen one: the highlight's tint in the glass, its edge lit)
+        roundRect(pill, pr, withAlpha(accentColor(), if lumaOfColor(th.window) < 128: 70 else: 40))
+        glassRim(pill, pr)
       elif on: roundRect(pill, pr, mixColor(th.field, accentColor(), if lumaOfColor(th.window) < 128: 0.28 else: 0.13))
       elif hit.showsHover: roundRect(pill, pr, withAlpha(th.text, 14))
       c = if on and darkGloss: color(255, 255, 255) elif on: (if lumaOfColor(th.window) < 128: mixColor(accentColor(), color(255, 255, 255), 0.4) else: accentColor())
@@ -2028,7 +2048,10 @@ proc bottomNav*(items: openArray[(string, string)]; sel: var int): bool {.discar
       let k = accessNode(arTab, label, id = id, r = cell, states = (if on: {asSelected} else: {}))
       accessItem(k, i + 1, items.len)
       if on and focused: accessFocus(k)
+  setLayer(LayerBase)
   if accessOn: accessEnd()
+  # (the content under the floating capsule takes no input there)
+  if fx: ui.blockers.add cap
 
 proc fab*(glyph: string; tip = ""; color = Color()): bool =
   ## The round "floating action button" at the bottom right, over the

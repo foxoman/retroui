@@ -551,22 +551,23 @@ block richEditLatinInArabic:
     "after G and after GPS: by the Arabic before them: " & $(x1, richCaretRect(doc).x, edge)
 
 block richEditStyleInAWord:
-  # a word with a color in the middle keeps its letters joined (FreeSerif's Arabic, whose
-  # letters do not kern: Suhar's kerning across the color's edge is the pieces' own)
-  setUiFont(ufSans)
-  var doc = richFromHtml("<p>مر<span style=\"color:#ff0000\">حب</span>ا</p>")
-  view = proc () =
-    discard richEdit(doc, height = 120)
-  run(2)
-  doAssert doc.paras[0].runs.len == 3
-  richSelect(doc, RichPos(para: 0, off: 0), RichPos(para: 0, off: 0))
-  run()
-  let a = richCaretRect(doc).x
-  let n = paraText(doc.paras[0]).len
-  richSelect(doc, RichPos(para: 0, off: n), RichPos(para: 0, off: n))
-  run()
-  let b = richCaretRect(doc).x
-  doAssert abs((a - b) - textWidth("مرحبا")) <= 2, "as wide as the word joined: " & $(a - b, textWidth("مرحبا"))
+  # a word with a color in the middle keeps its letters joined and kerned as the word whole: in
+  # Suhar (its own forms and kerning) and in FreeSerif's Arabic
+  for f in [ufSuhar, ufSans]:
+    setUiFont(f)
+    var doc = richFromHtml("<p>مر<span style=\"color:#ff0000\">حب</span>ا</p>")
+    view = proc () =
+      discard richEdit(doc, height = 120)
+    run(2)
+    doAssert doc.paras[0].runs.len == 3
+    richSelect(doc, RichPos(para: 0, off: 0), RichPos(para: 0, off: 0))
+    run()
+    let a = richCaretRect(doc).x
+    let n = paraText(doc.paras[0]).len
+    richSelect(doc, RichPos(para: 0, off: n), RichPos(para: 0, off: n))
+    run()
+    let b = richCaretRect(doc).x
+    doAssert abs((a - b) - textWidth("مرحبا")) <= 2, "as wide as the word joined: " & $(a - b, textWidth("مرحبا"))
   setUiFont(ufSuhar)
 
 # ---- the right-to-left interface ----------------------------------------------------------------------

@@ -5,7 +5,7 @@
 ## and Delete, the grip dragged, Alt+Down), coverFlow.
 
 import retroui
-import retroui/uirelays/[coords, input]
+import retroui/uirelays/[coords, input, screen]
 import harness
 
 fakeDriver()
@@ -426,5 +426,141 @@ block aboutPage:
   aboutOpen = false
   run(2)
   accessKeep = false
+
+# ---- a settings row's page of choices in a dialog: over the dialog, not under its other rows ---------
+
+block choiceInDialog:
+  accessKeep = true
+  dialogPages = dpPages
+  uiLook = lookGloss
+  ui.theme = GlossDark
+  setControlSizes(csTouch)
+  smoothScrolling = false          # (pages in place at once, not sliding up)
+  var shown = true
+  view = proc () =
+    dialog(shown, "Appearance", 460):
+      discard appearanceSettings()
+  run(3)
+  let look = findNode(accessLast, "Look", {arComboBox})
+  let ctl = findNode(accessLast, "Controls", {arComboBox})
+  doAssert look >= 0 and ctl >= 0, "Appearance as a page, its rows"
+  let lr = nodeRect(accessLast[look])
+  let cr = nodeRect(accessLast[ctl])
+  # (the Controls row's value and chevron, at its right: under the Look choices' page when it
+  # opens, below that page's four rows)
+  let valueArea = rect(cr.x + cr.w * 3 div 5, cr.y + 4, cr.w * 2 div 5 - 4, cr.h - 8)
+  proc colors(r: Rect): int =
+    var seen: seq[uint32]
+    for y in max(0, r.y) ..< min(H, r.y + r.h):
+      for x in max(0, r.x) ..< min(W, r.x + r.w):
+        if px(x, y) notin seen: seen.add px(x, y)
+    seen.len
+  doAssert cr.y + cr.h < H and colors(valueArea) > 3, "the Controls row's value and chevron drawn"
+  click(lr)
+  run(3)
+  let gloss = findNode(accessLast, "Gloss", {})
+  doAssert gloss >= 0 and nodeRect(accessLast[gloss]).y + nodeRect(accessLast[gloss]).h < cr.y,
+           "Look: its page of choices, its last row above where the Controls row was"
+  doAssert colors(valueArea) <= 2, "the choices' page over Appearance: its rows not drawn through it"
+  # (under a status bar: the page's bar's color, darker -- the bar's gradient ran up under it)
+  let plainLayout = windowRelays.getWindowLayout
+  windowRelays.getWindowLayout = proc (): ScreenLayout =
+    ScreenLayout(width: W, height: H, scaleX: 1, scaleY: 1, uiScale: 100, safeTop: 24)
+  setZoom(0)
+  run(3)
+  let sb = statusBarColor()
+  doAssert near(px(5, 4), sb, 6) and near(px(W - 5, 20), sb, 6) and not near(px(5, 30), sb, 6),
+           "a page under the status bar: there, the bar's color darker"
+  windowRelays.getWindowLayout = plainLayout
+  setZoom(0)
+  run(2)
+  click(nodeRect(accessLast[findNode(accessLast, "Matte", {})]))
+  run(3)
+  doAssert uiLook == lookMatte, "one tapped on it: chosen"
+  key(KeyEsc)
+  run(3)
+  doAssert colors(valueArea) > 3, "closed: Appearance again"
+  shown = false
+  run(2)
+  setControlSizes(csAuto)
+  smoothScrolling = true
+  dialogPages = dpAuto
+  uiLook = lookClassic
+  ui.theme = Classic
+  accessKeep = false
+
+# ---- the modern glass effect: the tab bar floating over the content, glass -------------------------------
+
+block glassEffectTabBar:
+  uiLook = lookGlass
+  ui.theme = GlassLight
+  setControlSizes(csTouch)
+  var tab = 0
+  var redR, lastR: Rect
+  var clicks = 0
+  proc page() =
+    discard bottomNav([(nfHome, "Home"), (nfSearch, "Search"), (nfCog, "Settings")], tab)
+    for i in 0 ..< 14:
+      label "Row " & $i
+    # (a red block and a button at the foot, where the capsule floats)
+    let r = place(0, dp(70), fill = true)
+    fill(r, color(230, 20, 20))
+    redR = r
+    if button("Under", w = W - 40): inc clicks
+    lastR = ui.lastRect
+  glassEffect = true
+  view = page
+  run(4)
+  doAssert ui.floatInset > 0 and ui.bottom == H, "with the effect: no band, the content down to the foot"
+  # (scrolled to its end: the last of it above the capsule)
+  ui.pageY = ui.pageMax
+  run(4)
+  let capTop = H - ui.floatInset + dp(6)
+  doAssert lastR.y + lastR.h <= capTop, "... and it scrolls its end out from under the capsule"
+  # (scrolled so the red block is under the capsule: seen through it, blurred, lighter)
+  ui.pageY = max(0, ui.pageMax - (capTop - redR.y) - 10)
+  run(4)
+  var seen = 0
+  var plainRed = 0
+  let probe = rect(W div 2 - 40, H - ui.floatInset + dp(12), 80, dp(10))
+  for y in probe.y ..< probe.y + probe.h:
+    for x in probe.x ..< probe.x + probe.w:
+      let p = px(x, y)
+      let (r, g) = (int((p shr 16) and 255), int((p shr 8) and 255))
+      if r > g + 25: inc seen
+      if r > 200 and g < 50: inc plainRed
+  doAssert redR.y + redR.h > capTop and seen > probe.w * probe.h div 3 and plainRed == 0,
+        "what is under the capsule shows through it, blurred and lightened -- glass"
+  # (a tap on the capsule over the button: the tab bar's, not the button's)
+  let before = clicks
+  down(W div 2, H - ui.floatInset div 2)
+  run()
+  up(W div 2, H - ui.floatInset div 2)
+  run(3)
+  doAssert clicks == before, "the content under the capsule takes no tap there"
+  glassEffect = false
+  ui.pageY = 0
+  run(4)
+  doAssert ui.floatInset == 0 and ui.bottom < H, "without it: the tab bar on its band, the content above"
+  # (the user's choice in Appearance, kept with the look)
+  var st = loadSettings("phoneparts-glassfx")
+  glassEffect = false
+  storeAppearance(st)
+  glassEffect = true
+  restoreAppearance(st)
+  doAssert not glassEffect, "Glass effect kept with the look"
+  glassEffect = true
+  accessKeep = true
+  view = proc () = discard appearanceSettings()
+  run(3)
+  doAssert findNode(accessLast, "Glass effect", {arCheckBox}) >= 0, "Appearance: Glass effect, in Glass"
+  uiLook = lookGloss
+  ui.theme = GlossLight
+  run(3)
+  doAssert findNode(accessLast, "Glass effect", {arCheckBox}) < 0, "... not in the other looks"
+  accessKeep = false
+  setControlSizes(csAuto)
+  uiLook = lookClassic
+  ui.theme = Classic
 
 echo "phoneparts: ok"

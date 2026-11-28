@@ -816,7 +816,13 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
   (`sheetGlass`: smoked on a dark window, never a light card there), and a
   card is lighter than a dark window, not darker. Gloss Onyx (`glossOnyx`)
   is Gloss's third scheme, not Gloss Dark: its floating tab bar and pill
-  buttons are its own.
+  buttons are its own. Glass's modern glass effect (`glassEffect`,
+  `glassFx()`) is drawn by `glassSurface` (a blur of what is under it, a
+  sheen, `glassRim`'s lit edge) and through `frostedFace`: the floating tab
+  bar is drawn on the dialogs' layer over the content, takes input on the
+  window's (`setLayer` round its drawing), blocks the content under it
+  (`ui.blockers`) and leaves `ui.floatInset` for `endPage` and `endPanel` to
+  scroll past it -- something new that floats over the content does the same.
 - **The default look is Classic on computers and the web, Gloss on Android
   and iOS** (`uiLook`, `ui.theme` in core.nim). A phone control takes its
   colors from the scheme -- in Gloss's own schemes (`glossOwnScheme`) iOS
@@ -830,8 +836,10 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - **The settings rows are a phone's in a `tableGroup`** (mobile.nim:
   `settingRow` takes the group's row face): `settingCombo` there is a row
   with its value and a chevron opening a page of choices (`choicePage`, a
-  dialog: a page on phones). `appearanceSettings` puts its rows in groups by
-  itself with touch sizes in Glass, Matte or Gloss.
+  dialog: a page on phones; in a dialog drawn as that dialog ends,
+  `afterDialog`, so it lies over it -- dialogs share one layer, and one opened
+  in the middle of another's body is under the rest of it). `appearanceSettings`
+  puts its rows in groups by itself with touch sizes in Glass, Matte or Gloss.
   The touch behaviors of a page -- its ends stretched (`pullStep`, by the
   kit's own pan: `panAlong`, `panOwner`, `dragsActive`), `pullRefresh`,
   `scrollHint`, the long page's thumb (`fastScroll`), Back by a swipe
@@ -1027,7 +1035,9 @@ alike. To build an app *with* the kit, read `skills/retroui/SKILL.md`.
 - **The built-in fonts** are Suhar App and Suhar App Read (the UI's and
   paragraphs', Sultan's own typeface, SIL OFL 1.1; `tools/gensuharfont.py`
   makes the kit's files from the release he gives -- never edit their
-  glyphs here) and GNU FreeFont 0412 cut by
+  glyphs here; the symbols the kit needs that Suhar lacks are drawn into each
+  face by `tools/suharsymbols.py`, which `gensuharfont.py` runs, never
+  replacing a glyph Suhar has) and GNU FreeFont 0412 cut by
   `tools/genfreefont.py`; letters added since (Vietnamese, Thai) come with
   `--add` from any FreeFont release, the rest of each face kept as it is:
   a newer release cut whole is bigger for the same letters. Suhar App is

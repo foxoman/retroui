@@ -713,11 +713,14 @@ costs what its visible rows cost.
   100 %).
 - Fonts: Suhar App (the default -- Latin and Arabic drawn together --; its paragraphs in
   Suhar App Read: `paragraph`, Markdown, `style(read = true)`), FreeSans, FreeSerif,
-  FreeMono (`setUiFont(ufSans)`...), built in with Arabic, Thai and Vietnamese -- a letter
-  Suhar has not drawn comes from FreeFont; `loadUiFontFile(path)` for a font of your own,
-  `setUiFontVariable(data)` one variable font file for every style; a font's own GSUB and
-  GPOS shape its Arabic (with presentation forms or without); `setTallLines(true)` for
-  fully vowelled text; `appearanceSettings` lets
+  FreeMono (`setUiFont(ufSans)`...), built in with Arabic, Thai and Vietnamese -- the
+  symbols the kit writes (∀ ∂ ∈ ∝ ⟨ ⟩ ☎ ♀ ♂ ♭ ♮ ♯...) drawn into Suhar, a letter it has not
+  drawn (Thai) from FreeFont; `loadUiFontFile(path)` for a font of your own,
+  `setUiFontVariable(data)` one variable font file for every style (its weights, italic and
+  optical size); a font's own GSUB and GPOS shape its Arabic (with presentation forms or
+  without); `label`, `paragraph`, `styledText`, `heading` grow by what their marks reach
+  (`inkReach`), `setTallLines(true)` makes every line tall for fully vowelled text; an Arabic
+  paragraph in an English interface is set from the right (`lineStart`); `appearanceSettings` lets
   the user choose (theme, font, text size, Sharp text, window frame,
   title bar buttons) and
   `look = "myapp"` keeps it.
@@ -742,7 +745,12 @@ costs what its visible rows cost.
   `glossLook()` tell them apart; `lookSchemes(look)`, `titleBar`, `barFace`, `tintedFace`.
   `GlossOnyx` is Gloss's third scheme (black, crimson; a floating tab bar and pill buttons:
   `glossOnyx()`). Glass draws cards with `glassPlate(r, radius)` and the lit, glowing blue with
-  `glassBlue(r, radius)` (`modernGlass()`: Glass itself). On Android and iOS Glass and Gloss
+  `glassBlue(r, radius)` (`modernGlass()`: Glass itself). Its modern glass effect
+  (`glassEffect`, on by default; "Glass effect" in Appearance): the tab bar a glass capsule
+  floating over the content, which runs under it and scrolls its end out from under it
+  (`ui.floatInset` -- the page and panels do it themselves), the bars' buttons glass, menus,
+  dialogs, sheets, alerts and the side menu glass with lit edges; `glassSurface(r, radius)`
+  draws a pane of it for an app's own floating part (`glassRim`, `glassFx()`). On Android and iOS Glass and Gloss
   are the phone's (`phoneLook()`): touch sizes on a tablet, dialogs as pages; and the look's own
   colors follow the system's dark theme (`systemColors`, on there by default;
   `followSystemColors()` runs in `appFrameDone`) -- don't fix a phone app to a light scheme.
@@ -757,8 +765,9 @@ costs what its visible rows cost.
   `withMobileStyle(s): ...` for a part of the window.
 - Settings rows (`settingToggle`, `settingCombo`, `settingLink`...) in a `tableGroup` are its
   rows, as a phone's settings: `settingCombo` shows the chosen one at its end and opens a page
-  of choices. `appearanceSettings()` groups its rows by itself with touch sizes in Glass,
-  Matte or Gloss.
+  of choices (over the dialog it is in: `afterDialog(proc () = ...)` does that for a dialog of
+  your own opened from a control in a dialog). `appearanceSettings()` groups its rows by itself
+  with touch sizes in Glass, Matte or Gloss.
 - A phone app is made for tablets too: `isCompact()` (a phone in portrait) gives pages one
   over another with Back; otherwise (a tablet, a phone on its side, a computer) put the list
   down the left -- about a third, at most 340 dp -- and the page chosen beside it, each

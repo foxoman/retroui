@@ -698,7 +698,8 @@ Unread), Move, Trash, Reply (Reply, Reply All, Forward), New Message --, writing
 Send on the bar, To, Cc and Bcc, Subject, Insert Photo or Video, the signature; Settings in groups
 as a phone's (the accounts, New Mail, Reading, Writing, Kept Safe, Appearance, More Options, About
 Retro Mail), each kept as it is changed. On a tablet the
-mailboxes and the list stay down the left and the message is beside them. tests/test_mailtouch.nim
+mailboxes and the list stay down the left and the message is beside them; Calendar, People, To Do
+and Notes take the whole width. tests/test_mailtouch.nim
 works it on a phone and a tablet and draws every page in every look.
 
 `mail.nim` is Retro Mail, Outlook Express 4 to look at, with what the

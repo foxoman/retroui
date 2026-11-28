@@ -37,6 +37,21 @@ proc javaSources(): string =
 # a change to the Java not made into it again never reaches an APK -- as 0.77.0's did not)
 doAssert classesDexOf == javaSources(),
   "tools/android/*.java changed: run sh tools/android/build_dex.sh"
+block playbackForeground:
+  # (Android stops an app whose service, started with startForegroundService, is stopped before
+  # it calls startForeground -- Retro Music 2.1.1 on Android 12: the service goes to the
+  # foreground as it is made and on every start, and a stop asked before that waits for it)
+  let j = readFile(currentSourcePath.parentDir.parentDir / "tools" / "android" / "RetroPlayback.java")
+  let create = j.find("public void onCreate()")
+  let start = j.find("public int onStartCommand(")
+  doAssert create > 0 and j.find("toForeground()", create) in create .. create + 120,
+           "RetroPlayback: in the foreground in onCreate"
+  doAssert start > 0 and j.find("toForeground()", start) in start .. start + 200,
+           "RetroPlayback: in the foreground on every start"
+  let stop = j.find("static void stop(")
+  doAssert stop > 0 and j.find("if (!foreground)", stop) in stop .. stop + 200 and
+           j.find("stopWanted = true", stop) in stop .. stop + 300,
+           "RetroPlayback: a stop before it is in the foreground kept until it is"
 let icon = iconPng(192)
 doAssert icon[1 .. 3] == "PNG".toBytes and icon.len < 10_000, "a small PNG"
 

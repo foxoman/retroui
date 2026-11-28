@@ -103,6 +103,10 @@ type
     run: int16
     rtl: bool            ## drawn right to left
     st: TextStyle
+    ca, cb: int32        ## the word it is a piece of, drawn whole and cut to it: pieces back to
+                         ## back in one word in the same font (a color, a link, in the middle
+                         ## of a word) keep the font's kerning and forms across their edges
+                         ## (ca == cb: none)
 
   LineBox = object
     a, b: int32          ## its bytes (a wrapped line's end is the next one's start)
@@ -1063,6 +1067,21 @@ proc anyRtl(s: string): bool =
        c in 0x10800 .. 0x10FFF or c in 0x1E800 .. 0x1EFFF:
       return true
 
+proc sameGlyphs(a, b: TextStyle): bool =
+  ## (two styles drawing the same glyphs: they differ only in lines -- underline, strike --, not
+  ## in the font, its style or its size)
+  var x = a
+  var y = b
+  x.underline = false
+  x.strike = false
+  y.underline = false
+  y.strike = false
+  x == y
+
+proc inWord(t: string; at: int): bool =
+  ## (byte `at` of `t` is inside a word: letters on both sides of it)
+  at > 0 and at < t.len and t[at - 1] notin {' ', '\t'} and t[at] notin {' ', '\t'}
+
 proc pieceText(t: string; a, b: int): string =
   ## Bytes `a ..< b` of paragraph text `t` to measure or draw on their own:
   ## where an Arabic word goes on past either end (a style changing in it),
@@ -1213,7 +1232,30 @@ proc layoutPara(p: RichPara; w: int): ParaLay =
       var st = sts[pc.run]
       st.rtl = pc.rtl
       pc.st = st
-      pc.w = int32(textWidth(pieceText(text, pc.a, pc.b), st))
+    # (pieces back to back in one word, the font the same: one word to measure and draw)
+    var k = int(ln.p0)
+    while k < int(ln.p1):
+      var e = k + 1
+      while e < int(ln.p1) and result.pieces[e].a == result.pieces[e - 1].b and
+            result.pieces[e].rtl == result.pieces[e - 1].rtl and
+            sameGlyphs(result.pieces[e].st, result.pieces[e - 1].st) and
+            inWord(text, int(result.pieces[e].a)):
+        inc e
+      if e - k > 1:
+        for m in k ..< e:
+          result.pieces[m].ca = result.pieces[k].a
+          result.pieces[m].cb = result.pieces[e - 1].b
+      k = e
+    for pi in ln.p0 ..< ln.p1:
+      template pc: untyped = result.pieces[pi]
+      let st = pc.st
+      if pc.ca < pc.cb:
+        # (its share of the word: the word up to its end, less the word up to its start)
+        let upTo = textWidth(pieceText(text, int(pc.ca), int(pc.b)), st)
+        let before = if pc.a == pc.ca: 0 else: textWidth(pieceText(text, int(pc.ca), int(pc.a)), st)
+        pc.w = int32(max(0, upTo - before))
+      else:
+        pc.w = int32(textWidth(pieceText(text, pc.a, pc.b), st))
       pc.asc = int16(ascOf(st))
       asc = max(asc, int(pc.asc))
       desc = max(desc, lineHeight(st) - int(pc.asc))
@@ -1314,7 +1356,11 @@ proc lineAt(l: ParaLay; off: int): int =
 
 proc pieceX(l: ParaLay; pc: Piece; off: int): int =
   let o = clamp(off, pc.a, pc.b)
-  let tw = if o == pc.a: 0 else: textWidth(pieceText(l.text, pc.a, o), pc.st)
+  var tw = if o == pc.a: 0 else: textWidth(pieceText(l.text, pc.a, o), pc.st)
+  if pc.ca < pc.cb and o > pc.a:
+    # (a piece of a word: measured in the word, as it is drawn)
+    let before = if pc.a == pc.ca: 0 else: textWidth(pieceText(l.text, int(pc.ca), int(pc.a)), pc.st)
+    tw = clamp(textWidth(pieceText(l.text, int(pc.ca), o), pc.st) - before, 0, int(pc.w))
   if pc.rtl: pc.x + pc.w - tw else: pc.x + tw
 
 proc caretX(l: ParaLay; li, off: int): int =
@@ -1719,8 +1765,27 @@ proc drawPara(d: RichDoc; pi: int; x0, py: int; clipR: Rect; num: int;
         fill(rect(if l.rtl: ex - dp(5) else: ex, ly, dp(5), int(ln.h)), selBg)
     for k in ln.p0 ..< ln.p1:
       let pc = l.pieces[k]
-      let s = pieceText(l.text, pc.a, pc.b)
       let col = inkOf(p.runs[pc.run].style, enabled)
+      if pc.ca < pc.cb:
+        # (a piece of a word in one font: the word drawn whole at its start, cut to this piece --
+        # its letters kerned and joined as the font has them across the piece's edges)
+        var wx = int(pc.x)
+        for m in ln.p0 ..< ln.p1:
+          if l.pieces[m].ca == pc.ca and l.pieces[m].cb == pc.cb: wx = min(wx, int(l.pieces[m].x))
+        let word = pieceText(l.text, pc.ca, pc.cb)
+        let cut = rect(x0 + pc.x, ly - int(ln.h), pc.w, 3 * int(ln.h))
+        pushClip(intersect(cut, clipR))
+        text(x0 + wx, ly + ln.base - pc.asc, word, col, pc.st)
+        popClip()
+        if focused and spans.len > 0:
+          for r in spans:
+            let c = intersect(r, rect(x0 + pc.x, ly, pc.w, int(ln.h)))
+            if c.w > 0:
+              pushClip(intersect(c, clipR))
+              text(x0 + wx, ly + ln.base - pc.asc, word, th.selectText, pc.st)
+              popClip()
+        continue
+      let s = pieceText(l.text, pc.a, pc.b)
       text(x0 + pc.x, ly + ln.base - pc.asc, s, col, pc.st)
       if focused and spans.len > 0:
         for r in spans:

@@ -64,6 +64,35 @@ for g in ar.glyphs:
 check allSuhar, "... every letter from Suhar"
 check textWidth("Sohar, صحار", style(read = true)) > 0, "the reading cut measures"
 
+# ---- the symbols drawn into Suhar App (tools/suharsymbols.py) ------------------------------------------------
+
+block symbols:
+  const drawn = "∀∂∃∅∆∇∈∉∋∏∗∝⌀▁☎♀♂♭♮♯⟨⟩⁁"
+  var fromSuhar = true
+  var what = ""
+  for id in [fSuhar, styled(fSuhar, true, false), styled(fSuhar, false, true), styled(fSuhar, true, true),
+             fSuharRead, styled(fSuharRead, true, false), styled(fSuharRead, false, true),
+             styled(fSuharRead, true, true)]:
+    for r in drawn.runes:
+      let run = shape($r, id)
+      if run.missing or run.glyphs.len != 1 or run.glyphs[0].face != id or run.glyphs[0].gid == 0:
+        fromSuhar = false
+        what = $r & " in " & fontName(id)
+  check fromSuhar, "the symbols the kit writes or names drawn in Suhar App's eight faces, none from FreeFont" &
+                   (if what.len > 0: " (" & what & ")" else: "")
+  for r in drawn.runes:
+    let f = face(fSuhar)
+    let b = f.bounds(f.glyphOf(int(r)))
+    doAssert b.x1 > b.x0 and b.y1 > b.y0, $r & ": an outline"
+  check true, "... each with an outline"
+  proc inkOf(s: string; st: TextStyle): int =
+    view = proc () = styledText(s, st)
+    run(2)
+    for p in pixels:
+      if (p and 0xFF) < 128: inc result
+  check inkOf("♀", style(bold = true, size = 4)) > inkOf("♀", style(size = 4)),
+        "... drawn in each face's weight: the bold's heavier"
+
 # ---- marks that cross the baseline ------------------------------------------------------------------------
 
 proc markOk(base: FaceId; what: string) =
@@ -126,6 +155,38 @@ check lineHeight(style(size = 2)) > 2 * plainH, "... at every size"
 setTallLines(false)
 check FontH == plainH, "off: the font's own line again"
 
+# ---- text taller by its own ink --------------------------------------------------------------------------
+
+block byInk:
+  let vowelled = "إِنَّ اَلْعِلْمَ نُورٌ"
+  var tr: Rect   # (its place)
+  for (txt, st) in [(vowelled, style(size = 4)), (vowelled, style(size = 4, read = true))]:
+    view = proc () =
+      styledText(txt, st)
+      tr = ui.lastRect
+    run(2)
+    var inkTop = H
+    var inkFoot = -1
+    for y in 0 ..< H:
+      for x in 0 ..< W:
+        if (pixels[y * W + x] and 0xFF) < 160:
+          inkTop = min(inkTop, y)
+          inkFoot = max(inkFoot, y)
+    # (a pixel of the letters' soft edge may be past it)
+    check tr.h > lineHeight(st) and inkTop >= tr.y - 1 and inkFoot <= tr.y + tr.h,
+          "vowelled Arabic, large" & (if st.read: " (Suhar App Read)" else: "") &
+          ": its place as tall as its marks reach -- all its ink inside it"
+  view = proc () =
+    styledText("Sohar", style(size = 4))
+    tr = ui.lastRect
+  run(2)
+  check tr.h == lineHeight(style(size = 4)), "... Latin: the line's own height"
+  view = proc () =
+    label "صحار مدينة على ساحل الباطنة"
+    tr = ui.lastRect
+  run(2)
+  check tr.h == FontH, "an interface's Arabic at its size: the line's own height, not a pixel more"
+
 # ---- the layout mirrored ------------------------------------------------------------------------------------
 
 var capR, fieldR, okR, cancelR: Rect
@@ -163,6 +224,42 @@ setRightToLeft(false)
 run(2)
 check capR.x < fieldR.x, "and back"
 
+# ---- a right-to-left paragraph set from the right ---------------------------------------------------------
+
+block rtlParagraphs:
+  var pr: Rect
+  proc inkSpan(r: Rect): tuple[lo, hi: int] =
+    ## (the leftmost and rightmost columns with ink in `r`)
+    result = (W, -1)
+    for y in max(0, r.y) ..< min(H, r.y + r.h):
+      for x in max(0, r.x) ..< min(W, r.x + r.w):
+        if (pixels[y * W + x] and 0xFF) < 128:
+          result.lo = min(result.lo, x)
+          result.hi = max(result.hi, x)
+  for (txt, rtl) in [("صحار مدينة على ساحل الباطنة في عمان، ومنها أبحر السندباد إلى البحار البعيدة.", true),
+                     ("Sohar is a city on the Batinah coast of Oman, the harbour Sindbad sailed from.", false)]:
+    view = proc () =
+      paragraph(txt, w = 300)
+      pr = ui.lastRect
+    run(2)
+    let lastLine = rect(pr.x, pr.y + pr.h - FontH, pr.w, FontH)
+    let (lo, hi) = inkSpan(lastLine)
+    doAssert pr.h > FontH, "wrapped: more than one line"
+    if rtl:
+      check hi >= pr.x + pr.w - 6 and lo > pr.x + 20,
+            "an Arabic paragraph in an English interface: its lines from the right"
+    else:
+      check lo <= pr.x + 3 and hi < pr.x + pr.w - 20, "... an English one from the left"
+  setRightToLeft(true)
+  view = proc () =
+    paragraph("Sohar is a city on the Batinah coast of Oman, the harbour Sindbad sailed from.", w = 300)
+    pr = ui.lastRect
+  run(3)
+  let m = rect(W - pr.x - pr.w, pr.y + pr.h - FontH, pr.w, FontH)
+  check inkSpan(m).hi >= m.x + m.w - 6, "a mirrored interface: every line from the right"
+  setRightToLeft(false)
+  run(2)
+
 # ---- one variable font file -----------------------------------------------------------------------------------
 
 setUiFontVariable(readFile(fonts / "VarTest.ttf"))
@@ -179,6 +276,32 @@ check inkStyled("AAAA", style(bold = true, size = 4)) > inkStyled("AAAA", style(
 setTextSize(24)
 check face(fUserBold).varCoords.len > 0, "a size changed: its styles made again"
 setTextSize(12)
+
+# ---- Suhar's variable font: weights and optical sizes (SuharVar-Test.ttf, cut from Suhar 2.8's
+# Suhar[opsz,wght].ttf: wght 400..700, opsz 8..72 points) ------------------------------------------------
+
+setUiFontVariable(readFile(fonts / "SuharVar-Test.ttf"))
+let vf = face(fUser)
+check "wght" in userFontAxes() and "opsz" in userFontAxes(), "Suhar's variable font: its weights and optical sizes"
+proc advOf(id: FaceId; c: char): int = face(id).advance(face(id).glyphOf(ord(c)))
+let small = advOf(fUser, 'a')
+let smallBold = advOf(fUserBold, 'a')
+let smallCoords = face(fUser).varCoords
+check smallCoords.len == 2 and smallBold != small, "at 12 pixels: regular and bold at their weights"
+setTextSize(64)
+let large = advOf(fUser, 'a')
+check face(fUser).varCoords != smallCoords and large < small,
+      "at 64 pixels: its optical size the text's -- the letters narrower, as drawn for large text"
+check advOf(fUserBold, 'a') != large, "... its bold too"
+check inkStyled("an", style(size = 1)) > 0, "drawn at the large size"
+setTextSize(12)
+check advOf(fUser, 'a') == small, "back at 12: the small size's letters again"
+setUiFontVariable(readFile(fonts / "SuharVar-Test.ttf"), opticalSize = false)
+setTextSize(64)
+let fixedLarge = advOf(fUser, 'a')
+setTextSize(12)
+check advOf(fUser, 'a') == fixedLarge, "opticalSize = false: the font's own optical size at every text size"
+discard vf
 setUiFont(ufSuhar)
 
 echo "suhar: ", passed, " ok"

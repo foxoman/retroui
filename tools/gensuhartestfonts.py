@@ -9,9 +9,13 @@
                                damma and fathatan moved down across the
                                baseline, its kasra up across it
   SuharMarksNoLayout-Test.ttf  the same without GSUB, GPOS and GDEF
+  SuharVar-Test.ttf            Suhar's variable font (wght 400-700, opsz 8-72):
+                               Latin and a few Arabic letters, its axes kept
+                               (made when its file is given as a fourth
+                               argument)
 
     python3 tools/gensuhartestfonts.py src/retroui/fonts/SuharApp.ttf \
-        src/retroui/fonts/SuharAppBold.ttf tests/data/fonts
+        src/retroui/fonts/SuharAppBold.ttf tests/data/fonts [Suhar[opsz,wght].ttf]
 
 Maintainers only: the outputs are checked in. Needs fontTools.
 """
@@ -19,6 +23,7 @@ import sys, io
 from fontTools.ttLib import TTFont
 from fontTools import subset
 src_reg, src_bold, out = sys.argv[1], sys.argv[2], sys.argv[3]
+src_var = sys.argv[4] if len(sys.argv) > 4 else ''
 LATIN = list(range(0x20, 0x7F))
 import unicodedata
 LETTERS = [ord(c) for c in "اأبتحرصفكلمنهوي"]
@@ -69,3 +74,6 @@ cross = {0x064F: -40, 0x064B: -35, 0x0650: 40}
 cut(src_bold, LATIN + ARABIC + FORMS, True, out + '/SuharMarks-Test.ttf', cross)
 # 3. ... without the layout tables: the kit places the marks itself
 cut(src_bold, LATIN + ARABIC + FORMS, False, out + '/SuharMarksNoLayout-Test.ttf', cross)
+# 4. the variable font: its weights and optical sizes (axes, gvar, HVAR, MVAR kept)
+if src_var:
+    cut(src_var, LATIN + ARABIC, True, out + '/SuharVar-Test.ttf')

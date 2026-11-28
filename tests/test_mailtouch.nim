@@ -192,6 +192,20 @@ settle()
 tapNode("Bank", {arListItem})
 check tPage() == tpList and selectedConv() != nil and has("Invoice for March"), "a tablet: the message beside the list"
 save("tablet")
+for (v, name) in [(vPeople, "People"), (vCalendar, "Calendar")]:
+  tStack = @[tpBoxes]
+  settle()
+  tapNode(name)
+  check tPage() == tpMore and tMore == v and not has("No Message Selected"),
+        "a tablet's " & name & ": the whole width, not the mailboxes' column beside an empty message"
+  save("tablet-" & name)
+  if v == vPeople:
+    let f = findNode(accessLast, "New Contact", {arButton})
+    check f >= 0 and nodeRect(accessLast[f]).x > winW div 2 and
+          nodeRect(accessLast[f]).x + nodeRect(accessLast[f]).w < winW,
+          "... the list and the contact's card side by side, the card whole"
+tapNode("Mailboxes", {arButton})
+check tPage() == tpBoxes and view == vMail, "Mailboxes: back"
 
 # ---- every page in every look ------------------------------------------------------------------------------------
 

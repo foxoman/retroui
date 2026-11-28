@@ -22,7 +22,7 @@ reference of every module is made by `nimble docs` into `docs/api/`.
 ## Contents
 
 - **[Getting started](#getting-started)**: [Install](#install) · [A first app](#a-first-app) · [How immediate mode works](#how-immediate-mode-works) · [The app's options](#the-apps-options) · [Building and running](#building-and-running)
-- **[Layout](#layout)**: [Rows and columns](#rows-and-columns) · [Widths in a row](#widths-in-a-row) · [spring and space](#spring-and-space) · [Groups, cards and separators](#groups-cards-and-separators) · [Surfaces: frosted glass, shadows, masks](#surfaces-frosted-glass-shadows-masks) · [Forms and fields](#forms-and-fields) · [adaptive, and the window's size](#adaptive-and-the-windows-size) · [Scrolling: scrollPanel, panel, pane](#scrolling-scrollpanel-panel-pane) · [Tabs](#tabs) · [Splitters: split, vsplit](#splitters-split-vsplit) · [sidePane](#sidepane)
+- **[Layout](#layout)**: [Rows and columns](#rows-and-columns) · [Widths in a row](#widths-in-a-row) · [spring and space](#spring-and-space) · [Groups, cards and separators](#groups-cards-and-separators) · [Surfaces: frosted glass, shadows, masks](#surfaces-frosted-glass-shadows-masks) · [The modern glass: glassSurface](#the-modern-glass-glasssurface) · [Forms and fields](#forms-and-fields) · [adaptive, and the window's size](#adaptive-and-the-windows-size) · [Scrolling: scrollPanel, panel, pane](#scrolling-scrollpanel-panel-pane) · [Tabs](#tabs) · [Splitters: split, vsplit](#splitters-split-vsplit) · [sidePane](#sidepane)
 - **[Text](#text)**: [label, paragraph, heading](#label-paragraph-heading) · [styledText, link, badge](#styledtext-link-badge) · [icon, iconLabel, image](#icon-iconlabel-image) · [tooltip](#tooltip)
 - **[Buttons](#buttons)**: [button](#button) · [Buttons with a picture](#buttons-with-a-picture) · [segmented](#segmented) · [menuButton, splitButton](#menubutton-splitbutton) · [buttonRow](#buttonrow) · [buttonAt](#buttonat)
 - **[Choices](#choices)**: [checkbox](#checkbox) · [radio](#radio) · [toggle (a switch)](#toggle-a-switch) · [chips](#chips) · [tagInput](#taginput) · [rating](#rating)
@@ -483,7 +483,8 @@ proc frostedFace*(r: Rect; back: Color; corner = 0.0): bool {.discardable.}
 
 A face of frosted glass in `r` when the look draws them so (`frosted`): what is under it
 blurred, `back` over it most of the way, its corners rounded `corner`; false -- nothing
-drawn -- otherwise.
+drawn -- otherwise. With the modern glass effect (`glassEffect`) more of what is under it
+shows, a sheen of light down from its top and its edges lit (`glassSurface`).
 
 ```nim
 proc frosted*(): bool {.inline.}
@@ -491,6 +492,58 @@ proc frosted*(): bool {.inline.}
 
 Menus, dialogs and dropped lists drawn as frosted glass now (`frostedGlass`, in the Glass
 look).
+
+### The modern glass: glassSurface
+
+With the modern glass effect (`glassEffect`, on in the Glass look; "Glass effect" in `appearanceSettings`) Glass is glass everywhere: the tab bar a capsule floating over the content, which shows through it blurred and scrolls its end out from under it (`ui.floatInset`); the bars' buttons capsules of glass; menus, dialogs, sheets, alerts and the side menu glass with their edges lit. `glassSurface(r, radius, tint)` draws a pane of it of your own -- what is under it blurred and seen through it, a sheen of light down from its top, its edges lit (`glassRim`); `glassFx()` says whether the effect is on.
+
+| Normal | Touch screen | Dark scheme |
+|---|---|---|
+| ![The modern glass: glassSurface, normal](controls/glass-normal.png) | ![The modern glass: glassSurface, touch screen](controls/glass-touch-screen.png) | ![The modern glass: glassSurface, dark scheme](controls/glass-dark-scheme.png) |
+
+```nim
+let area = place(0, dp(150))
+for i in 0 ..< area.w div dp(16) + 1:
+  fill(rect(area.x + i * dp(16), area.y, dp(8), area.h), if i mod 2 == 0:
+    color(230, 120, 60)
+  else:
+    color(60, 150, 220))
+let pane = rect(area.x + dp(14), area.y + dp(16), dp(220), dp(56))
+glassSurface(pane, float(pane.h) / 2)
+text(pane.x + dp(22), pane.y + (pane.h - FontH) div 2, "A capsule of glass",
+     ui.theme.text, style(bold = true))
+let card = rect(area.x + dp(40), area.y + dp(86), dp(180), dp(52))
+glassSurface(card, float(dp(14)), ui.theme.window)
+text(card.x + dp(14), card.y + (card.h - FontH) div 2, "A card, its edge lit",
+     ui.theme.text)
+```
+
+**API**
+
+```nim
+proc glassSurface*(r: Rect; radius: float; tint = Color(); lift = 4)
+```
+
+A pane of the modern glass (`glassEffect`) in `r`, its corners rounded `radius`: a soft
+shadow under it (`lift`), what is under it blurred and seen through it, `tint` over that a
+little (the field's color when none), a sheen of light down from its top and its edges lit
+(`glassRim`). What goes in it is drawn after it. The floating tab bar, the bars' buttons, a
+toast; menus, dialogs, sheets and alerts through `frostedFace`.
+
+```nim
+proc glassRim*(r: Rect; radius: float)
+```
+
+The lit edge of a pane of glass in `r` (`glassSurface`): a bright line round its top
+fading down its sides, a faint one at its foot where the light comes through, a second line
+of light just inside its top, and a faint dark hairline round it to set it off what is
+behind.
+
+```nim
+proc glassFx*(): bool {.inline.}
+```
+
+The modern glass effect drawn now (`glassEffect`, in the Glass look).
 
 ### Forms and fields
 
@@ -856,7 +909,7 @@ is joined and runs right to left everywhere.
 
 ### label, paragraph, heading
 
-Static text. A `&` before a letter underlines it, and Alt with that letter moves the focus to the control after the label. Ending in ':', it names that control: in a row that wraps, the two go to the next line together.
+Static text. A `&` before a letter underlines it, and Alt with that letter moves the focus to the control after the label. Ending in ':', it names that control: in a row that wraps, the two go to the next line together. A paragraph is in the UI font's reading cut (Suhar App Read). A right-to-left paragraph -- Arabic -- in a left-to-right interface sets its lines from the right (`lineStart` tells where a line starts); text whose marks reach out of its line -- fully vowelled Arabic in large text -- is as tall as they reach (`inkReach`).
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -866,6 +919,7 @@ Static text. A `&` before a letter underlines it, and Alt with that letter moves
 heading("Quarterly report", 2)
 label "&Name: (a label with a mnemonic)"
 paragraph("A paragraph wraps to the room it has, as 3.1\'s static text did.")
+paragraph("صحار مدينة على ساحل الباطنة، ومنها أبحر السندباد.")
 ```
 
 **API**
@@ -891,13 +945,22 @@ proc paragraph*(s: string; w = 0; color = Color())
 ```
 
 Word-wrapped text as wide as the space it is in (or `w`), in the UI font's cut for
-reading (Suhar App Read: `TextStyle.read`).
+reading (Suhar App Read: `TextStyle.read`); a right-to-left paragraph (Arabic) set from the
+right.
 
 ```nim
 proc heading*(s: string; level = 1; color = Color())
 ```
 
 A title in large bold text (level 1 largest .. 4).
+
+```nim
+proc lineStart*(r: Rect; lineW: int; rtlText: bool): int
+```
+
+Where a line `lineW` wide starts in `r`: a right-to-left paragraph's (Arabic) at the right in
+a left-to-right interface; otherwise at the interface's start (the left, or the right in a
+mirrored one, `setRightToLeft`, where every line is set from the right).
 
 ### styledText, link, badge
 
@@ -923,7 +986,8 @@ row:
 proc styledText*(s: string; st: TextStyle; color = Color())
 ```
 
-One line of text in any style (`style(italic = true, size = 1.2)`).
+One line of text in any style (`style(italic = true, size = 1.2)`), taller by what its marks
+reach out of the line (vowelled Arabic: `inkReach`).
 
 ```nim
 proc link*(caption: string; enabled = true): bool {.discardable.}
@@ -2273,7 +2337,7 @@ focus, Up / Down move a day and Page Up / Page Down a month.
 
 ### calendar
 
-A month to pick a day from: the arrows move the day, Page Up and Page Down the month.
+A month to pick a day from: the arrows move the day, Page Up and Page Down the month. `calendarSize()` tells how big it is at the sizes now -- a finger's cells are wider --, for a pane to hold it whole.
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -2300,6 +2364,13 @@ proc calendar*(d: var Date; enabled = true): bool {.discardable.}
 A month calendar bound to `d`: click or tap a day; the arrows move a
 day or a week, Page Up / Page Down a month, Home / End the first /
 last day; the wheel and the < > buttons show other months.
+
+```nim
+proc calendarSize*(): tuple[w, h, cw, ch: int]
+```
+
+How big `calendar` is -- its width and height, a day's cell's -- at the sizes now (a finger's
+cells wider): for a pane that is to hold it whole.
 
 ### dateRange, presetRange
 
@@ -4167,7 +4238,7 @@ Cancel or Esc (once, closing it).
 
 ### dialog
 
-A dialog of your own: any controls in its body. Esc closes it.
+A dialog of your own: any controls in its body. Esc closes it. Something a control in it opens over it -- a page of choices, a dialog of its own -- is drawn as the dialog ends with `afterDialog(proc () = ...)`, so it lies over the dialog and not under the rest of its content (a settings row's page of choices does it by itself).
 
 | Normal | Touch screen | Dark scheme |
 |---|---|---|
@@ -4203,6 +4274,14 @@ the close button (`captionButtons`) and the control-menu box close it;
 drag it by its title. Work that
 takes a while in it (its OK) is named by its title in the box that
 comes up.
+
+```nim
+proc afterDialog*(draw: proc () {.closure.})
+```
+
+Draws `draw` -- a dialog or a page of its own, opened from a control in a dialog (a settings
+row's page of choices) -- as the dialog it is called in ends, so it lies over that dialog
+and not under the rest of its content; outside a dialog, now.
 
 ### progressBox
 
@@ -5933,13 +6012,16 @@ if tapped >= 0:
 **API**
 
 ```nim
-proc cardShelf*(cards: openArray[ShelfCard]; key: string; side = 0): int
+proc cardShelf*(cards: openArray[ShelfCard]; key: string; side = 0;
+                art: proc (i: int; r: Rect) {.closure.} = nil): int
 ```
 
 A shelf of cards in a row the finger slides sideways, as phone apps show "your playlists"
 or "recently played": each a square picture with rounded corners, its title and a gray line
 under it; `side` its width (0: about a third of a phone's). Returns the one tapped (-1:
-none). A wheel or Shift+wheel slides it too; the cards are read as buttons.
+none). A wheel or Shift+wheel slides it too; the cards are read as buttons. A card with no
+picture: `art` draws card `i`'s in `r` when it is given (its corners rounded), else its
+glyph on a tint.
 
 ### pullRefresh
 

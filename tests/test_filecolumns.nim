@@ -166,8 +166,14 @@ block twoModelsOneKey:
     discard fileColumns(b, root = base, height = 200, key = "same")
   run(3)
   waitFor(proc (): bool = (run(); not busy()), "the columns' listings done")
+  # (counted, not timed: what is looked at again now and then -- a folder's changes -- comes more
+  # often in 50 frames when the machine is busy with other programs; listings asked for frame after
+  # frame, two columns' each frame, are 100 and more)
+  let asked = tasksAsked()
   for _ in 0 ..< 50: run()
-  doAssert not busy(), "the columns list their folders again every frame"
+  doAssert tasksAsked() - asked < 50, "the columns list their folders again every frame: " &
+           $(tasksAsked() - asked) & " asked in 50 frames"
+  waitFor(proc (): bool = (run(); not busy()), "... and the work settles")
   view = proc () = discard
 
 # ---- PDF pages on workers ---------------------------------------------------------------------

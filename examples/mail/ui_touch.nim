@@ -780,7 +780,9 @@ proc touchMail() =
   if tabletMail() and tPage() == tpMessage: tPop()
   let below = if ui.bottom >= ui.h - ui.safe.bottom: ui.h - ui.bottom else: 0
   let full = rect(ui.winX + ui.safe.left, ui.barY, ui.w - ui.safe.left - ui.safe.right, ui.bottom - ui.barY)
-  if not tabletMail():
+  # (a phone; or a tablet's Calendar, People, To Do and Notes: the whole width, as a tablet's
+  # own apps -- not squeezed into the mailboxes' column)
+  if not tabletMail() or tPage() == tpMore:
     stackColumn(full, below, true)
   else:
     let mw = min(dp(340), full.w * 2 div 5)
